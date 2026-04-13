@@ -1,0 +1,154 @@
+enabled: true
+players_only: true
+health_floor: 2.0
+debug: false
+
+end_access:
+  # Ender Eyes are disabled by default; set allow_eyes to true or schedule a time in EST.
+  allow_eyes: false
+  eyes_enable_at_est: ""
+  # End portals are disabled by default; set allow_portals to true or schedule a time in EST.
+  allow_portals: false
+  portals_enable_at_est: ""
+
+end_island:
+  enabled: true
+  island_radius: 1024   # distance from 0,0 in the End that counts as main island
+  block_maces: true     # make maces useless on the main island
+  fun_bed_sleep: true   # when beds are disallowed, set spawn + message instead of exploding
+  explosives:
+    # power_percent: 0 disables explosions; 100 is vanilla power; any number in-between nerfs.
+    # player_placed_only makes sure natural towers still explode normally.
+    end_crystal:
+      power_percent: 0
+      player_placed_only: true
+    tnt:
+      power_percent: 0
+    tnt_minecart:
+      power_percent: 0
+    respawn_anchor:
+      power_percent: 0
+    bed:
+      power_percent: 0
+
+mace:
+  limit_armor_durability: true
+  durability_per_hit: 2
+
+allowed_worlds: []
+zones:
+  - name: spawn-mace-nerf
+    world: world
+    min: { x: -130, y: -60, z: -130 }
+    max: { x:  130, y: 319, z:  130 }
+
+
+gameplay_zones:
+  - name: spawn-core
+    priority: 40
+    world: world
+    min: { x: -30, y: -60, z: -30 }
+    max: { x:  30, y: 319, z:  30 }
+    allow_all_place: false
+    allow_all_break: false
+    allowed_place: []
+    deny_place: []
+    confine_liquids: true
+    block_infinite_sources: false
+    ttl_seconds: 0
+    full_reset_minutes: 0
+    reset_mode: AIR
+    reset_scope: CHANGED
+
+
+  - name: warzone
+    priority: 10
+    world: world
+    min: { x: -130, y: -60, z: -130 }
+    max: { x:  130, y: 319, z:  130 }
+    allow_all_place: false
+    allow_all_break: false
+    allowed_place: []
+    deny_place: []
+    confine_liquids: true
+    block_infinite_sources: false
+    ttl_seconds: 0
+    full_reset_minutes: 0
+    reset_mode: AIR
+    reset_scope: CHANGED
+
+
+  - name: war-pit
+    priority: 30
+    world: world
+    min: { x: -26, y: 33,  z: -126 }
+    max: { x:  25, y: 160, z:  -76 }
+    allow_all_place: true
+    allow_all_break: true
+    deny_place:
+      - "TNT_MINECART"
+      - "MINECART"
+      - "CHEST_MINECART"
+      - "FURNACE_MINECART"
+      - "HOPPER_MINECART"
+      - "COMMAND_BLOCK_MINECART"
+      - "END_CRYSTAL"
+      - "RESPAWN_ANCHOR"
+    allowed_place: []
+    confine_liquids: true
+    block_infinite_sources: false
+    ttl_seconds: 0
+    full_reset_minutes: 60
+    reset_mode: SNAPSHOT
+    reset_scope: FULL
+    warn_before_seconds: [300, 60, 30, 5]
+
+  - name: cobweb-box
+    priority: 30
+    world: world
+    min: { x: -130, y: -60, z: -49 }
+    max: { x:  -81, y: 160, z:  49 }
+    allow_all_place: false
+    allow_all_break: false
+    allowed_place: [ "COBWEB", "WATER", "ICE" ]
+    deny_place: []
+    confine_liquids: true
+    block_infinite_sources: true
+    ttl_seconds: 60
+    full_reset_minutes: 0
+    reset_mode: AIR
+    reset_scope: CHANGED
+
+  - name: no-crystal-ring
+    priority: 0
+    world: world
+    min: { x: -200, y: -60, z: -200 }
+    max: { x:  200, y: 319, z:  200 }
+    allow_all_place: true
+    allow_all_break: true
+    allowed_place: []
+    deny_place: [ "END_CRYSTAL", "RESPAWN_ANCHOR" ]
+    confine_liquids: false
+    block_infinite_sources: false
+    ttl_seconds: 0
+    full_reset_minutes: 0
+    reset_mode: AIR
+    reset_scope: CHANGED
+
+zone_messages_enabled: true   # set to false to suppress enter/exit notifications
+zone_messages:
+  spawn-core:
+    enter: "&7You have entered the &9Safe Zone.&7 PvP disabled."
+    exit:  "&7You have exited the &9Safe Zone."
+  warzone:
+    enter: "&7You entered the &cWarzone."
+    exit:  "&7You left the Warzone."
+  war-pit:
+    enter: "&eYou entered the &8War Pit.&7 Resets hourly."
+    exit:  "&7You left the War Pit."
+  cobweb-box:
+    enter: "&7You have entered the &8Cob Zone."
+    exit:  "&7You left the Cobweb Box."
+  no-crystal-ring:
+    enter: "&7You have entered the &8No-Crystal."
+    exit:  "&7You left the No-Crystal."

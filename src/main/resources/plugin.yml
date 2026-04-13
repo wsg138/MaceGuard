@@ -1,0 +1,18 @@
+name: MaceGuard
+main: com.lincoln.maceguard.MaceGuardPlugin
+version: 1.4.0
+api-version: '1.20'
+author: LincolnHenry
+description: Mace nerfs + custom zones with priority, snapshot resets, liquid draining, and build locks.
+
+commands:
+  maceguard:
+    description: MaceGuard admin command
+    usage: /<command> reload|debug|here|clear [zone]|snapshot <zone>|reset <zone>|endeyes <on|off|at time>|endportal <on|off|at time>|endstatus
+    permission: maceguard.reload
+
+permissions:
+  maceguard.reload:
+    default: op
+  maceguard.edit:
+    default: op
