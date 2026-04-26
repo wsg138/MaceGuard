@@ -337,10 +337,7 @@ public final class BuildProtectionListener implements Listener {
 
     private boolean isDeniedSpecial(Material material, List<GameplayZone> zones) {
         String materialName = material.name();
-        return zones.stream().anyMatch(zone ->
-                zone.denyPlace().contains(materialName)
-                        || materialName.equals("RESPAWN_ANCHOR")
-                        || materialName.equals("END_CRYSTAL"));
+        return zones.stream().anyMatch(zone -> zone.denyPlace().contains(materialName));
     }
 
     private boolean shouldTtlClear(Material material, List<GameplayZone> zones) {

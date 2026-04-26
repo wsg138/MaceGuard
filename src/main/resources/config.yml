@@ -44,6 +44,25 @@ zones:
     max: { x: 130, y: 319, z: 130 }
 
 gameplay_zones:
+  - name: death-duels-arena
+    priority: 60
+    world: world
+    min: { x: -164, y: 131, z: -343 }
+    max: { x: -116, y: 216, z: -295 }
+    allow_all_place: true
+    allow_all_break: true
+    allowed_place: []
+    deny_place: []
+    confine_liquids: true
+    block_infinite_sources: false
+    ttl_seconds: 0
+    full_reset_minutes: 0
+    reset_mode: AIR
+    reset_scope: CHANGED
+    mace_armor_durability:
+      enabled: false
+      damage_per_armor_piece: 2
+
   - name: spawn-core
     priority: 40
     world: world
