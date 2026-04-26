@@ -49,6 +49,7 @@ gameplay_zones:
     world: world
     min: { x: -164, y: 131, z: -343 }
     max: { x: -116, y: 216, z: -295 }
+    externally_managed: true
     allow_all_place: true
     allow_all_break: true
     allowed_place: []

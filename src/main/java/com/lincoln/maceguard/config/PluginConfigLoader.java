@@ -120,6 +120,7 @@ public final class PluginConfigLoader {
         boolean allowAllBreak = bool(rawZone.get("allow_all_break"), false);
         Set<String> allowedPlace = materialNameSet(rawZone.get("allowed_place"));
         Set<String> denyPlace = materialNameSet(rawZone.get("deny_place"));
+        boolean externallyManaged = bool(rawZone.get("externally_managed"), false);
         boolean confineLiquids = bool(rawZone.get("confine_liquids"), false);
         boolean blockInfiniteSources = bool(rawZone.get("block_infinite_sources"), false);
         int ttlSeconds = Math.max(0, integer(rawZone.get("ttl_seconds"), 0));
@@ -146,6 +147,7 @@ public final class PluginConfigLoader {
                 allowAllBreak,
                 Set.copyOf(allowedPlace),
                 Set.copyOf(denyPlace),
+                externallyManaged,
                 confineLiquids,
                 blockInfiniteSources,
                 ttlSeconds,

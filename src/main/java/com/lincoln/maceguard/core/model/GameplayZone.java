@@ -11,6 +11,7 @@ public record GameplayZone(
         boolean allowAllBreak,
         Set<String> allowedPlace,
         Set<String> denyPlace,
+        boolean externallyManaged,
         boolean confineLiquids,
         boolean blockInfiniteSources,
         int ttlSeconds,

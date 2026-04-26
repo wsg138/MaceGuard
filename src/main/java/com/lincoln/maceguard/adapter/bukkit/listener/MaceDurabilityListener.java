@@ -44,6 +44,10 @@ public final class MaceDurabilityListener implements Listener {
         if (!(victim instanceof Player playerVictim)) {
             return;
         }
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(playerVictim.getLocation())) {
+            pendingDurabilityCaps.remove(playerVictim.getUniqueId());
+            return;
+        }
 
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(playerVictim.getLocation());
         MaceDurabilityRule rule = zones.stream()

@@ -51,6 +51,9 @@ public final class ZoneStateService {
     private void initializeResetState() {
         long now = System.currentTimeMillis();
         for (GameplayZone zone : zoneRegistry.allGameplayZones()) {
+            if (zone.externallyManaged()) {
+                continue;
+            }
             if (zone.fullResetMinutes() > 0) {
                 lastResetAt.put(zone.name(), now);
                 firedWarningsByZone.put(zone.name(), new HashSet<>());
@@ -193,6 +196,9 @@ public final class ZoneStateService {
     public void tickResets() {
         long now = System.currentTimeMillis();
         for (GameplayZone zone : zoneRegistry.allGameplayZones()) {
+            if (zone.externallyManaged()) {
+                continue;
+            }
             if (zone.fullResetMinutes() <= 0) {
                 continue;
             }

@@ -31,7 +31,14 @@ public final class LiquidControlListener implements Listener {
         }
 
         Block to = event.getToBlock();
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(from.getLocation())
+                || plugin.runtime().zoneRegistry().isExternallyManaged(to.getLocation())) {
+            return;
+        }
         for (GameplayZone zone : plugin.runtime().zoneRegistry().allGameplayZones()) {
+            if (zone.externallyManaged()) {
+                continue;
+            }
             if (!zone.confineLiquids()) {
                 continue;
             }

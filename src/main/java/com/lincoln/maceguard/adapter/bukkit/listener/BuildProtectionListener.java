@@ -52,6 +52,9 @@ public final class BuildProtectionListener implements Listener {
         }
         Player player = event.getPlayer();
         Block block = event.getBlockPlaced();
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+            return;
+        }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(block.getLocation());
 
         if (!zones.isEmpty()) {
@@ -81,6 +84,9 @@ public final class BuildProtectionListener implements Listener {
         }
         Player player = event.getPlayer();
         Block block = event.getBlock();
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+            return;
+        }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(block.getLocation());
 
         if (!zones.isEmpty()) {
@@ -105,6 +111,9 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         Block target = event.getBlockClicked().getRelative(event.getBlockFace());
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+            return;
+        }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
         if (zones.isEmpty()) {
             if (plugin.runtime().zoneRegistry().isProtected(target.getLocation()) && !creativeBypass(event.getPlayer())) {
@@ -139,6 +148,9 @@ public final class BuildProtectionListener implements Listener {
         }
         BlockFace face = event.getBlock().getBlockData() instanceof Directional directional ? directional.getFacing() : BlockFace.NORTH;
         Block target = event.getBlock().getRelative(face);
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+            return;
+        }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
         if (zones.isEmpty()) {
             if (plugin.runtime().zoneRegistry().isProtected(target.getLocation())) {
@@ -175,6 +187,9 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         Block target = event.getClickedBlock() != null ? event.getClickedBlock().getRelative(event.getBlockFace()) : event.getPlayer().getLocation().getBlock();
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+            return;
+        }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
         if (zones.isEmpty()) {
             if (plugin.runtime().zoneRegistry().isProtected(target.getLocation()) && !creativeBypass(event.getPlayer())) {
@@ -193,6 +208,9 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         if (!MINECART_TYPES.contains(event.getVehicle().getType())) {
+            return;
+        }
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(event.getVehicle().getLocation())) {
             return;
         }
         List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(event.getVehicle().getLocation());
@@ -285,6 +303,9 @@ public final class BuildProtectionListener implements Listener {
     }
 
     private void trackPlacement(Block block, List<GameplayZone> zones) {
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+            return;
+        }
         for (GameplayZone zone : zones) {
             plugin.runtime().zoneStateService().markChanged(zone.name(), block);
         }
@@ -295,6 +316,9 @@ public final class BuildProtectionListener implements Listener {
     }
 
     private void markChanged(Block block) {
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+            return;
+        }
         for (GameplayZone zone : plugin.runtime().zoneRegistry().highestPriorityZonesAt(block.getLocation())) {
             plugin.runtime().zoneStateService().markChanged(zone.name(), block);
             if (zone.ttlSeconds() > 0 && (block.getType() == Material.WATER || block.getType() == Material.LAVA)) {
@@ -308,6 +332,10 @@ public final class BuildProtectionListener implements Listener {
     }
 
     private boolean canMoveBlock(Block source, Block target) {
+        if (plugin.runtime().zoneRegistry().isExternallyManaged(source.getLocation())
+                || plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+            return true;
+        }
         String materialName = source.getType().name();
 
         List<GameplayZone> sourceZones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(source.getLocation());
@@ -337,7 +365,10 @@ public final class BuildProtectionListener implements Listener {
 
     private boolean isDeniedSpecial(Material material, List<GameplayZone> zones) {
         String materialName = material.name();
-        return zones.stream().anyMatch(zone -> zone.denyPlace().contains(materialName));
+        return zones.stream().anyMatch(zone ->
+                zone.denyPlace().contains(materialName)
+                        || materialName.equals("RESPAWN_ANCHOR")
+                        || materialName.equals("END_CRYSTAL"));
     }
 
     private boolean shouldTtlClear(Material material, List<GameplayZone> zones) {

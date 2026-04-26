@@ -71,6 +71,10 @@ public final class ZoneRegistry {
         return highest;
     }
 
+    public boolean isExternallyManaged(Location location) {
+        return highestPriorityZonesAt(location).stream().anyMatch(GameplayZone::externallyManaged);
+    }
+
     public GameplayZone findZone(String zoneName) {
         for (WorldZoneIndex<GameplayZone> index : gameplayByWorld.values()) {
             for (GameplayZone zone : index.allZones()) {
