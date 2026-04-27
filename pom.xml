@@ -6,7 +6,7 @@
 
     <groupId>dev.lincoln</groupId>
     <artifactId>maceguard</artifactId>
-    <version>1.0.0</version>
+    <version>2.1.0</version>
     <name>MaceGuard</name>
     <description>Caps mace damage inside spawn/PvP regions, vanilla elsewhere.</description>
 
