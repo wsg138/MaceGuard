@@ -9,6 +9,12 @@ debug: false
 # Leave empty to allow them in every world listed in the region definitions.
 allowed_worlds: []
 
+duel_arena_footprint:
+  enabled: true
+  # Relative paths are resolved from the MaceGuard plugin data folder.
+  # This file is bundled by default and contains the exact scanned duel arena footprint.
+  source_file: duel-arena-footprint.yml
+
 end_access:
   # Ender Eyes are disabled by default. You can enable them directly or schedule a time in EST.
   allow_eyes: false

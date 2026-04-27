@@ -1,9 +1,10 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 2.0.0
+version: 2.1.0
 api-version: '1.21'
 author: LincolnHenry
 description: Zone protections, manual snapshot resets, End access controls, and End island combat/explosion restrictions.
+softdepend: [WarzoneDuels]
 
 commands:
   maceguard:

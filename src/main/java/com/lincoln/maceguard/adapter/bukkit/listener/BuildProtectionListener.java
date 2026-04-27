@@ -52,6 +52,9 @@ public final class BuildProtectionListener implements Listener {
         }
         Player player = event.getPlayer();
         Block block = event.getBlockPlaced();
+        if (handleDuelArenaExplosivePlacement(event, player, block)) {
+            return;
+        }
         if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
             return;
         }
@@ -183,7 +186,13 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         ItemStack item = event.getItem();
-        if (item == null || (item.getType() != Material.END_CRYSTAL && item.getType() != Material.RESPAWN_ANCHOR)) {
+        if (item == null) {
+            return;
+        }
+        if (handleDuelArenaExplosiveInteract(event, item)) {
+            return;
+        }
+        if (item.getType() != Material.END_CRYSTAL && item.getType() != Material.RESPAWN_ANCHOR) {
             return;
         }
         Block target = event.getClickedBlock() != null ? event.getClickedBlock().getRelative(event.getBlockFace()) : event.getPlayer().getLocation().getBlock();
@@ -206,6 +215,13 @@ public final class BuildProtectionListener implements Listener {
     public void onVehicleCreate(VehicleCreateEvent event) {
         if (!plugin.isFeatureEnabled()) {
             return;
+        }
+        if (event.getVehicle().getType() == EntityType.TNT_MINECART
+                && plugin.duelArenaFootprint().maybeRelevant(event.getVehicle().getLocation())) {
+            if (!plugin.warzoneDuelsHook().hasActiveDuel() || !plugin.duelArenaFootprint().contains(event.getVehicle().getLocation())) {
+                event.getVehicle().remove();
+                return;
+            }
         }
         if (!MINECART_TYPES.contains(event.getVehicle().getType())) {
             return;
@@ -369,6 +385,81 @@ public final class BuildProtectionListener implements Listener {
                 zone.denyPlace().contains(materialName)
                         || materialName.equals("RESPAWN_ANCHOR")
                         || materialName.equals("END_CRYSTAL"));
+    }
+
+    private boolean handleDuelArenaExplosivePlacement(BlockPlaceEvent event, Player player, Block block) {
+        Material type = block.getType();
+        if (type != Material.TNT && type != Material.RESPAWN_ANCHOR) {
+            return false;
+        }
+        if (!plugin.duelArenaFootprint().maybeRelevant(block.getLocation())) {
+            return false;
+        }
+        if (!plugin.warzoneDuelsHook().hasActiveDuel()
+                || !plugin.warzoneDuelsHook().isActiveParticipant(player.getUniqueId())
+                || !plugin.duelArenaFootprint().contains(block)) {
+            event.setCancelled(true);
+        }
+        return true;
+    }
+
+    private boolean handleDuelArenaExplosiveInteract(PlayerInteractEvent event, ItemStack item) {
+        Player player = event.getPlayer();
+        Material type = item.getType();
+        Block clicked = event.getClickedBlock();
+
+        if (type == Material.END_CRYSTAL) {
+            Block support = clicked != null ? clicked : player.getLocation().getBlock();
+            if (!plugin.duelArenaFootprint().maybeRelevant(support.getLocation())) {
+                return false;
+            }
+            if (!plugin.warzoneDuelsHook().hasActiveDuel()
+                    || !plugin.warzoneDuelsHook().isActiveParticipant(player.getUniqueId())
+                    || !plugin.duelArenaFootprint().contains(support)) {
+                event.setCancelled(true);
+            }
+            return true;
+        }
+
+        if (type == Material.RESPAWN_ANCHOR) {
+            Block target = clicked != null ? clicked.getRelative(event.getBlockFace()) : player.getLocation().getBlock();
+            if (!plugin.duelArenaFootprint().maybeRelevant(target.getLocation())) {
+                return false;
+            }
+            if (!plugin.warzoneDuelsHook().hasActiveDuel()
+                    || !plugin.warzoneDuelsHook().isActiveParticipant(player.getUniqueId())
+                    || !plugin.duelArenaFootprint().contains(target)) {
+                event.setCancelled(true);
+            }
+            return true;
+        }
+
+        if (type == Material.TNT_MINECART) {
+            Block rail = clicked != null ? clicked : player.getLocation().getBlock();
+            if (!plugin.duelArenaFootprint().maybeRelevant(rail.getLocation())) {
+                return false;
+            }
+            if (!plugin.warzoneDuelsHook().hasActiveDuel()
+                    || !plugin.warzoneDuelsHook().isActiveParticipant(player.getUniqueId())
+                    || !plugin.duelArenaFootprint().contains(rail)) {
+                event.setCancelled(true);
+            }
+            return true;
+        }
+
+        if (type == Material.FLINT_AND_STEEL || type == Material.FIRE_CHARGE) {
+            if (clicked == null || clicked.getType() != Material.TNT || !plugin.duelArenaFootprint().maybeRelevant(clicked.getLocation())) {
+                return false;
+            }
+            if (!plugin.warzoneDuelsHook().hasActiveDuel()
+                    || !plugin.warzoneDuelsHook().isActiveParticipant(player.getUniqueId())
+                    || !plugin.duelArenaFootprint().contains(clicked)) {
+                event.setCancelled(true);
+            }
+            return true;
+        }
+
+        return false;
     }
 
     private boolean shouldTtlClear(Material material, List<GameplayZone> zones) {

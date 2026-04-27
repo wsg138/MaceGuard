@@ -2,6 +2,7 @@ package com.lincoln.maceguard;
 
 import com.lincoln.maceguard.adapter.bukkit.command.MaceGuardCommand;
 import com.lincoln.maceguard.adapter.bukkit.listener.BuildProtectionListener;
+import com.lincoln.maceguard.adapter.bukkit.listener.DuelArenaExplosiveListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.EndAccessListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.EndIslandListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.LiquidControlListener;
@@ -11,9 +12,11 @@ import com.lincoln.maceguard.bootstrap.PluginRuntime;
 import com.lincoln.maceguard.config.PluginConfigLoader;
 import com.lincoln.maceguard.config.PluginSettings;
 import com.lincoln.maceguard.core.service.EndAccessService;
+import com.lincoln.maceguard.core.service.DuelArenaFootprintService;
 import com.lincoln.maceguard.core.service.SnapshotService;
 import com.lincoln.maceguard.core.service.ZoneRegistry;
 import com.lincoln.maceguard.core.service.ZoneStateService;
+import com.lincoln.maceguard.integration.WarzoneDuelsHook;
 import com.lincoln.maceguard.util.Compat;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -33,14 +36,18 @@ import java.util.concurrent.Executors;
 public final class MaceGuardPlugin extends JavaPlugin {
     private PluginRuntime runtime;
     private MaceGuardCommand command;
+    private DuelArenaFootprintService duelArenaFootprintService;
+    private WarzoneDuelsHook warzoneDuelsHook;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         mergeConfigDefaults();
+        saveBundledFootprint();
         bootstrapRuntime();
 
         Bukkit.getPluginManager().registerEvents(new BuildProtectionListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new DuelArenaExplosiveListener(this), this);
         Bukkit.getPluginManager().registerEvents(new LiquidControlListener(this), this);
         Bukkit.getPluginManager().registerEvents(new MaceDurabilityListener(this), this);
         Bukkit.getPluginManager().registerEvents(new EndAccessListener(this), this);
@@ -82,12 +89,28 @@ public final class MaceGuardPlugin extends JavaPlugin {
         return runtime;
     }
 
+    public DuelArenaFootprintService duelArenaFootprint() {
+        return duelArenaFootprintService;
+    }
+
+    public WarzoneDuelsHook warzoneDuelsHook() {
+        return warzoneDuelsHook;
+    }
+
     public boolean isFeatureEnabled() {
         return runtime != null && runtime.settings().enabled();
     }
 
     private void bootstrapRuntime() {
         reloadConfig();
+        if (warzoneDuelsHook == null) {
+            warzoneDuelsHook = new WarzoneDuelsHook(this);
+        }
+        warzoneDuelsHook.refresh();
+        if (duelArenaFootprintService == null) {
+            duelArenaFootprintService = new DuelArenaFootprintService(this);
+        }
+        duelArenaFootprintService.reload();
         PluginConfigLoader loader = new PluginConfigLoader(getLogger());
         PluginSettings settings = loader.load(getConfig());
 
@@ -116,6 +139,13 @@ public final class MaceGuardPlugin extends JavaPlugin {
         }, 100L, 100L);
 
         runtime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, ioExecutor, resetTicker);
+    }
+
+    private void saveBundledFootprint() {
+        File output = new File(getDataFolder(), "duel-arena-footprint.yml");
+        if (!output.exists()) {
+            saveResource("duel-arena-footprint.yml", false);
+        }
     }
 
     private void mergeConfigDefaults() {
