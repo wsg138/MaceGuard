@@ -131,7 +131,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         SnapshotService snapshotService = new SnapshotService(this, getLogger(), repository, ioExecutor);
         snapshotService.loadAll(zoneRegistry.allGameplayZones());
         ZoneStateService zoneStateService = new ZoneStateService(this, zoneRegistry, snapshotService);
-        EndAccessService endAccessService = new EndAccessService(getConfig(), loader, settings.endAccess());
+        EndAccessService endAccessService = new EndAccessService(getConfig(), loader, this::saveConfig, settings.endAccess());
         BukkitTask resetTicker = Bukkit.getScheduler().runTaskTimer(this, () -> {
             if (isFeatureEnabled()) {
                 zoneStateService.tickResets();

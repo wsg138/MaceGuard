@@ -3,6 +3,7 @@ package com.lincoln.maceguard.adapter.bukkit.listener;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import org.bukkit.Material;
 import org.bukkit.entity.EntityType;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -41,12 +42,35 @@ public final class EndAccessListener implements Listener {
             return;
         }
         event.setCancelled(true);
-        event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
-        event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
+        event.setUseInteractedBlock(Event.Result.DENY);
+        event.setUseItemInHand(Event.Result.DENY);
         event.getPlayer().updateInventory();
         if (event.getHand() == EquipmentSlot.HAND) {
             event.getPlayer().sendMessage(plugin.runtime().endAccessService().statusLine(true));
         }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onAllowedEyeUse(PlayerInteractEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
+            return;
+        }
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
+                && event.getClickedBlock() != null
+                && event.getClickedBlock().getType() == Material.END_PORTAL_FRAME) {
+            return;
+        }
+        if (!plugin.runtime().endAccessService().areEyesAllowed()) {
+            return;
+        }
+        event.setCancelled(false);
+        event.setUseItemInHand(Event.Result.ALLOW);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)

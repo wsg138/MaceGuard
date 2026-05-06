@@ -9,15 +9,17 @@ import java.time.Instant;
 public final class EndAccessService {
     private final FileConfiguration config;
     private final PluginConfigLoader configLoader;
+    private final Runnable configSaver;
 
     private boolean eyesAllowed;
     private Instant eyesEnableAt;
     private boolean portalsAllowed;
     private Instant portalsEnableAt;
 
-    public EndAccessService(FileConfiguration config, PluginConfigLoader configLoader, EndAccessSettings settings) {
+    public EndAccessService(FileConfiguration config, PluginConfigLoader configLoader, Runnable configSaver, EndAccessSettings settings) {
         this.config = config;
         this.configLoader = configLoader;
+        this.configSaver = configSaver;
         this.eyesAllowed = settings.allowEyes();
         this.eyesEnableAt = settings.eyesEnableAt();
         this.portalsAllowed = settings.allowPortals();
@@ -27,6 +29,7 @@ public final class EndAccessService {
     public boolean areEyesAllowed() {
         if (!eyesAllowed && eyesEnableAt != null && Instant.now().isAfter(eyesEnableAt)) {
             setEyes(true, null);
+            configSaver.run();
         }
         return eyesAllowed;
     }
@@ -34,6 +37,7 @@ public final class EndAccessService {
     public boolean arePortalsAllowed() {
         if (!portalsAllowed && portalsEnableAt != null && Instant.now().isAfter(portalsEnableAt)) {
             setPortals(true, null);
+            configSaver.run();
         }
         return portalsAllowed;
     }
