@@ -155,6 +155,10 @@ public final class MaceGuardCommand implements TabExecutor {
     }
 
     private boolean handleEndToggle(CommandSender sender, boolean eyes, String[] args) {
+        if (eyes && !plugin.runtime().endAccessService().managesEyes()) {
+            sender.sendMessage("\u00A77Ender Eyes are not managed by MaceGuard because \u00A7fend_access.manage_eyes\u00A77 is false.");
+            return true;
+        }
         if (args.length < 2) {
             sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + (eyes ? "endeyes" : "endportal") + " <on|off|at yyyy-MM-dd HH:mm>");
             return true;

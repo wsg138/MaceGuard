@@ -11,6 +11,7 @@ public final class EndAccessService {
     private final PluginConfigLoader configLoader;
     private final Runnable configSaver;
 
+    private final boolean manageEyes;
     private boolean eyesAllowed;
     private Instant eyesEnableAt;
     private boolean portalsAllowed;
@@ -20,10 +21,15 @@ public final class EndAccessService {
         this.config = config;
         this.configLoader = configLoader;
         this.configSaver = configSaver;
+        this.manageEyes = settings.manageEyes();
         this.eyesAllowed = settings.allowEyes();
         this.eyesEnableAt = settings.eyesEnableAt();
         this.portalsAllowed = settings.allowPortals();
         this.portalsEnableAt = settings.portalsEnableAt();
+    }
+
+    public boolean managesEyes() {
+        return manageEyes;
     }
 
     public boolean areEyesAllowed() {
@@ -57,9 +63,12 @@ public final class EndAccessService {
     }
 
     public String statusLine(boolean eyes) {
+        String label = eyes ? "Ender Eyes" : "End Portals";
+        if (eyes && !manageEyes) {
+            return "\u00A77" + label + " are not managed by MaceGuard.";
+        }
         boolean allowed = eyes ? areEyesAllowed() : arePortalsAllowed();
         Instant scheduledAt = eyes ? eyesEnableAt : portalsEnableAt;
-        String label = eyes ? "Ender Eyes" : "End Portals";
         if (allowed) {
             return "\u00A7a" + label + " are enabled.";
         }

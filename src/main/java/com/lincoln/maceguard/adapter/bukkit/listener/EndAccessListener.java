@@ -27,6 +27,9 @@ public final class EndAccessListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
+        if (!plugin.runtime().endAccessService().managesEyes()) {
+            return;
+        }
         if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
             return;
         }
@@ -55,6 +58,9 @@ public final class EndAccessListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
+        if (!plugin.runtime().endAccessService().managesEyes()) {
+            return;
+        }
         if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
             return;
         }
@@ -76,6 +82,9 @@ public final class EndAccessListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onEyeSpawn(EntitySpawnEvent event) {
         if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        if (!plugin.runtime().endAccessService().managesEyes()) {
             return;
         }
         EntityType type = event.getEntityType();

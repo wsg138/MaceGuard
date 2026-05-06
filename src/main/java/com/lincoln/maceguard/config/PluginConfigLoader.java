@@ -62,6 +62,7 @@ public final class PluginConfigLoader {
         }
 
         EndAccessSettings endAccess = new EndAccessSettings(
+                config.getBoolean("end_access.manage_eyes", true),
                 config.getBoolean("end_access.allow_eyes", false),
                 parseEstInstant(config.getString("end_access.eyes_enable_at_est", "")),
                 config.getBoolean("end_access.allow_portals", false),
