@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.core.model;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -14,8 +15,8 @@ public final class SnapshotData {
         this.zoneName = zoneName;
         this.worldName = worldName;
         this.region = region;
-        this.blocks = Map.copyOf(blocks);
-        this.serializedBlocks = List.copyOf(serializedBlocks);
+        this.blocks = Collections.unmodifiableMap(blocks);
+        this.serializedBlocks = Collections.unmodifiableList(serializedBlocks);
     }
 
     public String zoneName() {

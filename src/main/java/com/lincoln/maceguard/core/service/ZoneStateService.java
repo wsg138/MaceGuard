@@ -166,6 +166,7 @@ public final class ZoneStateService {
             private int x = zone.region().minX();
             private int y = zone.region().minY();
             private int z = zone.region().minZ();
+            private boolean deferredPass;
 
             @Override
             public void run() {
@@ -173,7 +174,12 @@ public final class ZoneStateService {
                 while (x <= zone.region().maxX()) {
                     while (z <= zone.region().maxZ()) {
                         while (y <= zone.region().maxY()) {
-                            snapshotService.applyAt(zone.name(), world.getBlockAt(x, y, z));
+                            Block block = world.getBlockAt(x, y, z);
+                            if (deferredPass) {
+                                snapshotService.applyDeferredAt(zone.name(), block);
+                            } else {
+                                snapshotService.applyStableAt(zone.name(), block);
+                            }
                             y++;
                             processed++;
                             if (processed >= FULL_RESTORE_BATCH_SIZE) {
@@ -185,6 +191,13 @@ public final class ZoneStateService {
                     }
                     z = zone.region().minZ();
                     x++;
+                }
+                if (!deferredPass) {
+                    deferredPass = true;
+                    x = zone.region().minX();
+                    y = zone.region().minY();
+                    z = zone.region().minZ();
+                    return;
                 }
                 changedBlocksByZone.remove(zone.name());
                 clearZoneTask(zone.name(), this);

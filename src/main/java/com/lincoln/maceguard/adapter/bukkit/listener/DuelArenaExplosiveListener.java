@@ -69,9 +69,10 @@ public final class DuelArenaExplosiveListener implements Listener {
         if (!footprint.maybeRelevant(event.getEntity().getLocation()) && !sourceTouchesArena(event.getEntity())) {
             return;
         }
-        if (!plugin.warzoneDuelsHook().hasActiveDuel() || !isExplosionSourceAllowed(event.getEntity())) {
-            event.setCancelled(true);
+        if (plugin.warzoneDuelsHook().hasActiveDuel()) {
+            return;
         }
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -80,7 +81,10 @@ public final class DuelArenaExplosiveListener implements Listener {
         if (!footprint.maybeRelevant(event.getLocation()) && !containsArenaBlocks(event.blockList())) {
             return;
         }
-        if (!plugin.warzoneDuelsHook().hasActiveDuel() || !isExplosionSourceAllowed(event.getEntity())) {
+        if (plugin.warzoneDuelsHook().hasActiveDuel()) {
+            return;
+        }
+        if (!isExplosionSourceAllowed(event.getEntity())) {
             event.blockList().clear();
             return;
         }
@@ -93,7 +97,10 @@ public final class DuelArenaExplosiveListener implements Listener {
         if (!footprint.maybeRelevant(event.getBlock().getLocation()) && !containsArenaBlocks(event.blockList())) {
             return;
         }
-        if (!plugin.warzoneDuelsHook().hasActiveDuel() || !isArenaSourceBlockAllowed(event.getBlock())) {
+        if (plugin.warzoneDuelsHook().hasActiveDuel()) {
+            return;
+        }
+        if (!isArenaSourceBlockAllowed(event.getBlock())) {
             event.blockList().clear();
             return;
         }

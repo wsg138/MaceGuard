@@ -32,6 +32,7 @@ public final class SnapshotService {
     private final ExecutorService ioExecutor;
     private final Map<String, SnapshotData> snapshotsByZone = new ConcurrentHashMap<>();
     private final Map<String, BukkitTask> activeCaptures = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> deferredBlockDataCache = new ConcurrentHashMap<>();
 
     public SnapshotService(Plugin plugin, Logger logger, FileSnapshotRepository repository, ExecutorService ioExecutor) {
         this.plugin = plugin;
@@ -110,14 +111,14 @@ public final class SnapshotService {
                     return;
                 }
 
-                Map<Long, String> blocks = new HashMap<>(entries.size());
-                for (SnapshotBlock entry : entries) {
-                    blocks.put(BlockKey.pack(entry.x(), entry.y(), entry.z()), entry.blockData());
-                }
-                SnapshotData data = new SnapshotData(zoneName, region.worldName(), region, blocks, List.copyOf(entries));
-                snapshotsByZone.put(zoneName, data);
-
                 ioExecutor.execute(() -> {
+                    Map<Long, String> blocks = new HashMap<>(entries.size());
+                    for (SnapshotBlock entry : entries) {
+                        blocks.put(BlockKey.pack(entry.x(), entry.y(), entry.z()), entry.blockData());
+                    }
+                    SnapshotData data = new SnapshotData(zoneName, region.worldName(), region, blocks, entries);
+                    snapshotsByZone.put(zoneName, data);
+
                     try {
                         repository.save(data);
                         Bukkit.getScheduler().runTask(plugin, () -> feedback.accept("\u00A7aSnapshot saved for zone \u00A7f" + zoneName + "\u00A7a."));
@@ -146,17 +147,134 @@ public final class SnapshotService {
     }
 
     public boolean applyAt(String zoneName, Block block) {
+        return applyAt(zoneName, block, RestorePass.ALL);
+    }
+
+    public boolean applyStableAt(String zoneName, Block block) {
+        return applyAt(zoneName, block, RestorePass.STABLE);
+    }
+
+    public boolean applyDeferredAt(String zoneName, Block block) {
+        return applyAt(zoneName, block, RestorePass.DEFERRED);
+    }
+
+    private boolean applyAt(String zoneName, Block block, RestorePass pass) {
         SnapshotData data = snapshotsByZone.get(zoneName);
         if (data == null || !data.isUsable()) {
             return false;
         }
         String targetData = data.blocks().get(BlockKey.pack(block.getX(), block.getY(), block.getZ()));
+        if (pass == RestorePass.STABLE && targetData != null && isDeferredBlockData(targetData)) {
+            return false;
+        }
+        if (pass == RestorePass.DEFERRED && (targetData == null || !isDeferredBlockData(targetData))) {
+            return false;
+        }
         BlockData blockData = Bukkit.createBlockData(targetData == null ? Material.AIR.createBlockData().getAsString(true) : targetData);
         if (block.getBlockData().matches(blockData)) {
             return false;
         }
         block.setBlockData(blockData, false);
         return true;
+    }
+
+    private boolean isDeferredBlockData(String blockData) {
+        return deferredBlockDataCache.computeIfAbsent(blockData, this::computeDeferredBlockData);
+    }
+
+    private boolean computeDeferredBlockData(String blockData) {
+        Material material = materialFromBlockData(blockData);
+        if (material == null) {
+            return false;
+        }
+        if (material.hasGravity()) {
+            return true;
+        }
+        String name = material.name();
+        return name.endsWith("_BUTTON")
+                || name.endsWith("_SIGN")
+                || name.endsWith("_HANGING_SIGN")
+                || name.endsWith("_BANNER")
+                || name.endsWith("_TORCH")
+                || name.endsWith("_WALL_TORCH")
+                || name.endsWith("_CORAL")
+                || name.endsWith("_CORAL_FAN")
+                || name.endsWith("_CORAL_WALL_FAN")
+                || name.endsWith("_SAPLING")
+                || name.endsWith("_DOOR")
+                || name.endsWith("_TRAPDOOR")
+                || name.endsWith("_PRESSURE_PLATE")
+                || name.endsWith("_CARPET")
+                || name.endsWith("_RAIL")
+                || name.endsWith("_BED")
+                || name.endsWith("_CANDLE")
+                || name.endsWith("_CANDLE_CAKE")
+                || name.endsWith("_HEAD")
+                || name.endsWith("_SKULL")
+                || name.endsWith("_POT")
+                || name.endsWith("_PLANT")
+                || name.endsWith("_ROOTS")
+                || name.endsWith("_VINES")
+                || name.endsWith("_STEM")
+                || name.endsWith("_FUNGUS")
+                || name.endsWith("_MUSHROOM")
+                || name.endsWith("_FLOWER")
+                || name.endsWith("_PETALS")
+                || name.startsWith("POTTED_")
+                || name.equals("VINE")
+                || name.equals("LILY_PAD")
+                || name.equals("SEAGRASS")
+                || name.equals("TALL_SEAGRASS")
+                || name.equals("GRASS")
+                || name.equals("SHORT_GRASS")
+                || name.equals("TALL_GRASS")
+                || name.equals("FERN")
+                || name.equals("LARGE_FERN")
+                || name.equals("DEAD_BUSH")
+                || name.equals("SUGAR_CANE")
+                || name.equals("BAMBOO")
+                || name.equals("CACTUS")
+                || name.equals("KELP")
+                || name.equals("KELP_PLANT")
+                || name.equals("WHEAT")
+                || name.equals("CARROTS")
+                || name.equals("POTATOES")
+                || name.equals("BEETROOTS")
+                || name.equals("NETHER_WART")
+                || name.equals("COCOA")
+                || name.equals("LADDER")
+                || name.equals("LEVER")
+                || name.equals("TRIPWIRE")
+                || name.equals("TRIPWIRE_HOOK")
+                || name.equals("REDSTONE_WIRE")
+                || name.equals("REPEATER")
+                || name.equals("COMPARATOR")
+                || name.equals("LANTERN")
+                || name.equals("SOUL_LANTERN")
+                || name.equals("END_ROD")
+                || name.equals("BELL")
+                || name.equals("AMETHYST_CLUSTER")
+                || name.equals("LARGE_AMETHYST_BUD")
+                || name.equals("MEDIUM_AMETHYST_BUD")
+                || name.equals("SMALL_AMETHYST_BUD");
+    }
+
+    private Material materialFromBlockData(String blockData) {
+        int start = blockData.indexOf(':');
+        int end = blockData.indexOf('[');
+        if (end < 0) {
+            end = blockData.length();
+        }
+        String key = blockData.substring(start >= 0 ? start + 1 : 0, end)
+                .replace('.', '_')
+                .toUpperCase(java.util.Locale.ROOT);
+        return Material.matchMaterial(key);
+    }
+
+    private enum RestorePass {
+        ALL,
+        STABLE,
+        DEFERRED
     }
 
     public void cancelAll() {
