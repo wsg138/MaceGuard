@@ -11,6 +11,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockFromToEvent;
 
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public final class LiquidControlListener implements Listener {
     private final MaceGuardPlugin plugin;
@@ -24,24 +26,23 @@ public final class LiquidControlListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
+        plugin.runtime().counters().liquidEvent();
         Block from = event.getBlock();
         Material type = from.getType();
         if (type != Material.WATER && type != Material.LAVA) {
+            plugin.runtime().counters().liquidSkipped();
             return;
         }
 
         Block to = event.getToBlock();
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(from.getLocation())
-                || plugin.runtime().zoneRegistry().isExternallyManaged(to.getLocation())) {
+        if (plugin.runtime().zoneRegistry().query(from.getLocation()).externallyManaged()
+                || plugin.runtime().zoneRegistry().query(to.getLocation()).externallyManaged()) {
+            plugin.runtime().counters().liquidSkipped();
             return;
         }
-        for (GameplayZone zone : plugin.runtime().zoneRegistry().allGameplayZones()) {
-            if (zone.externallyManaged()) {
-                continue;
-            }
-            if (!zone.confineLiquids()) {
-                continue;
-            }
+        Set<GameplayZone> candidates = new LinkedHashSet<>(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(from.getLocation()));
+        candidates.addAll(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(to.getLocation()));
+        for (GameplayZone zone : candidates) {
             boolean fromInside = zone.region().contains(from.getLocation());
             boolean toInside = zone.region().contains(to.getLocation());
             if (fromInside != toInside) {
@@ -60,18 +61,17 @@ public final class LiquidControlListener implements Listener {
 
     private boolean wouldFormInfiniteSource(Block target) {
         int sources = 0;
-        for (Block neighbor : List.of(
-                target.getRelative(1, 0, 0),
-                target.getRelative(-1, 0, 0),
-                target.getRelative(0, 0, 1),
-                target.getRelative(0, 0, -1))) {
-            if (neighbor.getType() == Material.WATER && neighbor.getBlockData() instanceof Levelled levelled && levelled.getLevel() == 0) {
-                sources++;
-                if (sources >= 2) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        sources += sourceWater(target.getRelative(1, 0, 0)) ? 1 : 0;
+        if (sources >= 2) return true;
+        sources += sourceWater(target.getRelative(-1, 0, 0)) ? 1 : 0;
+        if (sources >= 2) return true;
+        sources += sourceWater(target.getRelative(0, 0, 1)) ? 1 : 0;
+        if (sources >= 2) return true;
+        sources += sourceWater(target.getRelative(0, 0, -1)) ? 1 : 0;
+        return sources >= 2;
+    }
+
+    private boolean sourceWater(Block block) {
+        return block.getType() == Material.WATER && block.getBlockData() instanceof Levelled levelled && levelled.getLevel() == 0;
     }
 }

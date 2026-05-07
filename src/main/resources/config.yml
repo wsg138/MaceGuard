@@ -1,5 +1,36 @@
+config-version: 2
 enabled: true
 debug: false
+
+reload:
+  # Preserve tracked arena/reset changes across /maceguard reload when the zone still exists.
+  preserve-temporary-blocks: true
+  clear-invalid-zone-state: true
+
+protection:
+  special-deny:
+    # Preserve legacy behavior: these are denied in gameplay zones even if omitted from deny_place.
+    respawn-anchor: true
+    end-crystal: true
+
+performance:
+  reset-batch-size: 1500
+  full-restore-batch-size: 1024
+  liquid-drain-batch-size: 1000
+  max-zone-queries-per-tick-debug-warning: 0
+
+backstop-scan:
+  enabled: true
+  interval-minutes: 10
+  max-zones-per-tick: 1
+  max-blocks-per-tick: 100
+  repair-mode: true
+  report-only: false
+
+debug:
+  performance:
+    enabled: false
+    log-interval-seconds: 300
 
 # This plugin no longer owns PvP messaging or safe-zone enter/exit messaging.
 # Use WorldGuard or another region plugin for PvP flags and player-facing region messages.
@@ -18,6 +49,8 @@ duel_arena_footprint:
 end_access:
   # Set false to make MaceGuard completely ignore Ender Eye use/spawns.
   manage_eyes: true
+  # Persist scheduled End access auto-enable when the scheduled time passes.
+  persist_auto_enable: true
   # Ender Eyes are disabled by default when manage_eyes is true.
   # You can enable them directly or schedule a time in EST.
   allow_eyes: false

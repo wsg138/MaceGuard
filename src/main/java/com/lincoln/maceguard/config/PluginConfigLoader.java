@@ -41,6 +41,32 @@ public final class PluginConfigLoader {
     public PluginSettings load(FileConfiguration config) {
         boolean enabled = config.getBoolean("enabled", true);
         boolean debug = config.getBoolean("debug", false);
+        ReloadSettings reload = new ReloadSettings(
+                config.getBoolean("reload.preserve-temporary-blocks", true),
+                config.getBoolean("reload.clear-invalid-zone-state", true)
+        );
+        ProtectionSettings protection = new ProtectionSettings(
+                config.getBoolean("protection.special-deny.respawn-anchor", true),
+                config.getBoolean("protection.special-deny.end-crystal", true)
+        );
+        PerformanceSettings performance = new PerformanceSettings(
+                clamp(config.getInt("performance.reset-batch-size", 1500), 1, 20_000),
+                clamp(config.getInt("performance.full-restore-batch-size", 1024), 1, 20_000),
+                clamp(config.getInt("performance.liquid-drain-batch-size", 1000), 1, 20_000),
+                Math.max(0, config.getInt("performance.max-zone-queries-per-tick-debug-warning", 0))
+        );
+        BackstopScanSettings backstopScan = new BackstopScanSettings(
+                config.getBoolean("backstop-scan.enabled", true),
+                clamp(config.getInt("backstop-scan.interval-minutes", 10), 1, 1440),
+                clamp(config.getInt("backstop-scan.max-zones-per-tick", 1), 1, 100),
+                clamp(config.getInt("backstop-scan.max-blocks-per-tick", 100), 1, 100_000),
+                config.getBoolean("backstop-scan.repair-mode", true),
+                config.getBoolean("backstop-scan.report-only", false)
+        );
+        DebugPerformanceSettings debugPerformance = new DebugPerformanceSettings(
+                config.getBoolean("debug.performance.enabled", false),
+                clamp(config.getInt("debug.performance.log-interval-seconds", 300), 10, 86_400)
+        );
 
         Set<String> allowedWorlds = new LinkedHashSet<>();
         for (String world : config.getStringList("allowed_worlds")) {
@@ -63,6 +89,7 @@ public final class PluginConfigLoader {
 
         EndAccessSettings endAccess = new EndAccessSettings(
                 config.getBoolean("end_access.manage_eyes", true),
+                config.getBoolean("end_access.persist_auto_enable", true),
                 config.getBoolean("end_access.allow_eyes", false),
                 parseEstInstant(config.getString("end_access.eyes_enable_at_est", "")),
                 config.getBoolean("end_access.allow_portals", false),
@@ -82,7 +109,7 @@ public final class PluginConfigLoader {
                 )
         );
 
-        return new PluginSettings(enabled, debug, Set.copyOf(allowedWorlds), List.copyOf(protectedRegions), List.copyOf(gameplayZones), endAccess, endIsland);
+        return new PluginSettings(enabled, debug, reload, protection, performance, backstopScan, debugPerformance, Set.copyOf(allowedWorlds), List.copyOf(protectedRegions), List.copyOf(gameplayZones), endAccess, endIsland);
     }
 
     public Instant parseEstInstant(String raw) {
@@ -239,6 +266,10 @@ public final class PluginConfigLoader {
         } catch (NumberFormatException ex) {
             return fallback;
         }
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private <E extends Enum<E>> E enumValue(Object value, E fallback) {

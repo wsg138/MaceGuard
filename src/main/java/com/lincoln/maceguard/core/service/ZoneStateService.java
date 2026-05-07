@@ -33,18 +33,28 @@ public final class ZoneStateService {
     private final Plugin plugin;
     private final ZoneRegistry zoneRegistry;
     private final SnapshotService snapshotService;
+    private final int changedBatchSize;
+    private final int fullRestoreBatchSize;
+    private final int liquidDrainBatchSize;
+    private final PerformanceCounters counters;
     private final Map<String, Set<BlockKey>> changedBlocksByZone = new HashMap<>();
     private final Map<BlockKey, BukkitTask> ttlTasks = new HashMap<>();
+    private final Map<BlockKey, Long> ttlExpiresAt = new HashMap<>();
+    private final Map<BlockKey, Set<String>> ttlZonesByBlock = new HashMap<>();
     private final Set<BlockKey> temporaryBlocks = new HashSet<>();
     private final Map<String, ZoneTaskHandle> activeZoneTasks = new HashMap<>();
     private final Map<String, Set<BukkitTask>> activeDrainTasksByZone = new HashMap<>();
     private final Map<String, Long> lastResetAt = new HashMap<>();
     private final Map<String, Set<Integer>> firedWarningsByZone = new HashMap<>();
 
-    public ZoneStateService(Plugin plugin, ZoneRegistry zoneRegistry, SnapshotService snapshotService) {
+    public ZoneStateService(Plugin plugin, ZoneRegistry zoneRegistry, SnapshotService snapshotService, int changedBatchSize, int fullRestoreBatchSize, int liquidDrainBatchSize, PerformanceCounters counters) {
         this.plugin = plugin;
         this.zoneRegistry = zoneRegistry;
         this.snapshotService = snapshotService;
+        this.changedBatchSize = changedBatchSize;
+        this.fullRestoreBatchSize = fullRestoreBatchSize;
+        this.liquidDrainBatchSize = liquidDrainBatchSize;
+        this.counters = counters;
         initializeResetState();
     }
 
@@ -63,11 +73,6 @@ public final class ZoneStateService {
 
     public void onReloadCleanup() {
         cancelAllTasks();
-        clearTemporaryBlocksImmediately();
-        changedBlocksByZone.clear();
-        lastResetAt.clear();
-        firedWarningsByZone.clear();
-        initializeResetState();
     }
 
     public void onDisableCleanup() {
@@ -76,6 +81,10 @@ public final class ZoneStateService {
         changedBlocksByZone.clear();
         lastResetAt.clear();
         firedWarningsByZone.clear();
+    }
+
+    public void clearTemporaryBlocksForReload() {
+        clearTemporaryBlocksImmediately();
     }
 
     public void markChanged(String zoneName, Block block) {
@@ -89,9 +98,13 @@ public final class ZoneStateService {
             previous.cancel();
         }
         temporaryBlocks.add(key);
+        ttlExpiresAt.put(key, System.currentTimeMillis() + ttlSeconds * 1000L);
+        ttlZonesByBlock.put(key, zoneNames(applicableZones));
 
         BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
             ttlTasks.remove(key);
+            ttlExpiresAt.remove(key);
+            ttlZonesByBlock.remove(key);
             if (block.getType() == Material.WATER || block.getType() == Material.LAVA) {
                 for (GameplayZone zone : applicableZones) {
                     if (zone.ttlSeconds() > 0) {
@@ -128,6 +141,11 @@ public final class ZoneStateService {
             return;
         }
 
+        if (zone.resetMode() == ResetMode.SNAPSHOT && snapshotService.isSnapshotLoading(zone.name())) {
+            feedback.accept("\u00A7eSkipping reset for \u00A7f" + zone.name() + "\u00A7e because its snapshot is still loading.");
+            return;
+        }
+
         if (zone.resetMode() == ResetMode.SNAPSHOT && !snapshotService.hasUsableSnapshot(zone.name())) {
             feedback.accept("\u00A7eSkipping reset for \u00A7f" + zone.name() + "\u00A7e because no usable snapshot exists.");
             return;
@@ -147,7 +165,7 @@ public final class ZoneStateService {
                 return;
             }
             List<BlockKey> work = new ArrayList<>(changed);
-            startZoneTask(zone.name(), ZoneTaskType.RESTORE, runBatch(zone.name(), work, CHANGED_BATCH_SIZE, key -> {
+            startZoneTask(zone.name(), ZoneTaskType.RESTORE, runBatch(zone.name(), work, changedBatchSize, key -> {
                 World world = Bukkit.getWorld(key.worldName());
                 if (world != null) {
                     snapshotService.applyAt(zone.name(), world.getBlockAt(key.x(), key.y(), key.z()));
@@ -182,7 +200,7 @@ public final class ZoneStateService {
                             }
                             y++;
                             processed++;
-                            if (processed >= FULL_RESTORE_BATCH_SIZE) {
+                            if (processed >= fullRestoreBatchSize) {
                                 return;
                             }
                         }
@@ -251,7 +269,7 @@ public final class ZoneStateService {
             return 0;
         }
         List<BlockKey> work = new ArrayList<>(changed);
-        startZoneTask(zoneName, ZoneTaskType.CLEAR, runBatch(zoneName, work, CHANGED_BATCH_SIZE, key -> {
+        startZoneTask(zoneName, ZoneTaskType.CLEAR, runBatch(zoneName, work, changedBatchSize, key -> {
             World world = Bukkit.getWorld(key.worldName());
             if (world == null) {
                 return;
@@ -292,7 +310,8 @@ public final class ZoneStateService {
             @Override
             public void run() {
                 int processed = 0;
-                while (!queue.isEmpty() && processed < LIQUID_DRAIN_BATCH_SIZE) {
+                counters.drainQueueSize(queue.size());
+                while (!queue.isEmpty() && processed < liquidDrainBatchSize) {
                     Block block = queue.poll();
                     processed++;
                     if (block == null) {
@@ -337,10 +356,12 @@ public final class ZoneStateService {
             @Override
             public void run() {
                 int end = Math.min(index + batchSize, work.size());
+                int processed = end - index;
                 for (int current = index; current < end; current++) {
                     operation.accept(work.get(current));
                 }
                 index = end;
+                counters.resetBlocksProcessed(processed);
                 if (index >= work.size()) {
                     onComplete.run();
                     clearZoneTask(zoneName, this);
@@ -359,6 +380,8 @@ public final class ZoneStateService {
             if (zone.region().contains(key.worldName(), key.x(), key.y(), key.z())) {
                 entry.getValue().cancel();
                 ttlTasks.remove(key);
+                ttlExpiresAt.remove(key);
+                ttlZonesByBlock.remove(key);
                 temporaryBlocks.remove(key);
             }
         }
@@ -465,6 +488,159 @@ public final class ZoneStateService {
             }
         }
         activeDrainTasksByZone.clear();
+    }
+
+    public ZoneStateSnapshot snapshotState() {
+        Map<String, Set<BlockKey>> changed = new HashMap<>();
+        for (Map.Entry<String, Set<BlockKey>> entry : changedBlocksByZone.entrySet()) {
+            changed.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+        }
+        Map<String, Set<Integer>> warnings = new HashMap<>();
+        for (Map.Entry<String, Set<Integer>> entry : firedWarningsByZone.entrySet()) {
+            warnings.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+        return new ZoneStateSnapshot(changed, new HashSet<>(temporaryBlocks), new HashMap<>(ttlExpiresAt), new HashMap<>(ttlZonesByBlock), new HashMap<>(lastResetAt), warnings);
+    }
+
+    public void restoreState(ZoneStateSnapshot snapshot, boolean clearInvalidZoneState, boolean preserveTemporaryBlocks) {
+        if (snapshot == null) {
+            return;
+        }
+        changedBlocksByZone.clear();
+        for (Map.Entry<String, Set<BlockKey>> entry : snapshot.changedBlocksByZone().entrySet()) {
+            if (clearInvalidZoneState && zoneRegistry.findZone(entry.getKey()) == null) {
+                continue;
+            }
+            changedBlocksByZone.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+        }
+        lastResetAt.clear();
+        for (Map.Entry<String, Long> entry : snapshot.lastResetAt().entrySet()) {
+            if (!clearInvalidZoneState || zoneRegistry.findZone(entry.getKey()) != null) {
+                lastResetAt.put(entry.getKey(), entry.getValue());
+            }
+        }
+        firedWarningsByZone.clear();
+        for (Map.Entry<String, Set<Integer>> entry : snapshot.firedWarningsByZone().entrySet()) {
+            if (!clearInvalidZoneState || zoneRegistry.findZone(entry.getKey()) != null) {
+                firedWarningsByZone.put(entry.getKey(), new HashSet<>(entry.getValue()));
+            }
+        }
+        if (preserveTemporaryBlocks) {
+            temporaryBlocks.clear();
+            temporaryBlocks.addAll(snapshot.temporaryBlocks());
+            ttlExpiresAt.clear();
+            ttlExpiresAt.putAll(snapshot.ttlExpiresAt());
+            ttlZonesByBlock.clear();
+            ttlZonesByBlock.putAll(snapshot.ttlZonesByBlock());
+            rescheduleTemporaryBlocks();
+        }
+    }
+
+    public void runBackstopPass(int maxZones, int maxBlocks, boolean repairMode, boolean reportOnly) {
+        int processedZones = 0;
+        for (String zoneName : new ArrayList<>(changedBlocksByZone.keySet())) {
+            if (processedZones++ >= maxZones) {
+                return;
+            }
+            if (zoneRegistry.findZone(zoneName) == null) {
+                if (repairMode && !reportOnly) {
+                    changedBlocksByZone.remove(zoneName);
+                    counters.backstopRepair();
+                }
+                continue;
+            }
+            Set<BlockKey> changed = changedBlocksByZone.get(zoneName);
+            if (changed == null) {
+                continue;
+            }
+            int checked = 0;
+            for (BlockKey key : new ArrayList<>(changed)) {
+                if (checked++ >= maxBlocks) {
+                    break;
+                }
+                if (Bukkit.getWorld(key.worldName()) == null && repairMode && !reportOnly) {
+                    changed.remove(key);
+                    counters.backstopRepair();
+                }
+            }
+        }
+        for (BlockKey key : new ArrayList<>(temporaryBlocks)) {
+            Long expiresAt = ttlExpiresAt.get(key);
+            if (expiresAt != null && expiresAt <= System.currentTimeMillis() && repairMode && !reportOnly) {
+                World world = Bukkit.getWorld(key.worldName());
+                if (world != null) {
+                    Block block = world.getBlockAt(key.x(), key.y(), key.z());
+                    if (block.getType() != Material.AIR) {
+                        block.setType(Material.AIR, false);
+                    }
+                }
+                temporaryBlocks.remove(key);
+                ttlExpiresAt.remove(key);
+                ttlZonesByBlock.remove(key);
+                counters.backstopRepair();
+            }
+        }
+    }
+
+    public int resetQueueSize() {
+        int total = 0;
+        for (Set<BlockKey> blocks : changedBlocksByZone.values()) {
+            total += blocks.size();
+        }
+        return total;
+    }
+
+    private void rescheduleTemporaryBlocks() {
+        long now = System.currentTimeMillis();
+        for (Map.Entry<BlockKey, Long> entry : new ArrayList<>(ttlExpiresAt.entrySet())) {
+            BlockKey key = entry.getKey();
+            long delayTicks = Math.max(1L, (entry.getValue() - now) / 50L);
+            World world = Bukkit.getWorld(key.worldName());
+            if (world == null) {
+                continue;
+            }
+            Block block = world.getBlockAt(key.x(), key.y(), key.z());
+            Set<String> zoneNames = ttlZonesByBlock.getOrDefault(key, Set.of());
+            List<GameplayZone> zones = new ArrayList<>();
+            for (String zoneName : zoneNames) {
+                GameplayZone zone = zoneRegistry.findZone(zoneName);
+                if (zone != null) {
+                    zones.add(zone);
+                }
+            }
+            BukkitTask task = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                ttlTasks.remove(key);
+                ttlExpiresAt.remove(key);
+                ttlZonesByBlock.remove(key);
+                if (block.getType() == Material.WATER || block.getType() == Material.LAVA) {
+                    for (GameplayZone zone : zones) {
+                        drainLiquidInZone(block, zone);
+                    }
+                } else if (block.getType() != Material.AIR) {
+                    block.setType(Material.AIR, false);
+                }
+                temporaryBlocks.remove(key);
+            }, delayTicks);
+            ttlTasks.put(key, task);
+        }
+    }
+
+    private Set<String> zoneNames(Collection<GameplayZone> zones) {
+        Set<String> names = new HashSet<>();
+        for (GameplayZone zone : zones) {
+            names.add(zone.name());
+        }
+        return names;
+    }
+
+    public record ZoneStateSnapshot(
+            Map<String, Set<BlockKey>> changedBlocksByZone,
+            Set<BlockKey> temporaryBlocks,
+            Map<BlockKey, Long> ttlExpiresAt,
+            Map<BlockKey, Set<String>> ttlZonesByBlock,
+            Map<String, Long> lastResetAt,
+            Map<String, Set<Integer>> firedWarningsByZone
+    ) {
     }
 
     private enum ZoneTaskType {

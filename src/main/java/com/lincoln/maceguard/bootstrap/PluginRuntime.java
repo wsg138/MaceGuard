@@ -2,6 +2,7 @@ package com.lincoln.maceguard.bootstrap;
 
 import com.lincoln.maceguard.config.PluginSettings;
 import com.lincoln.maceguard.core.service.EndAccessService;
+import com.lincoln.maceguard.core.service.PerformanceCounters;
 import com.lincoln.maceguard.core.service.SnapshotService;
 import com.lincoln.maceguard.core.service.ZoneRegistry;
 import com.lincoln.maceguard.core.service.ZoneStateService;
@@ -15,21 +16,36 @@ public record PluginRuntime(
         ZoneStateService zoneStateService,
         SnapshotService snapshotService,
         EndAccessService endAccessService,
+        PerformanceCounters counters,
         ExecutorService ioExecutor,
-        BukkitTask resetTicker
+        BukkitTask resetTicker,
+        BukkitTask backstopTicker,
+        BukkitTask debugTicker
 ) {
 
     public void shutdownForReload() {
         resetTicker.cancel();
+        if (backstopTicker != null) {
+            backstopTicker.cancel();
+        }
+        if (debugTicker != null) {
+            debugTicker.cancel();
+        }
         snapshotService.cancelAll();
         zoneStateService.onReloadCleanup();
-        ioExecutor.shutdownNow();
+        snapshotService.shutdownExecutorGracefully();
     }
 
     public void shutdownForDisable() {
         resetTicker.cancel();
+        if (backstopTicker != null) {
+            backstopTicker.cancel();
+        }
+        if (debugTicker != null) {
+            debugTicker.cancel();
+        }
         snapshotService.cancelAll();
         zoneStateService.onDisableCleanup();
-        ioExecutor.shutdownNow();
+        snapshotService.shutdownExecutorGracefully();
     }
 }

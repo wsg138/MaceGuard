@@ -9,7 +9,7 @@ softdepend: [WarzoneDuels]
 commands:
   maceguard:
     description: MaceGuard admin command
-    usage: /<command> reload|debug|here|clear [zone]|snapshot <zone>|reset <zone>|endeyes <on|off|at time>|endportal <on|off|at time>|endstatus
+    usage: /<command> reload|debug|stats|here|clear [zone]|snapshot <zone>|reset <zone>|endeyes <on|off|at time>|endportal <on|off|at time>|endstatus
     permission: maceguard.reload
 
 permissions:

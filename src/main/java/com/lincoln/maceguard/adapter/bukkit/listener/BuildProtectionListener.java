@@ -1,7 +1,9 @@
 package com.lincoln.maceguard.adapter.bukkit.listener;
 
 import com.lincoln.maceguard.MaceGuardPlugin;
+import com.lincoln.maceguard.bootstrap.PluginRuntime;
 import com.lincoln.maceguard.core.model.GameplayZone;
+import com.lincoln.maceguard.core.service.ZoneRegistry;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -50,15 +52,17 @@ public final class BuildProtectionListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
+        PluginRuntime runtime = plugin.runtime();
         Player player = event.getPlayer();
         Block block = event.getBlockPlaced();
         if (handleDuelArenaExplosivePlacement(event, player, block)) {
             return;
         }
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+        ZoneRegistry.ZoneQuery query = runtime.zoneRegistry().query(block.getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(block.getLocation());
+        List<GameplayZone> zones = query.highestZones();
 
         if (!zones.isEmpty()) {
             if (isDeniedSpecial(block.getType(), zones) && !creativeBypass(player)) {
@@ -72,7 +76,7 @@ public final class BuildProtectionListener implements Listener {
                     return;
                 }
             }
-        } else if (plugin.runtime().zoneRegistry().isProtected(block.getLocation()) && !creativeBypass(player)) {
+        } else if (query.protectedRegion() && !creativeBypass(player)) {
             event.setCancelled(true);
             return;
         }
@@ -85,12 +89,14 @@ public final class BuildProtectionListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
+        PluginRuntime runtime = plugin.runtime();
         Player player = event.getPlayer();
         Block block = event.getBlock();
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(block.getLocation())) {
+        ZoneRegistry.ZoneQuery query = runtime.zoneRegistry().query(block.getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(block.getLocation());
+        List<GameplayZone> zones = query.highestZones();
 
         if (!zones.isEmpty()) {
             boolean allowed = zones.stream().allMatch(zone -> zone.allowAllBreak() || zone.allowAllPlace() || zone.allowedPlace().contains(block.getType().name()));
@@ -98,7 +104,7 @@ public final class BuildProtectionListener implements Listener {
                 event.setCancelled(true);
                 return;
             }
-        } else if (plugin.runtime().zoneRegistry().isProtected(block.getLocation()) && !creativeBypass(player)) {
+        } else if (query.protectedRegion() && !creativeBypass(player)) {
             event.setCancelled(true);
             return;
         }
@@ -114,12 +120,13 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         Block target = event.getBlockClicked().getRelative(event.getBlockFace());
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+        ZoneRegistry.ZoneQuery query = plugin.runtime().zoneRegistry().query(target.getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
+        List<GameplayZone> zones = query.highestZones();
         if (zones.isEmpty()) {
-            if (plugin.runtime().zoneRegistry().isProtected(target.getLocation()) && !creativeBypass(event.getPlayer())) {
+            if (query.protectedRegion() && !creativeBypass(event.getPlayer())) {
                 event.setCancelled(true);
             }
             return;
@@ -151,12 +158,13 @@ public final class BuildProtectionListener implements Listener {
         }
         BlockFace face = event.getBlock().getBlockData() instanceof Directional directional ? directional.getFacing() : BlockFace.NORTH;
         Block target = event.getBlock().getRelative(face);
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+        ZoneRegistry.ZoneQuery query = plugin.runtime().zoneRegistry().query(target.getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
+        List<GameplayZone> zones = query.highestZones();
         if (zones.isEmpty()) {
-            if (plugin.runtime().zoneRegistry().isProtected(target.getLocation())) {
+            if (query.protectedRegion()) {
                 event.setCancelled(true);
             }
             return;
@@ -196,12 +204,13 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         Block target = event.getClickedBlock() != null ? event.getClickedBlock().getRelative(event.getBlockFace()) : event.getPlayer().getLocation().getBlock();
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(target.getLocation())) {
+        ZoneRegistry.ZoneQuery query = plugin.runtime().zoneRegistry().query(target.getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
+        List<GameplayZone> zones = query.highestZones();
         if (zones.isEmpty()) {
-            if (plugin.runtime().zoneRegistry().isProtected(target.getLocation()) && !creativeBypass(event.getPlayer())) {
+            if (query.protectedRegion() && !creativeBypass(event.getPlayer())) {
                 event.setCancelled(true);
             }
             return;
@@ -226,12 +235,13 @@ public final class BuildProtectionListener implements Listener {
         if (!MINECART_TYPES.contains(event.getVehicle().getType())) {
             return;
         }
-        if (plugin.runtime().zoneRegistry().isExternallyManaged(event.getVehicle().getLocation())) {
+        ZoneRegistry.ZoneQuery query = plugin.runtime().zoneRegistry().query(event.getVehicle().getLocation());
+        if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(event.getVehicle().getLocation());
+        List<GameplayZone> zones = query.highestZones();
         if (zones.isEmpty()) {
-            if (plugin.runtime().zoneRegistry().isProtected(event.getVehicle().getLocation())) {
+            if (query.protectedRegion()) {
                 event.getVehicle().remove();
             }
             return;
@@ -381,10 +391,18 @@ public final class BuildProtectionListener implements Listener {
 
     private boolean isDeniedSpecial(Material material, List<GameplayZone> zones) {
         String materialName = material.name();
-        return zones.stream().anyMatch(zone ->
-                zone.denyPlace().contains(materialName)
-                        || materialName.equals("RESPAWN_ANCHOR")
-                        || materialName.equals("END_CRYSTAL"));
+        for (GameplayZone zone : zones) {
+            if (zone.denyPlace().contains(materialName)) {
+                return true;
+            }
+        }
+        if (materialName.equals("RESPAWN_ANCHOR")) {
+            return plugin.runtime().settings().protection().denyRespawnAnchor();
+        }
+        if (materialName.equals("END_CRYSTAL")) {
+            return plugin.runtime().settings().protection().denyEndCrystal();
+        }
+        return false;
     }
 
     private boolean handleDuelArenaExplosivePlacement(BlockPlaceEvent event, Player player, Block block) {

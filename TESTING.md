@@ -101,6 +101,9 @@
 9. Reload / restart / shutdown checks
    - Trigger a `FULL` restore, then run `/maceguard reload` mid-restore.
    - Confirm the restore stops cleanly and no orphaned follow-up tasks continue afterward.
+   - Place blocks in a reset-tracked zone, run `/maceguard reload`, then confirm `/maceguard stats` still reports a nonzero reset queue.
+   - Place TTL blocks/liquids, run `/maceguard reload`, and confirm they still clear later when `reload.preserve-temporary-blocks: true`.
+   - Repeat with `reload.preserve-temporary-blocks: false` and confirm temporary blocks are removed during reload.
    - Trigger a `FULL` restore, then stop the server mid-restore.
    - Restart the server and confirm startup is clean.
    - Confirm cancelled restore progress does not silently continue after restart.
@@ -136,6 +139,10 @@
    - Confirm the server remains playable while restore batches are running.
    - Repeat with active TTL liquid cleanup and confirm there is no runaway lag.
    - Watch for excessive console spam during normal operation.
+   - Confirm `/maceguard stats` reports zone queries, liquid events, explosion block scans, reset progress, snapshot IO timings, and backstop repairs.
+   - Test liquid flow across the edge of each `confine_liquids` zone from inside-to-outside and outside-to-inside.
+   - Trigger a large TNT/crystal explosion near the duel arena and confirm only one filtering pass is visible in timings/log counters.
+   - Temporarily enable `debug.performance.enabled` and confirm periodic counter logs appear at the configured interval only.
 
 ## Edge Cases To Verify
 - Snapshot file exists but contains no usable blocks.

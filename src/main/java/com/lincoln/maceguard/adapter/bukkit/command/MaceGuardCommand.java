@@ -114,8 +114,18 @@ public final class MaceGuardCommand implements TabExecutor {
                     sender.sendMessage("\u00A7cUnknown zone: \u00A7f" + args[1]);
                     return true;
                 }
+                if (plugin.runtime().snapshotService().isSnapshotLoading(zone.name())) {
+                    sender.sendMessage("\u00A7eSnapshot for \u00A7f" + zone.name() + "\u00A7e is still loading. Try again shortly.");
+                    return true;
+                }
                 plugin.runtime().zoneStateService().resetZone(zone, sender::sendMessage);
                 sender.sendMessage("\u00A7aReset requested for zone \u00A7f" + zone.name() + "\u00A7a.");
+                return true;
+            }
+            case "stats" -> {
+                requirePermission(sender, "maceguard.reload");
+                sender.sendMessage("\u00A7eMaceGuard stats: \u00A7f" + plugin.runtime().counters().summary());
+                sender.sendMessage("\u00A7eReset queue size: \u00A7f" + plugin.runtime().zoneStateService().resetQueueSize());
                 return true;
             }
             case "endeyes" -> {
@@ -143,7 +153,7 @@ public final class MaceGuardCommand implements TabExecutor {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> zoneNames = plugin.runtime().zoneRegistry().allGameplayZones().stream().map(GameplayZone::name).sorted(String.CASE_INSENSITIVE_ORDER).toList();
         if (args.length == 1) {
-            return filter(args[0], "reload", "debug", "here", "clear", "snapshot", "reset", "endeyes", "endportal", "endstatus");
+            return filter(args[0], "reload", "debug", "stats", "here", "clear", "snapshot", "reset", "endeyes", "endportal", "endstatus");
         }
         if (args.length == 2 && Stream.of("clear", "snapshot", "reset").anyMatch(sub -> sub.equalsIgnoreCase(args[0]))) {
             return filter(args[1], zoneNames.toArray(String[]::new));
@@ -213,7 +223,7 @@ public final class MaceGuardCommand implements TabExecutor {
     }
 
     private String usage() {
-        return "\u00A7eUsage: \u00A7f/maceguard reload\u00A77, \u00A7f/maceguard debug\u00A77, \u00A7f/maceguard here\u00A77, \u00A7f/maceguard clear [zone]\u00A77, \u00A7f/maceguard snapshot <zone>\u00A77, \u00A7f/maceguard reset <zone>\u00A77, \u00A7f/maceguard endeyes <on|off|at time>\u00A77, \u00A7f/maceguard endportal <on|off|at time>\u00A77, \u00A7f/maceguard endstatus";
+        return "\u00A7eUsage: \u00A7f/maceguard reload\u00A77, \u00A7f/maceguard debug\u00A77, \u00A7f/maceguard stats\u00A77, \u00A7f/maceguard here\u00A77, \u00A7f/maceguard clear [zone]\u00A77, \u00A7f/maceguard snapshot <zone>\u00A77, \u00A7f/maceguard reset <zone>\u00A77, \u00A7f/maceguard endeyes <on|off|at time>\u00A77, \u00A7f/maceguard endportal <on|off|at time>\u00A77, \u00A7f/maceguard endstatus";
     }
 
     private void requirePermission(CommandSender sender, String permission) {

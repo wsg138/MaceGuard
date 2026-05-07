@@ -78,7 +78,7 @@ public final class DuelArenaExplosiveListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
         DuelArenaFootprintService footprint = plugin.duelArenaFootprint();
-        if (!footprint.maybeRelevant(event.getLocation()) && !containsArenaBlocks(event.blockList())) {
+        if (!footprint.maybeRelevant(event.getLocation()) && !filterArenaBlocks(event.blockList(), false)) {
             return;
         }
         if (plugin.warzoneDuelsHook().hasActiveDuel()) {
@@ -88,13 +88,13 @@ public final class DuelArenaExplosiveListener implements Listener {
             event.blockList().clear();
             return;
         }
-        filterToArenaBlocks(event.blockList());
+        filterArenaBlocks(event.blockList(), true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent event) {
         DuelArenaFootprintService footprint = plugin.duelArenaFootprint();
-        if (!footprint.maybeRelevant(event.getBlock().getLocation()) && !containsArenaBlocks(event.blockList())) {
+        if (!footprint.maybeRelevant(event.getBlock().getLocation()) && !filterArenaBlocks(event.blockList(), false)) {
             return;
         }
         if (plugin.warzoneDuelsHook().hasActiveDuel()) {
@@ -104,27 +104,29 @@ public final class DuelArenaExplosiveListener implements Listener {
             event.blockList().clear();
             return;
         }
-        filterToArenaBlocks(event.blockList());
+        filterArenaBlocks(event.blockList(), true);
     }
 
-    private boolean containsArenaBlocks(List<Block> blocks) {
+    private boolean filterArenaBlocks(List<Block> blocks, boolean removeOutside) {
         DuelArenaFootprintService footprint = plugin.duelArenaFootprint();
-        for (Block block : blocks) {
-            if (footprint.contains(block)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void filterToArenaBlocks(List<Block> blocks) {
-        DuelArenaFootprintService footprint = plugin.duelArenaFootprint();
+        boolean found = false;
+        int scanned = 0;
+        int removed = 0;
         for (Iterator<Block> iterator = blocks.iterator(); iterator.hasNext(); ) {
             Block block = iterator.next();
-            if (!footprint.contains(block)) {
+            scanned++;
+            boolean inArena = footprint.contains(block);
+            found |= inArena;
+            if (removeOutside && !inArena) {
                 iterator.remove();
+                removed++;
             }
         }
+        plugin.runtime().counters().explosionBlocksScanned(scanned);
+        if (removed > 0) {
+            plugin.runtime().counters().explosionBlocksRemoved(removed);
+        }
+        return found;
     }
 
     private boolean isExplosionSourceAllowed(Entity entity) {

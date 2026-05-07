@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,9 +76,16 @@ public final class FileSnapshotRepository {
         fileData.maxZ = data.region().maxZ();
         fileData.blocks = data.serializedBlocks();
 
+        Path target = file(data.zoneName());
+        Path temp = rootDirectory.resolve(data.zoneName() + ".json.gz.tmp");
         try (BufferedWriter writer = new BufferedWriter(
-                new java.io.OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(file(data.zoneName()))), StandardCharsets.UTF_8))) {
+                new java.io.OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(temp)), StandardCharsets.UTF_8))) {
             GSON.toJson(fileData, writer);
+        }
+        try {
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException ex) {
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -33,12 +34,15 @@ public final class SnapshotService {
     private final Map<String, SnapshotData> snapshotsByZone = new ConcurrentHashMap<>();
     private final Map<String, BukkitTask> activeCaptures = new ConcurrentHashMap<>();
     private final Map<String, Boolean> deferredBlockDataCache = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> loadingByZone = new ConcurrentHashMap<>();
+    private final PerformanceCounters counters;
 
-    public SnapshotService(Plugin plugin, Logger logger, FileSnapshotRepository repository, ExecutorService ioExecutor) {
+    public SnapshotService(Plugin plugin, Logger logger, FileSnapshotRepository repository, ExecutorService ioExecutor, PerformanceCounters counters) {
         this.plugin = plugin;
         this.logger = logger;
         this.repository = repository;
         this.ioExecutor = ioExecutor;
+        this.counters = counters;
     }
 
     public void loadAll(Iterable<GameplayZone> zones) {
@@ -46,18 +50,34 @@ public final class SnapshotService {
             if (zone.resetMode() != com.lincoln.maceguard.core.model.ResetMode.SNAPSHOT) {
                 continue;
             }
-            try {
-                Optional<SnapshotData> snapshot = repository.load(zone.name());
-                snapshot.ifPresent(data -> snapshotsByZone.put(zone.name(), data));
-            } catch (IOException ex) {
-                logger.warning("Failed to load snapshot for zone " + zone.name() + ": " + ex.getMessage());
-            }
+            loadingByZone.put(zone.name(), true);
+            ioExecutor.execute(() -> loadOne(zone.name()));
+        }
+    }
+
+    private void loadOne(String zoneName) {
+        long started = System.currentTimeMillis();
+        boolean success = false;
+        try {
+            Optional<SnapshotData> snapshot = repository.load(zoneName);
+            snapshot.ifPresent(data -> snapshotsByZone.put(zoneName, data));
+            success = true;
+            logger.info("Loaded snapshot for zone " + zoneName + " in " + (System.currentTimeMillis() - started) + "ms.");
+        } catch (IOException ex) {
+            logger.warning("Failed to load snapshot for zone " + zoneName + ": " + ex.getMessage());
+        } finally {
+            loadingByZone.remove(zoneName);
+            counters.snapshotLoad(System.currentTimeMillis() - started, success);
         }
     }
 
     public boolean hasUsableSnapshot(String zoneName) {
         SnapshotData data = snapshotsByZone.get(zoneName);
         return data != null && data.isUsable();
+    }
+
+    public boolean isSnapshotLoading(String zoneName) {
+        return loadingByZone.containsKey(zoneName);
     }
 
     public void capture(String zoneName, CuboidRegion region, Consumer<String> feedback) {
@@ -112,19 +132,26 @@ public final class SnapshotService {
                 }
 
                 ioExecutor.execute(() -> {
+                    long started = System.currentTimeMillis();
+                    boolean success = false;
                     Map<Long, String> blocks = new HashMap<>(entries.size());
                     for (SnapshotBlock entry : entries) {
                         blocks.put(BlockKey.pack(entry.x(), entry.y(), entry.z()), entry.blockData());
                     }
                     SnapshotData data = new SnapshotData(zoneName, region.worldName(), region, blocks, entries);
-                    snapshotsByZone.put(zoneName, data);
 
                     try {
                         repository.save(data);
+                        snapshotsByZone.put(zoneName, data);
+                        success = true;
+                        long duration = System.currentTimeMillis() - started;
+                        logger.info("Saved snapshot for zone " + zoneName + " in " + duration + "ms.");
                         Bukkit.getScheduler().runTask(plugin, () -> feedback.accept("\u00A7aSnapshot saved for zone \u00A7f" + zoneName + "\u00A7a."));
                     } catch (IOException ex) {
                         logger.warning("Failed to save snapshot for zone " + zoneName + ": " + ex.getMessage());
                         Bukkit.getScheduler().runTask(plugin, () -> feedback.accept("\u00A7cFailed to save snapshot for \u00A7f" + zoneName + "\u00A7c. Check console."));
+                    } finally {
+                        counters.snapshotSave(System.currentTimeMillis() - started, success);
                     }
                 });
             }
@@ -282,5 +309,18 @@ public final class SnapshotService {
             task.cancel();
         }
         activeCaptures.clear();
+    }
+
+    public void shutdownExecutorGracefully() {
+        ioExecutor.shutdown();
+        try {
+            if (!ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                logger.warning("Timed out waiting for snapshot IO to finish; requesting shutdown.");
+                ioExecutor.shutdownNow();
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            ioExecutor.shutdownNow();
+        }
     }
 }

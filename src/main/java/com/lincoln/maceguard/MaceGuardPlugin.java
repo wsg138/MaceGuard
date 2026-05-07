@@ -9,26 +9,23 @@ import com.lincoln.maceguard.adapter.bukkit.listener.LiquidControlListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.MaceDurabilityListener;
 import com.lincoln.maceguard.adapter.storage.FileSnapshotRepository;
 import com.lincoln.maceguard.bootstrap.PluginRuntime;
+import com.lincoln.maceguard.config.ConfigMigrator;
 import com.lincoln.maceguard.config.PluginConfigLoader;
 import com.lincoln.maceguard.config.PluginSettings;
 import com.lincoln.maceguard.core.service.EndAccessService;
 import com.lincoln.maceguard.core.service.DuelArenaFootprintService;
+import com.lincoln.maceguard.core.service.PerformanceCounters;
 import com.lincoln.maceguard.core.service.SnapshotService;
 import com.lincoln.maceguard.core.service.ZoneRegistry;
 import com.lincoln.maceguard.core.service.ZoneStateService;
 import com.lincoln.maceguard.integration.WarzoneDuelsHook;
 import com.lincoln.maceguard.util.Compat;
 import org.bukkit.Bukkit;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -41,10 +38,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
-        mergeConfigDefaults();
+        migrateConfig();
         saveBundledFootprint();
-        bootstrapRuntime();
+        bootstrapRuntime(null);
 
         Bukkit.getPluginManager().registerEvents(new BuildProtectionListener(this), this);
         Bukkit.getPluginManager().registerEvents(new DuelArenaExplosiveListener(this), this);
@@ -70,12 +66,17 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     public void reloadPlugin() {
+        ZoneStateService.ZoneStateSnapshot stateSnapshot = null;
         if (runtime != null) {
+            stateSnapshot = runtime.zoneStateService().snapshotState();
+            if (!runtime.settings().reload().preserveTemporaryBlocks()) {
+                runtime.zoneStateService().clearTemporaryBlocksForReload();
+            }
             runtime.shutdownForReload();
         }
-        mergeConfigDefaults();
+        migrateConfig();
         reloadConfig();
-        bootstrapRuntime();
+        bootstrapRuntime(stateSnapshot);
     }
 
     public void toggleDebug() {
@@ -101,7 +102,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         return runtime != null && runtime.settings().enabled();
     }
 
-    private void bootstrapRuntime() {
+    private void bootstrapRuntime(ZoneStateService.ZoneStateSnapshot stateSnapshot) {
         reloadConfig();
         if (warzoneDuelsHook == null) {
             warzoneDuelsHook = new WarzoneDuelsHook(this);
@@ -113,6 +114,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         duelArenaFootprintService.reload();
         PluginConfigLoader loader = new PluginConfigLoader(getLogger());
         PluginSettings settings = loader.load(getConfig());
+        PerformanceCounters counters = runtime != null ? runtime.counters() : new PerformanceCounters();
 
         ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "MaceGuard-IO");
@@ -127,18 +129,36 @@ public final class MaceGuardPlugin extends JavaPlugin {
             getLogger().warning("Failed to create snapshot directory: " + ex.getMessage());
         }
 
-        ZoneRegistry zoneRegistry = new ZoneRegistry(settings);
-        SnapshotService snapshotService = new SnapshotService(this, getLogger(), repository, ioExecutor);
+        ZoneRegistry zoneRegistry = new ZoneRegistry(settings, counters);
+        SnapshotService snapshotService = new SnapshotService(this, getLogger(), repository, ioExecutor, counters);
         snapshotService.loadAll(zoneRegistry.allGameplayZones());
-        ZoneStateService zoneStateService = new ZoneStateService(this, zoneRegistry, snapshotService);
-        EndAccessService endAccessService = new EndAccessService(getConfig(), loader, this::saveConfig, settings.endAccess());
+        ZoneStateService zoneStateService = new ZoneStateService(this, zoneRegistry, snapshotService, settings.performance().resetBatchSize(), settings.performance().fullRestoreBatchSize(), settings.performance().liquidDrainBatchSize(), counters);
+        if (stateSnapshot != null) {
+            zoneStateService.restoreState(stateSnapshot, settings.reload().clearInvalidZoneState(), settings.reload().preserveTemporaryBlocks());
+        }
+        EndAccessService endAccessService = new EndAccessService(getConfig(), loader, this::saveConfig, getLogger(), settings.endAccess());
         BukkitTask resetTicker = Bukkit.getScheduler().runTaskTimer(this, () -> {
             if (isFeatureEnabled()) {
                 zoneStateService.tickResets();
             }
         }, 100L, 100L);
+        BukkitTask backstopTicker = null;
+        if (settings.backstopScan().enabled()) {
+            long intervalTicks = settings.backstopScan().intervalMinutes() * 60L * 20L;
+            backstopTicker = Bukkit.getScheduler().runTaskTimer(this, () -> {
+                if (isFeatureEnabled()) {
+                    zoneStateService.runBackstopPass(settings.backstopScan().maxZonesPerTick(), settings.backstopScan().maxBlocksPerTick(), settings.backstopScan().repairMode(), settings.backstopScan().reportOnly());
+                }
+            }, intervalTicks, intervalTicks);
+        }
+        BukkitTask debugTicker = null;
+        if (settings.debugPerformance().enabled()) {
+            long intervalTicks = settings.debugPerformance().logIntervalSeconds() * 20L;
+            debugTicker = Bukkit.getScheduler().runTaskTimer(this, () -> getLogger().info("Performance counters: " + counters.summary() + ", resetQueueSize=" + zoneStateService.resetQueueSize()), intervalTicks, intervalTicks);
+        }
+        counters.reloadTaskRestart();
 
-        runtime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, ioExecutor, resetTicker);
+        runtime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, counters, ioExecutor, resetTicker, backstopTicker, debugTicker);
     }
 
     private void saveBundledFootprint() {
@@ -148,20 +168,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         }
     }
 
-    private void mergeConfigDefaults() {
-        saveDefaultConfig();
-        File configFile = new File(getDataFolder(), "config.yml");
-        FileConfiguration config = YamlConfiguration.loadConfiguration(configFile);
-        try (InputStream input = getResource("config.yml")) {
-            if (input == null) {
-                return;
-            }
-            YamlConfiguration defaults = YamlConfiguration.loadConfiguration(new InputStreamReader(input, StandardCharsets.UTF_8));
-            config.setDefaults(defaults);
-            config.options().copyDefaults(true);
-            config.save(configFile);
-        } catch (IOException ex) {
-            getLogger().warning("Failed to merge config defaults: " + ex.getMessage());
-        }
+    private void migrateConfig() {
+        new ConfigMigrator(this).migrateBundledConfig("config.yml");
     }
 }

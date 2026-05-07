@@ -5,23 +5,28 @@ import com.lincoln.maceguard.core.model.EndAccessSettings;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.time.Instant;
+import java.util.logging.Logger;
 
 public final class EndAccessService {
     private final FileConfiguration config;
     private final PluginConfigLoader configLoader;
     private final Runnable configSaver;
+    private final Logger logger;
 
     private final boolean manageEyes;
+    private final boolean persistAutoEnable;
     private boolean eyesAllowed;
     private Instant eyesEnableAt;
     private boolean portalsAllowed;
     private Instant portalsEnableAt;
 
-    public EndAccessService(FileConfiguration config, PluginConfigLoader configLoader, Runnable configSaver, EndAccessSettings settings) {
+    public EndAccessService(FileConfiguration config, PluginConfigLoader configLoader, Runnable configSaver, Logger logger, EndAccessSettings settings) {
         this.config = config;
         this.configLoader = configLoader;
         this.configSaver = configSaver;
+        this.logger = logger;
         this.manageEyes = settings.manageEyes();
+        this.persistAutoEnable = settings.persistAutoEnable();
         this.eyesAllowed = settings.allowEyes();
         this.eyesEnableAt = settings.eyesEnableAt();
         this.portalsAllowed = settings.allowPortals();
@@ -35,7 +40,7 @@ public final class EndAccessService {
     public boolean areEyesAllowed() {
         if (!eyesAllowed && eyesEnableAt != null && Instant.now().isAfter(eyesEnableAt)) {
             setEyes(true, null);
-            configSaver.run();
+            persistAutoEnable("Ender Eyes");
         }
         return eyesAllowed;
     }
@@ -43,7 +48,7 @@ public final class EndAccessService {
     public boolean arePortalsAllowed() {
         if (!portalsAllowed && portalsEnableAt != null && Instant.now().isAfter(portalsEnableAt)) {
             setPortals(true, null);
-            configSaver.run();
+            persistAutoEnable("End Portals");
         }
         return portalsAllowed;
     }
@@ -84,5 +89,13 @@ public final class EndAccessService {
 
     public String formatEst(Instant instant) {
         return PluginConfigLoader.EST_FORMAT.withZone(PluginConfigLoader.EST_ZONE).format(instant);
+    }
+
+    private void persistAutoEnable(String label) {
+        if (!persistAutoEnable) {
+            return;
+        }
+        configSaver.run();
+        logger.info(label + " reached scheduled enable time and were persisted as enabled.");
     }
 }
