@@ -77,6 +77,18 @@ public final class PerformanceCounters {
         reloadTaskRestarts.increment();
     }
 
+    public long snapshotLoadFailures() {
+        return snapshotLoadFailures.sum();
+    }
+
+    public long snapshotSaveFailures() {
+        return snapshotSaveFailures.sum();
+    }
+
+    public long backstopRepairs() {
+        return backstopRepairs.sum();
+    }
+
     public String summary() {
         return "zoneQueries=" + zoneQueries.sum()
                 + ", protectedChecks=" + protectedChecks.sum()

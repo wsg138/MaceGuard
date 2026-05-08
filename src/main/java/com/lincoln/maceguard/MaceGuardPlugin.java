@@ -72,6 +72,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
             if (!runtime.settings().reload().preserveTemporaryBlocks()) {
                 runtime.zoneStateService().clearTemporaryBlocksForReload();
             }
+            getLogger().info("Reload preserving reset queue size " + runtime.zoneStateService().resetQueueSize()
+                    + " and temporary blocks " + runtime.zoneStateService().temporaryBlockCount()
+                    + " (preserve-temporary-blocks=" + runtime.settings().reload().preserveTemporaryBlocks() + ").");
             runtime.shutdownForReload();
         }
         migrateConfig();
@@ -154,7 +157,13 @@ public final class MaceGuardPlugin extends JavaPlugin {
         BukkitTask debugTicker = null;
         if (settings.debugPerformance().enabled()) {
             long intervalTicks = settings.debugPerformance().logIntervalSeconds() * 20L;
-            debugTicker = Bukkit.getScheduler().runTaskTimer(this, () -> getLogger().info("Performance counters: " + counters.summary() + ", resetQueueSize=" + zoneStateService.resetQueueSize()), intervalTicks, intervalTicks);
+            debugTicker = Bukkit.getScheduler().runTaskTimer(this, () -> getLogger().info("Performance counters: " + counters.summary()
+                    + ", snapshotLoading=" + snapshotService.loadingZones()
+                    + ", resetQueueSize=" + zoneStateService.resetQueueSize()
+                    + ", activeZoneTasks=" + zoneStateService.activeZoneTaskCount()
+                    + ", activeDrainTasks=" + zoneStateService.activeDrainTaskCount()
+                    + ", drainQueueSize=" + zoneStateService.drainQueueSize()
+                    + ", temporaryBlocks=" + zoneStateService.temporaryBlockCount()), intervalTicks, intervalTicks);
         }
         counters.reloadTaskRestart();
 

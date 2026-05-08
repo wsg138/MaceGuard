@@ -44,6 +44,7 @@ public final class ZoneStateService {
     private final Set<BlockKey> temporaryBlocks = new HashSet<>();
     private final Map<String, ZoneTaskHandle> activeZoneTasks = new HashMap<>();
     private final Map<String, Set<BukkitTask>> activeDrainTasksByZone = new HashMap<>();
+    private final Map<String, Integer> drainQueueSizesByZone = new HashMap<>();
     private final Map<String, Long> lastResetAt = new HashMap<>();
     private final Map<String, Set<Integer>> firedWarningsByZone = new HashMap<>();
 
@@ -322,25 +323,14 @@ public final class ZoneStateService {
                         temporaryBlocks.remove(BlockKey.of(block));
                         markChanged(zone.name(), block);
                     }
-                    for (Block next : List.of(
-                            block.getRelative(1, 0, 0),
-                            block.getRelative(-1, 0, 0),
-                            block.getRelative(0, 1, 0),
-                            block.getRelative(0, -1, 0),
-                            block.getRelative(0, 0, 1),
-                            block.getRelative(0, 0, -1))) {
-                        if (!zone.region().contains(next.getLocation())) {
-                            continue;
-                        }
-                        BlockKey nextKey = BlockKey.of(next);
-                        if (!visited.add(nextKey)) {
-                            continue;
-                        }
-                        if (next.getType() == Material.WATER || next.getType() == Material.LAVA) {
-                            queue.add(next);
-                        }
-                    }
+                    enqueueLiquidNeighbor(block.getRelative(1, 0, 0), zone, visited, queue);
+                    enqueueLiquidNeighbor(block.getRelative(-1, 0, 0), zone, visited, queue);
+                    enqueueLiquidNeighbor(block.getRelative(0, 1, 0), zone, visited, queue);
+                    enqueueLiquidNeighbor(block.getRelative(0, -1, 0), zone, visited, queue);
+                    enqueueLiquidNeighbor(block.getRelative(0, 0, 1), zone, visited, queue);
+                    enqueueLiquidNeighbor(block.getRelative(0, 0, -1), zone, visited, queue);
                 }
+                drainQueueSizesByZone.put(zone.name(), queue.size());
                 if (queue.isEmpty()) {
                     clearDrainTask(zone.name(), this);
                     cancel();
@@ -369,6 +359,19 @@ public final class ZoneStateService {
                 }
             }
         };
+    }
+
+    private void enqueueLiquidNeighbor(Block next, GameplayZone zone, Set<BlockKey> visited, ArrayDeque<Block> queue) {
+        if (!zone.region().contains(next.getLocation())) {
+            return;
+        }
+        BlockKey nextKey = BlockKey.of(next);
+        if (!visited.add(nextKey)) {
+            return;
+        }
+        if (next.getType() == Material.WATER || next.getType() == Material.LAVA) {
+            queue.add(next);
+        }
     }
 
     private void cancelZoneMutations(GameplayZone zone) {
@@ -446,11 +449,13 @@ public final class ZoneStateService {
         tasks.removeIf(task -> task.getTaskId() == runnable.getTaskId());
         if (tasks.isEmpty()) {
             activeDrainTasksByZone.remove(zoneName);
+            drainQueueSizesByZone.remove(zoneName);
         }
     }
 
     private void cancelDrainTasks(String zoneName) {
         Set<BukkitTask> tasks = activeDrainTasksByZone.remove(zoneName);
+        drainQueueSizesByZone.remove(zoneName);
         if (tasks == null) {
             return;
         }
@@ -488,6 +493,7 @@ public final class ZoneStateService {
             }
         }
         activeDrainTasksByZone.clear();
+        drainQueueSizesByZone.clear();
     }
 
     public ZoneStateSnapshot snapshotState() {
@@ -588,6 +594,30 @@ public final class ZoneStateService {
             total += blocks.size();
         }
         return total;
+    }
+
+    public int activeZoneTaskCount() {
+        return activeZoneTasks.size();
+    }
+
+    public int activeDrainTaskCount() {
+        int total = 0;
+        for (Set<BukkitTask> tasks : activeDrainTasksByZone.values()) {
+            total += tasks.size();
+        }
+        return total;
+    }
+
+    public int drainQueueSize() {
+        int total = 0;
+        for (Integer size : drainQueueSizesByZone.values()) {
+            total += size;
+        }
+        return total;
+    }
+
+    public int temporaryBlockCount() {
+        return temporaryBlocks.size();
     }
 
     private void rescheduleTemporaryBlocks() {

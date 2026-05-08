@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -78,6 +79,10 @@ public final class SnapshotService {
 
     public boolean isSnapshotLoading(String zoneName) {
         return loadingByZone.containsKey(zoneName);
+    }
+
+    public Set<String> loadingZones() {
+        return Set.copyOf(loadingByZone.keySet());
     }
 
     public void capture(String zoneName, CuboidRegion region, Consumer<String> feedback) {

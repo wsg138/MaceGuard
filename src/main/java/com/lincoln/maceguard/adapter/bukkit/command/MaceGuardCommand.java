@@ -125,7 +125,15 @@ public final class MaceGuardCommand implements TabExecutor {
             case "stats" -> {
                 requirePermission(sender, "maceguard.reload");
                 sender.sendMessage("\u00A7eMaceGuard stats: \u00A7f" + plugin.runtime().counters().summary());
-                sender.sendMessage("\u00A7eReset queue size: \u00A7f" + plugin.runtime().zoneStateService().resetQueueSize());
+                sender.sendMessage("\u00A7eSnapshot loading: \u00A7f" + loadingSnapshotText());
+                sender.sendMessage("\u00A7eReset queue size: \u00A7f" + plugin.runtime().zoneStateService().resetQueueSize()
+                        + "\u00A7e, active zone tasks: \u00A7f" + plugin.runtime().zoneStateService().activeZoneTaskCount()
+                        + "\u00A7e, active drain tasks: \u00A7f" + plugin.runtime().zoneStateService().activeDrainTaskCount());
+                sender.sendMessage("\u00A7eDrain queue size: \u00A7f" + plugin.runtime().zoneStateService().drainQueueSize()
+                        + "\u00A7e, temporary blocks: \u00A7f" + plugin.runtime().zoneStateService().temporaryBlockCount()
+                        + "\u00A7e, backstop repairs: \u00A7f" + plugin.runtime().counters().backstopRepairs());
+                sender.sendMessage("\u00A7eSnapshot failures: load=\u00A7f" + plugin.runtime().counters().snapshotLoadFailures()
+                        + "\u00A7e, save=\u00A7f" + plugin.runtime().counters().snapshotSaveFailures());
                 return true;
             }
             case "endeyes" -> {
@@ -224,6 +232,11 @@ public final class MaceGuardCommand implements TabExecutor {
 
     private String usage() {
         return "\u00A7eUsage: \u00A7f/maceguard reload\u00A77, \u00A7f/maceguard debug\u00A77, \u00A7f/maceguard stats\u00A77, \u00A7f/maceguard here\u00A77, \u00A7f/maceguard clear [zone]\u00A77, \u00A7f/maceguard snapshot <zone>\u00A77, \u00A7f/maceguard reset <zone>\u00A77, \u00A7f/maceguard endeyes <on|off|at time>\u00A77, \u00A7f/maceguard endportal <on|off|at time>\u00A77, \u00A7f/maceguard endstatus";
+    }
+
+    private String loadingSnapshotText() {
+        List<String> loading = plugin.runtime().snapshotService().loadingZones().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+        return loading.isEmpty() ? "none" : String.join(", ", loading);
     }
 
     private void requirePermission(CommandSender sender, String permission) {
