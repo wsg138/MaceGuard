@@ -1,4 +1,4 @@
-config-version: 2
+config-version: 3
 enabled: true
 debug: false
 
@@ -63,6 +63,7 @@ end_island:
   enabled: true
   island_radius: 1024
   block_maces: true
+  block_spears: true
   fun_bed_sleep: true
   explosives:
     # 0 disables the explosion entirely. 100 is vanilla strength.

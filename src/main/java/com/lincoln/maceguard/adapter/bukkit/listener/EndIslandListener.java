@@ -20,9 +20,12 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.ExplosionPrimeEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.player.PlayerRiptideEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.projectiles.ProjectileSource;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -46,20 +49,93 @@ public final class EndIslandListener implements Listener {
             return;
         }
         EndIslandSettings settings = plugin.runtime().settings().endIsland();
-        if (!settings.enabled() || !settings.blockMaces()) {
+        if (!settings.enabled() || (!settings.blockMaces() && !settings.blockSpears())) {
             return;
         }
         if (!(event.getDamager() instanceof Player player)) {
             return;
         }
-        ItemStack item = player.getInventory().getItemInMainHand();
-        if (item == null || item.getType() == Material.AIR || !Compat.isMace(item.getType())) {
+        if (!isBlockedEndIslandWeapon(player, settings)) {
             return;
         }
         if (!isMainIsland(event.getEntity().getLocation(), settings)) {
             return;
         }
         event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSpearProjectileDamage(EntityDamageByEntityEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        EndIslandSettings settings = plugin.runtime().settings().endIsland();
+        if (!settings.enabled() || !settings.blockSpears()) {
+            return;
+        }
+        if (!Compat.isSpearEntity(event.getDamager().getType().name()) || !isMainIsland(event.getEntity().getLocation(), settings)) {
+            return;
+        }
+        event.setCancelled(true);
+        event.getDamager().remove();
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSpearUse(PlayerInteractEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        EndIslandSettings settings = plugin.runtime().settings().endIsland();
+        if (!settings.enabled() || !settings.blockSpears()) {
+            return;
+        }
+        ItemStack item = event.getItem();
+        if (!isSpear(item)) {
+            return;
+        }
+        Location location = event.getClickedBlock() == null ? event.getPlayer().getLocation() : event.getClickedBlock().getLocation();
+        if (!isMainIsland(location, settings)) {
+            return;
+        }
+        event.setCancelled(true);
+        event.setUseItemInHand(org.bukkit.event.Event.Result.DENY);
+        event.setUseInteractedBlock(org.bukkit.event.Event.Result.DENY);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSpearLaunch(ProjectileLaunchEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        EndIslandSettings settings = plugin.runtime().settings().endIsland();
+        if (!settings.enabled() || !settings.blockSpears()) {
+            return;
+        }
+        ProjectileSource shooter = event.getEntity().getShooter();
+        if (!(shooter instanceof Player player)) {
+            return;
+        }
+        if (!Compat.isSpearEntity(event.getEntity().getType().name()) && !isHoldingSpear(player)) {
+            return;
+        }
+        if (!isMainIsland(player.getLocation(), settings) && !isMainIsland(event.getEntity().getLocation(), settings)) {
+            return;
+        }
+        event.setCancelled(true);
+        event.getEntity().remove();
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onSpearLunge(PlayerRiptideEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        EndIslandSettings settings = plugin.runtime().settings().endIsland();
+        if (!settings.enabled() || !settings.blockSpears() || !isSpear(event.getItem()) || !isMainIsland(event.getPlayer().getLocation(), settings)) {
+            return;
+        }
+        event.getPlayer().setVelocity(event.getPlayer().getVelocity().zero());
+        event.getPlayer().getServer().getScheduler().runTask(plugin, () -> event.getPlayer().setVelocity(event.getPlayer().getVelocity().zero()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -273,6 +349,23 @@ public final class EndIslandListener implements Listener {
         double x = location.getX();
         double z = location.getZ();
         return (x * x) + (z * z) <= (double) settings.islandRadius() * settings.islandRadius();
+    }
+
+    private boolean isBlockedEndIslandWeapon(Player player, EndIslandSettings settings) {
+        return (settings.blockMaces() && isMace(player.getInventory().getItemInMainHand()))
+                || (settings.blockSpears() && isSpear(player.getInventory().getItemInMainHand()));
+    }
+
+    private boolean isHoldingSpear(Player player) {
+        return isSpear(player.getInventory().getItemInMainHand()) || isSpear(player.getInventory().getItemInOffHand());
+    }
+
+    private boolean isMace(ItemStack item) {
+        return item != null && item.getType() != Material.AIR && Compat.isMace(item.getType());
+    }
+
+    private boolean isSpear(ItemStack item) {
+        return item != null && Compat.isSpear(item.getType());
     }
 
     private boolean isEnderCrystal(EntityType type) {

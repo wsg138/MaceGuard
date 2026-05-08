@@ -22,4 +22,12 @@ public final class Compat {
     public static boolean isMace(Material mat) {
         return MACE_MATERIAL != null && mat == MACE_MATERIAL;
     }
+
+    public static boolean isSpear(Material mat) {
+        return mat != null && mat != Material.AIR && mat.name().contains("SPEAR");
+    }
+
+    public static boolean isSpearEntity(String entityTypeName) {
+        return entityTypeName != null && entityTypeName.toUpperCase(java.util.Locale.ROOT).contains("SPEAR");
+    }
 }

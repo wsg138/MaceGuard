@@ -100,6 +100,7 @@ public final class PluginConfigLoader {
                 config.getBoolean("end_island.enabled", true),
                 Math.max(16, config.getInt("end_island.island_radius", 1024)),
                 config.getBoolean("end_island.block_maces", true),
+                config.getBoolean("end_island.block_spears", true),
                 config.getBoolean("end_island.fun_bed_sleep", true),
                 new EndIslandExplosiveSettings(
                         config.getDouble("end_island.explosives.tnt.power_percent", 0.0D),

@@ -120,6 +120,7 @@
 
 11. End main-island checks
    - On the End main island, confirm mace hits are blocked if `block_maces: true`.
+   - On the End main island, confirm all spear variants cannot melee, release/throw, projectile-damage, or lunge if `block_spears: true`.
    - Confirm End crystals cannot be placed except on dragon respawn bedrock spots.
    - Confirm dragon respawn crystal spots enforce cooldown.
    - Confirm TNT and TNT minecart behavior follows config percentages.
