@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.logging.Logger;
 
 public final class ConfigMigrator {
-    public static final int CURRENT_CONFIG_VERSION = 3;
+    public static final int CURRENT_CONFIG_VERSION = 4;
     private static final DateTimeFormatter BACKUP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final JavaPlugin plugin;
@@ -45,6 +45,7 @@ public final class ConfigMigrator {
         int existingVersion = config.getInt("config-version", 1);
         List<String> addedPaths = new ArrayList<>();
         addMissingPath(config, defaults, "config-version", addedPaths);
+        addKnownMigrationPaths(config, defaults, addedPaths);
         for (String path : flattenedPaths(defaults)) {
             addMissingPath(config, defaults, path, addedPaths);
         }
@@ -73,11 +74,22 @@ public final class ConfigMigrator {
         }
     }
 
+    private void addKnownMigrationPaths(YamlConfiguration config, YamlConfiguration defaults, List<String> addedPaths) {
+        addMissingPath(config, defaults, "end_island.block_spears", Boolean.TRUE, addedPaths);
+    }
+
     private void addMissingPath(YamlConfiguration config, YamlConfiguration defaults, String path, List<String> addedPaths) {
+        addMissingPath(config, defaults, path, null, addedPaths);
+    }
+
+    private void addMissingPath(YamlConfiguration config, YamlConfiguration defaults, String path, Object fallback, List<String> addedPaths) {
         if (config.contains(path, true) || defaults.isConfigurationSection(path)) {
             return;
         }
         Object value = defaults.get(path);
+        if (value == null) {
+            value = fallback;
+        }
         if (value == null) {
             return;
         }

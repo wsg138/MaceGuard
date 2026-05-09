@@ -117,6 +117,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         duelArenaFootprintService.reload();
         PluginConfigLoader loader = new PluginConfigLoader(getLogger());
         PluginSettings settings = loader.load(getConfig());
+        getLogger().info("End island spear blocking is " + (settings.endIsland().blockSpears() ? "enabled" : "disabled") + ".");
         PerformanceCounters counters = runtime != null ? runtime.counters() : new PerformanceCounters();
 
         ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
