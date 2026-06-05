@@ -153,34 +153,17 @@ public final class EndIslandListener implements Listener {
 
         Material type = event.getItem().getType();
         if (type == Material.END_CRYSTAL) {
-            Block base = event.getClickedBlock();
-            if (!isDragonRespawnSpot(base)) {
-                event.setCancelled(true);
-                event.getPlayer().sendMessage("\u00A7cEnd crystals are disabled on the main island except for dragon respawn spots.");
-                return;
-            }
-            String key = spotKey(base);
-            long now = System.currentTimeMillis();
-            Long lastPlaced = dragonSpotCooldowns.get(key);
-            if (lastPlaced != null && now - lastPlaced < DRAGON_SPOT_COOLDOWN_MILLIS) {
-                long remainingSeconds = (DRAGON_SPOT_COOLDOWN_MILLIS - (now - lastPlaced)) / 1000L;
-                event.setCancelled(true);
-                event.getPlayer().sendMessage("\u00A7cThat dragon respawn spot is on cooldown (" + remainingSeconds + "s).");
-                return;
-            }
-            dragonSpotCooldowns.put(key, now);
+            handleCrystalPlace(event);
             return;
         }
 
         if (type == Material.TNT_MINECART) {
-            event.setCancelled(true);
-            event.getPlayer().sendMessage("\u00A7cTNT minecarts are disabled on the main island.");
+            cancelWithMessage(event, "\u00A7cTNT minecarts are disabled on the main island.");
             return;
         }
 
         if (type == Material.TNT && settings.explosives().tntPercent() <= 0.0D) {
-            event.setCancelled(true);
-            event.getPlayer().sendMessage("\u00A7cTNT is disabled on the main island.");
+            cancelWithMessage(event, "\u00A7cTNT is disabled on the main island.");
         }
     }
 
@@ -321,22 +304,59 @@ public final class EndIslandListener implements Listener {
         event.setCancelled(true);
         double scale = isAnchor ? settings.explosives().scaleForRespawnAnchor() : settings.explosives().scaleForBed();
         if (scale <= 0.0D) {
-            if (isBed && settings.funBedSleep()) {
-                Player player = event.getPlayer();
-                Location sleepLocation = block.getLocation().add(0.5D, 0.6D, 0.5D);
-                player.teleport(sleepLocation);
-                player.sleep(sleepLocation, true);
-                player.sendMessage("\u00A7dSweet dreams in the void.");
-                player.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (player.isSleeping()) {
-                        player.wakeup(false);
-                    }
-                }, 40L);
-            }
+            handleDisabledBedExplosion(event.getPlayer(), block, isBed, settings);
             return;
         }
 
         float power = (float) ((isAnchor ? ANCHOR_BASE : BED_BASE) * scale);
+        createConfiguredExplosion(block, power);
+    }
+
+    private void handleCrystalPlace(PlayerInteractEvent event) {
+        Block base = event.getClickedBlock();
+        if (!isDragonRespawnSpot(base)) {
+            cancelWithMessage(event, "\u00A7cEnd crystals are disabled on the main island except for dragon respawn spots.");
+            return;
+        }
+        long remainingSeconds = dragonSpotCooldownSeconds(base);
+        if (remainingSeconds > 0) {
+            cancelWithMessage(event, "\u00A7cThat dragon respawn spot is on cooldown (" + remainingSeconds + "s).");
+            return;
+        }
+        dragonSpotCooldowns.put(spotKey(base), System.currentTimeMillis());
+    }
+
+    private long dragonSpotCooldownSeconds(Block base) {
+        Long lastPlaced = dragonSpotCooldowns.get(spotKey(base));
+        if (lastPlaced == null) {
+            return 0L;
+        }
+        long elapsed = System.currentTimeMillis() - lastPlaced;
+        return elapsed < DRAGON_SPOT_COOLDOWN_MILLIS ? (DRAGON_SPOT_COOLDOWN_MILLIS - elapsed) / 1000L : 0L;
+    }
+
+    private void cancelWithMessage(PlayerInteractEvent event, String message) {
+        event.setCancelled(true);
+        event.getPlayer().sendMessage(message);
+    }
+
+    private void handleDisabledBedExplosion(Player player, Block block, boolean bed, EndIslandSettings settings) {
+        if (bed && settings.funBedSleep()) {
+            Location sleepLocation = block.getLocation().add(0.5D, 0.6D, 0.5D);
+            player.teleport(sleepLocation);
+            player.sleep(sleepLocation, true);
+            player.sendMessage("\u00A7dSweet dreams in the void.");
+            player.getServer().getScheduler().runTaskLater(plugin, () -> wakeSleepingPlayer(player), 40L);
+        }
+    }
+
+    private void wakeSleepingPlayer(Player player) {
+        if (player.isSleeping()) {
+            player.wakeup(false);
+        }
+    }
+
+    private void createConfiguredExplosion(Block block, float power) {
         Location location = block.getLocation().add(0.5D, 0.5D, 0.5D);
         block.setType(Material.AIR, false);
         location.getWorld().createExplosion(location, power, false, true);
