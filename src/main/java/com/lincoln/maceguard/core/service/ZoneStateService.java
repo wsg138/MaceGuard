@@ -42,6 +42,7 @@ public final class ZoneStateService {
     private final Map<BlockKey, Long> ttlExpiresAt = new HashMap<>();
     private final Map<BlockKey, Set<String>> ttlZonesByBlock = new HashMap<>();
     private final Set<BlockKey> temporaryBlocks = new HashSet<>();
+    private final Set<BlockKey> placedBlocks = new HashSet<>();
     private final Map<String, ZoneTaskHandle> activeZoneTasks = new HashMap<>();
     private final Map<String, Set<BukkitTask>> activeDrainTasksByZone = new HashMap<>();
     private final Map<String, Integer> drainQueueSizesByZone = new HashMap<>();
@@ -90,6 +91,19 @@ public final class ZoneStateService {
 
     public void markChanged(String zoneName, Block block) {
         changedBlocksByZone.computeIfAbsent(zoneName, ignored -> new LinkedHashSet<>()).add(BlockKey.of(block));
+    }
+
+    public void markPlaced(Block block) {
+        placedBlocks.add(BlockKey.of(block));
+    }
+
+    public boolean isPlaced(Block block) {
+        return placedBlocks.contains(BlockKey.of(block));
+    }
+
+    public void forgetPlacedAfterDrops(Block block) {
+        BlockKey key = BlockKey.of(block);
+        Bukkit.getScheduler().runTask(plugin, () -> placedBlocks.remove(key));
     }
 
     public void scheduleTemporaryClear(Block block, int ttlSeconds, Collection<GameplayZone> applicableZones) {
@@ -404,6 +418,8 @@ public final class ZoneStateService {
             }
             temporaryBlocks.remove(key);
         }
+
+        placedBlocks.removeIf(key -> zone.region().contains(key.worldName(), key.x(), key.y(), key.z()));
     }
 
     private boolean isRestoreRunning(String zoneName) {
@@ -505,7 +521,7 @@ public final class ZoneStateService {
         for (Map.Entry<String, Set<Integer>> entry : firedWarningsByZone.entrySet()) {
             warnings.put(entry.getKey(), new HashSet<>(entry.getValue()));
         }
-        return new ZoneStateSnapshot(changed, new HashSet<>(temporaryBlocks), new HashMap<>(ttlExpiresAt), new HashMap<>(ttlZonesByBlock), new HashMap<>(lastResetAt), warnings);
+        return new ZoneStateSnapshot(changed, new HashSet<>(temporaryBlocks), new HashSet<>(placedBlocks), new HashMap<>(ttlExpiresAt), new HashMap<>(ttlZonesByBlock), new HashMap<>(lastResetAt), warnings);
     }
 
     public void restoreState(ZoneStateSnapshot snapshot, boolean clearInvalidZoneState, boolean preserveTemporaryBlocks) {
@@ -534,6 +550,8 @@ public final class ZoneStateService {
         if (preserveTemporaryBlocks) {
             temporaryBlocks.clear();
             temporaryBlocks.addAll(snapshot.temporaryBlocks());
+            placedBlocks.clear();
+            placedBlocks.addAll(snapshot.placedBlocks());
             ttlExpiresAt.clear();
             ttlExpiresAt.putAll(snapshot.ttlExpiresAt());
             ttlZonesByBlock.clear();
@@ -666,6 +684,7 @@ public final class ZoneStateService {
     public record ZoneStateSnapshot(
             Map<String, Set<BlockKey>> changedBlocksByZone,
             Set<BlockKey> temporaryBlocks,
+            Set<BlockKey> placedBlocks,
             Map<BlockKey, Long> ttlExpiresAt,
             Map<BlockKey, Set<String>> ttlZonesByBlock,
             Map<String, Long> lastResetAt,

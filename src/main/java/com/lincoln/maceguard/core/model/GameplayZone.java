@@ -14,6 +14,7 @@ public record GameplayZone(
         boolean externallyManaged,
         boolean confineLiquids,
         boolean blockInfiniteSources,
+        boolean suppressSnapshotDrops,
         int ttlSeconds,
         int fullResetMinutes,
         ResetMode resetMode,

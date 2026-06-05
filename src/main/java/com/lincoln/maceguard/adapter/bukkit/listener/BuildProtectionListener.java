@@ -15,6 +15,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.block.BlockFormEvent;
 import org.bukkit.event.block.BlockFromToEvent;
@@ -111,6 +112,27 @@ public final class BuildProtectionListener implements Listener {
 
         for (GameplayZone zone : zones) {
             plugin.runtime().zoneStateService().markChanged(zone.name(), block);
+        }
+        if (shouldSuppressSnapshotDrops(block, zones)) {
+            event.setDropItems(false);
+            event.setExpToDrop(0);
+        }
+        if (plugin.runtime().zoneStateService().isPlaced(block)) {
+            plugin.runtime().zoneStateService().forgetPlacedAfterDrops(block);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockDropItems(BlockDropItemEvent event) {
+        if (!plugin.isFeatureEnabled()) {
+            return;
+        }
+        ZoneRegistry.ZoneQuery query = plugin.runtime().zoneRegistry().query(event.getBlockState().getLocation());
+        if (query.externallyManaged()) {
+            return;
+        }
+        if (shouldSuppressSnapshotDrops(event.getBlockState().getBlock(), query.highestZones())) {
+            event.setCancelled(true);
         }
     }
 
@@ -335,10 +357,19 @@ public final class BuildProtectionListener implements Listener {
         for (GameplayZone zone : zones) {
             plugin.runtime().zoneStateService().markChanged(zone.name(), block);
         }
+        if (!zones.isEmpty()) {
+            plugin.runtime().zoneStateService().markPlaced(block);
+        }
         int ttl = zones.stream().mapToInt(GameplayZone::ttlSeconds).max().orElse(0);
         if (ttl > 0 && shouldTtlClear(block.getType(), zones)) {
             plugin.runtime().zoneStateService().scheduleTemporaryClear(block, ttl, zones);
         }
+    }
+
+    private boolean shouldSuppressSnapshotDrops(Block block, List<GameplayZone> zones) {
+        return !zones.isEmpty()
+                && zones.stream().anyMatch(GameplayZone::suppressSnapshotDrops)
+                && !plugin.runtime().zoneStateService().isPlaced(block);
     }
 
     private void markChanged(Block block) {

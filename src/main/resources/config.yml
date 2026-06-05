@@ -1,4 +1,4 @@
-config-version: 4
+config-version: 5
 enabled: true
 debug: false
 
@@ -90,14 +90,14 @@ gameplay_zones:
   - name: death-duels-arena
     priority: 60
     world: world
-    min: { x: -164, y: 131, z: -343 }
-    max: { x: -116, y: 216, z: -295 }
+    min: { x: -193, y: 131, z: -370 }
+    max: { x: -83, y: 222, z: -263 }
     externally_managed: true
     allow_all_place: true
     allow_all_break: true
     allowed_place: []
     deny_place: []
-    confine_liquids: true
+    confine_liquids: false
     block_infinite_sources: false
     ttl_seconds: 0
     full_reset_minutes: 0
@@ -165,6 +165,7 @@ gameplay_zones:
     allowed_place: []
     confine_liquids: true
     block_infinite_sources: false
+    suppress_snapshot_drops: true
     ttl_seconds: 0
     full_reset_minutes: 60
     reset_mode: SNAPSHOT

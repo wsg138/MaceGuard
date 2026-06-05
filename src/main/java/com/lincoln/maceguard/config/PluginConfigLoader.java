@@ -152,6 +152,7 @@ public final class PluginConfigLoader {
         boolean externallyManaged = bool(rawZone.get("externally_managed"), false);
         boolean confineLiquids = bool(rawZone.get("confine_liquids"), false);
         boolean blockInfiniteSources = bool(rawZone.get("block_infinite_sources"), false);
+        boolean suppressSnapshotDrops = bool(rawZone.get("suppress_snapshot_drops"), false);
         int ttlSeconds = Math.max(0, integer(rawZone.get("ttl_seconds"), 0));
         int fullResetMinutes = Math.max(0, integer(rawZone.get("full_reset_minutes"), 0));
         ResetMode resetMode = enumValue(rawZone.get("reset_mode"), ResetMode.AIR);
@@ -179,6 +180,7 @@ public final class PluginConfigLoader {
                 externallyManaged,
                 confineLiquids,
                 blockInfiniteSources,
+                suppressSnapshotDrops,
                 ttlSeconds,
                 fullResetMinutes,
                 resetMode,

@@ -97,6 +97,8 @@
    - Confirm warning messages fire only once per configured warning second.
    - Confirm the automatic reset starts once per cycle.
    - Confirm a second timed reset does not start on top of an active restore.
+   - In `war-pit`, break original/snapshot terrain and confirm no item or XP drops appear.
+   - Place and then break a block in that same zone and confirm the placed block still drops normally.
 
 9. Reload / restart / shutdown checks
    - Trigger a `FULL` restore, then run `/maceguard reload` mid-restore.
