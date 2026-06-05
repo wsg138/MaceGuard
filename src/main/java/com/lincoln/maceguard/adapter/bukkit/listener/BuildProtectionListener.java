@@ -205,7 +205,6 @@ public final class BuildProtectionListener implements Listener {
         if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = query.highestZones();
         if (placementDenied(query, item.getType(), event.getPlayer())) {
             event.setCancelled(true);
         }

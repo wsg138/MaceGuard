@@ -14,15 +14,15 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerItemDamageEvent;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class MaceDurabilityListener implements Listener {
     private final MaceGuardPlugin plugin;
-    private final Map<UUID, MaceDurabilityContext> pendingDurabilityCaps = new HashMap<>();
+    private final Map<UUID, MaceDurabilityContext> pendingDurabilityCaps = new ConcurrentHashMap<>();
 
     public MaceDurabilityListener(MaceGuardPlugin plugin) {
         this.plugin = plugin;

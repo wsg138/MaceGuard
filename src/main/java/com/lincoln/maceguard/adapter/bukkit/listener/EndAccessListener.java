@@ -55,15 +55,21 @@ public final class EndAccessListener implements Listener {
         if (!plugin.isFeatureEnabled() || !plugin.runtime().endAccessService().managesEyes()) {
             return false;
         }
-        if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
-            return false;
-        }
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return false;
-        }
-        return event.getAction() != Action.RIGHT_CLICK_BLOCK
-                || event.getClickedBlock() == null
-                || event.getClickedBlock().getType() != Material.END_PORTAL_FRAME;
+        return isEnderEye(event) && isRightClick(event) && !isPortalFrameClick(event);
+    }
+
+    private boolean isEnderEye(PlayerInteractEvent event) {
+        return event.getItem() != null && event.getItem().getType() == Material.ENDER_EYE;
+    }
+
+    private boolean isRightClick(PlayerInteractEvent event) {
+        return event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK;
+    }
+
+    private boolean isPortalFrameClick(PlayerInteractEvent event) {
+        return event.getAction() == Action.RIGHT_CLICK_BLOCK
+                && event.getClickedBlock() != null
+                && event.getClickedBlock().getType() == Material.END_PORTAL_FRAME;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
