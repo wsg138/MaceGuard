@@ -17,6 +17,10 @@ import java.util.Locale;
 import java.util.stream.Stream;
 
 public final class MaceGuardCommand implements TabExecutor {
+    private static final String RELOAD_PERMISSION = "maceguard.reload";
+    private static final String END_EYES_COMMAND = "endeyes";
+    private static final String END_PORTAL_COMMAND = "endportal";
+
     private final MaceGuardPlugin plugin;
 
     public MaceGuardCommand(MaceGuardPlugin plugin) {
@@ -53,13 +57,13 @@ public final class MaceGuardCommand implements TabExecutor {
         String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
             case "reload" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 plugin.reloadPlugin();
                 sender.sendMessage("\u00A7aMaceGuard configuration reloaded.");
                 return true;
             }
             case "debug" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 plugin.toggleDebug();
                 sender.sendMessage("\u00A7eMaceGuard debug: " + (plugin.runtime().settings().debug() ? "\u00A7aON" : "\u00A7cOFF"));
                 return true;
@@ -78,7 +82,7 @@ public final class MaceGuardCommand implements TabExecutor {
                 return true;
             }
             case "clear" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 String zoneName = args.length >= 2 ? args[1] : null;
                 if (zoneName != null && plugin.runtime().zoneRegistry().findZone(zoneName) == null) {
                     sender.sendMessage("\u00A7cUnknown zone: \u00A7f" + zoneName);
@@ -89,7 +93,7 @@ public final class MaceGuardCommand implements TabExecutor {
                 return true;
             }
             case "snapshot" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 if (args.length < 2) {
                     sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard snapshot <zone>");
                     return true;
@@ -104,7 +108,7 @@ public final class MaceGuardCommand implements TabExecutor {
                 return true;
             }
             case "reset" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 if (args.length < 2) {
                     sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard reset <zone>");
                     return true;
@@ -123,7 +127,7 @@ public final class MaceGuardCommand implements TabExecutor {
                 return true;
             }
             case "stats" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 sender.sendMessage("\u00A7eMaceGuard stats: \u00A7f" + plugin.runtime().counters().summary());
                 sender.sendMessage("\u00A7eSnapshot loading: \u00A7f" + loadingSnapshotText());
                 sender.sendMessage("\u00A7eReset queue size: \u00A7f" + plugin.runtime().zoneStateService().resetQueueSize()
@@ -136,16 +140,16 @@ public final class MaceGuardCommand implements TabExecutor {
                         + "\u00A7e, save=\u00A7f" + plugin.runtime().counters().snapshotSaveFailures());
                 return true;
             }
-            case "endeyes" -> {
-                requirePermission(sender, "maceguard.reload");
+            case END_EYES_COMMAND -> {
+                requirePermission(sender, RELOAD_PERMISSION);
                 return handleEndToggle(sender, true, args);
             }
-            case "endportal" -> {
-                requirePermission(sender, "maceguard.reload");
+            case END_PORTAL_COMMAND -> {
+                requirePermission(sender, RELOAD_PERMISSION);
                 return handleEndToggle(sender, false, args);
             }
             case "endstatus" -> {
-                requirePermission(sender, "maceguard.reload");
+                requirePermission(sender, RELOAD_PERMISSION);
                 sender.sendMessage(plugin.runtime().endAccessService().statusLine(true));
                 sender.sendMessage(plugin.runtime().endAccessService().statusLine(false));
                 return true;
@@ -166,7 +170,7 @@ public final class MaceGuardCommand implements TabExecutor {
         if (args.length == 2 && Stream.of("clear", "snapshot", "reset").anyMatch(sub -> sub.equalsIgnoreCase(args[0]))) {
             return filter(args[1], zoneNames.toArray(String[]::new));
         }
-        if (args.length == 2 && Stream.of("endeyes", "endportal").anyMatch(sub -> sub.equalsIgnoreCase(args[0]))) {
+        if (args.length == 2 && Stream.of(END_EYES_COMMAND, END_PORTAL_COMMAND).anyMatch(sub -> sub.equalsIgnoreCase(args[0]))) {
             return filter(args[1], "on", "off", "at");
         }
         return List.of();
@@ -178,56 +182,63 @@ public final class MaceGuardCommand implements TabExecutor {
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + (eyes ? "endeyes" : "endportal") + " <on|off|at yyyy-MM-dd HH:mm>");
+            sendEndToggleUsage(sender, eyes);
             return true;
         }
         String action = args[1].toLowerCase(Locale.ROOT);
-        switch (action) {
-            case "on" -> {
-                if (eyes) {
-                    plugin.runtime().endAccessService().setEyes(true, null);
-                } else {
-                    plugin.runtime().endAccessService().setPortals(true, null);
-                }
-                plugin.saveConfig();
-                sender.sendMessage("\u00A7a" + (eyes ? "Ender Eyes" : "End Portals") + " enabled now.");
-                return true;
-            }
-            case "off" -> {
-                if (eyes) {
-                    plugin.runtime().endAccessService().setEyes(false, null);
-                } else {
-                    plugin.runtime().endAccessService().setPortals(false, null);
-                }
-                plugin.saveConfig();
-                sender.sendMessage("\u00A7c" + (eyes ? "Ender Eyes" : "End Portals") + " disabled.");
-                return true;
-            }
-            case "at" -> {
-                if (args.length < 4) {
-                    sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + (eyes ? "endeyes" : "endportal") + " at yyyy-MM-dd HH:mm");
-                    return true;
-                }
-                String timestamp = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
-                Instant instant = plugin.runtime().endAccessService().parseEst(timestamp);
-                if (instant == null) {
-                    sender.sendMessage("\u00A7cInvalid time. Use yyyy-MM-dd HH:mm in EST.");
-                    return true;
-                }
-                if (eyes) {
-                    plugin.runtime().endAccessService().setEyes(false, instant);
-                } else {
-                    plugin.runtime().endAccessService().setPortals(false, instant);
-                }
-                plugin.saveConfig();
-                sender.sendMessage("\u00A7e" + (eyes ? "Ender Eyes" : "End Portals") + " scheduled for \u00A7f" + plugin.runtime().endAccessService().formatEst(instant) + " EST\u00A7e.");
-                return true;
-            }
+        return switch (action) {
+            case "on" -> setEndAccessNow(sender, eyes, true);
+            case "off" -> setEndAccessNow(sender, eyes, false);
+            case "at" -> scheduleEndAccess(sender, eyes, args);
             default -> {
-                sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + (eyes ? "endeyes" : "endportal") + " <on|off|at yyyy-MM-dd HH:mm>");
-                return true;
+                sendEndToggleUsage(sender, eyes);
+                yield true;
             }
+        };
+    }
+
+    private boolean setEndAccessNow(CommandSender sender, boolean eyes, boolean enabled) {
+        setEndAccess(eyes, enabled, null);
+        plugin.saveConfig();
+        sender.sendMessage((enabled ? "\u00A7a" : "\u00A7c") + endAccessName(eyes) + (enabled ? " enabled now." : " disabled."));
+        return true;
+    }
+
+    private boolean scheduleEndAccess(CommandSender sender, boolean eyes, String[] args) {
+        if (args.length < 4) {
+            sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + endAccessCommand(eyes) + " at yyyy-MM-dd HH:mm");
+            return true;
         }
+        String timestamp = String.join(" ", Arrays.copyOfRange(args, 2, args.length));
+        Instant instant = plugin.runtime().endAccessService().parseEst(timestamp);
+        if (instant == null) {
+            sender.sendMessage("\u00A7cInvalid time. Use yyyy-MM-dd HH:mm in EST.");
+            return true;
+        }
+        setEndAccess(eyes, false, instant);
+        plugin.saveConfig();
+        sender.sendMessage("\u00A7e" + endAccessName(eyes) + " scheduled for \u00A7f" + plugin.runtime().endAccessService().formatEst(instant) + " EST\u00A7e.");
+        return true;
+    }
+
+    private void setEndAccess(boolean eyes, boolean enabled, Instant enableAt) {
+        if (eyes) {
+            plugin.runtime().endAccessService().setEyes(enabled, enableAt);
+        } else {
+            plugin.runtime().endAccessService().setPortals(enabled, enableAt);
+        }
+    }
+
+    private void sendEndToggleUsage(CommandSender sender, boolean eyes) {
+        sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + endAccessCommand(eyes) + " <on|off|at yyyy-MM-dd HH:mm>");
+    }
+
+    private String endAccessCommand(boolean eyes) {
+        return eyes ? END_EYES_COMMAND : END_PORTAL_COMMAND;
+    }
+
+    private String endAccessName(boolean eyes) {
+        return eyes ? "Ender Eyes" : "End Portals";
     }
 
     private String usage() {
@@ -257,5 +268,6 @@ public final class MaceGuardCommand implements TabExecutor {
     }
 
     private static final class CommandPermissionException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
     }
 }

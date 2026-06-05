@@ -27,8 +27,8 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.projectiles.ProjectileSource;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class EndIslandListener implements Listener {
     private static final double TNT_BASE = 4.0D;
@@ -37,7 +37,7 @@ public final class EndIslandListener implements Listener {
     private static final long DRAGON_SPOT_COOLDOWN_MILLIS = 60_000L;
 
     private final MaceGuardPlugin plugin;
-    private final Map<String, Long> dragonSpotCooldowns = new HashMap<>();
+    private final Map<String, Long> dragonSpotCooldowns = new ConcurrentHashMap<>();
 
     public EndIslandListener(MaceGuardPlugin plugin) {
         this.plugin = plugin;
