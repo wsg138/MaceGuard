@@ -10,10 +10,7 @@ import java.util.UUID;
 public final class WarzoneDuelsHook {
     private final MaceGuardPlugin plugin;
 
-    private Plugin duelPlugin;
-    private Method duelServiceMethod;
-    private Method hasActiveDuelMethod;
-    private Method isInActiveDuelMethod;
+    private HookLookup lookup = HookLookup.empty();
     private boolean lookupAttempted;
     private boolean warnedLookupFailure;
 
@@ -22,21 +19,18 @@ public final class WarzoneDuelsHook {
     }
 
     public void refresh() {
-        duelPlugin = null;
-        duelServiceMethod = null;
-        hasActiveDuelMethod = null;
-        isInActiveDuelMethod = null;
+        lookup = HookLookup.empty();
         lookupAttempted = false;
         duelService();
     }
 
     public boolean hasActiveDuel() {
         Object duelService = duelService();
-        if (duelService == null || hasActiveDuelMethod == null) {
+        if (duelService == null || lookup.hasActiveDuelMethod() == null) {
             return false;
         }
         try {
-            Object result = hasActiveDuelMethod.invoke(duelService);
+            Object result = lookup.hasActiveDuelMethod().invoke(duelService);
             return result instanceof Boolean value && value;
         } catch (ReflectiveOperationException ex) {
             warn("Failed to query active duel state", ex);
@@ -47,11 +41,11 @@ public final class WarzoneDuelsHook {
 
     public boolean isActiveParticipant(UUID playerId) {
         Object duelService = duelService();
-        if (duelService == null || isInActiveDuelMethod == null || playerId == null) {
+        if (duelService == null || lookup.isInActiveDuelMethod() == null || playerId == null) {
             return false;
         }
         try {
-            Object result = isInActiveDuelMethod.invoke(duelService, playerId);
+            Object result = lookup.isInActiveDuelMethod().invoke(duelService, playerId);
             return result instanceof Boolean value && value;
         } catch (ReflectiveOperationException ex) {
             warn("Failed to query duel participant state", ex);
@@ -63,25 +57,29 @@ public final class WarzoneDuelsHook {
     private Object duelService() {
         if (!lookupAttempted) {
             lookupAttempted = true;
-            duelPlugin = Bukkit.getPluginManager().getPlugin("WarzoneDuels");
-            if (duelPlugin == null || !duelPlugin.isEnabled()) {
+            Plugin pluginInstance = Bukkit.getPluginManager().getPlugin("WarzoneDuels");
+            if (pluginInstance == null || !pluginInstance.isEnabled()) {
                 return null;
             }
             try {
-                duelServiceMethod = duelPlugin.getClass().getMethod("duelService");
-                Class<?> duelServiceClass = duelServiceMethod.getReturnType();
-                hasActiveDuelMethod = duelServiceClass.getMethod("hasActiveDuel");
-                isInActiveDuelMethod = duelServiceClass.getMethod("isInActiveDuel", UUID.class);
+                Method serviceMethod = pluginInstance.getClass().getMethod("duelService");
+                Class<?> duelServiceClass = serviceMethod.getReturnType();
+                lookup = new HookLookup(
+                        pluginInstance,
+                        serviceMethod,
+                        duelServiceClass.getMethod("hasActiveDuel"),
+                        duelServiceClass.getMethod("isInActiveDuel", UUID.class)
+                );
             } catch (ReflectiveOperationException ex) {
                 warn("Failed to wire WarzoneDuels hook", ex);
                 return null;
             }
         }
-        if (duelPlugin == null || duelServiceMethod == null) {
+        if (lookup.duelPlugin() == null || lookup.duelServiceMethod() == null) {
             return null;
         }
         try {
-            return duelServiceMethod.invoke(duelPlugin);
+            return lookup.duelServiceMethod().invoke(lookup.duelPlugin());
         } catch (ReflectiveOperationException ex) {
             warn("Failed to access WarzoneDuels duel service", ex);
             return null;
@@ -94,5 +92,16 @@ public final class WarzoneDuelsHook {
         }
         warnedLookupFailure = true;
         plugin.getLogger().warning(message + ": " + ex.getMessage());
+    }
+
+    private record HookLookup(
+            Plugin duelPlugin,
+            Method duelServiceMethod,
+            Method hasActiveDuelMethod,
+            Method isInActiveDuelMethod
+    ) {
+        private static HookLookup empty() {
+            return new HookLookup(null, null, null, null);
+        }
     }
 }
