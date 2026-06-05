@@ -26,10 +26,6 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public final class ZoneStateService {
-    private static final int CHANGED_BATCH_SIZE = 1500;
-    private static final int FULL_RESTORE_BATCH_SIZE = 1024;
-    private static final int LIQUID_DRAIN_BATCH_SIZE = 1000;
-
     private final Plugin plugin;
     private final ZoneRegistry zoneRegistry;
     private final SnapshotService snapshotService;

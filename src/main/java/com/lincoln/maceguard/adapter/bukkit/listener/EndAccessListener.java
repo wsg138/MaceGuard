@@ -24,21 +24,7 @@ public final class EndAccessListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onEyeUse(PlayerInteractEvent event) {
-        if (!plugin.isFeatureEnabled()) {
-            return;
-        }
-        if (!plugin.runtime().endAccessService().managesEyes()) {
-            return;
-        }
-        if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
-            return;
-        }
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return;
-        }
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
-                && event.getClickedBlock() != null
-                && event.getClickedBlock().getType() == Material.END_PORTAL_FRAME) {
+        if (!isManagedEyeUse(event)) {
             return;
         }
         if (plugin.runtime().endAccessService().areEyesAllowed()) {
@@ -55,21 +41,7 @@ public final class EndAccessListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onAllowedEyeUse(PlayerInteractEvent event) {
-        if (!plugin.isFeatureEnabled()) {
-            return;
-        }
-        if (!plugin.runtime().endAccessService().managesEyes()) {
-            return;
-        }
-        if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
-            return;
-        }
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return;
-        }
-        if (event.getAction() == Action.RIGHT_CLICK_BLOCK
-                && event.getClickedBlock() != null
-                && event.getClickedBlock().getType() == Material.END_PORTAL_FRAME) {
+        if (!isManagedEyeUse(event)) {
             return;
         }
         if (!plugin.runtime().endAccessService().areEyesAllowed()) {
@@ -77,6 +49,21 @@ public final class EndAccessListener implements Listener {
         }
         event.setCancelled(false);
         event.setUseItemInHand(Event.Result.ALLOW);
+    }
+
+    private boolean isManagedEyeUse(PlayerInteractEvent event) {
+        if (!plugin.isFeatureEnabled() || !plugin.runtime().endAccessService().managesEyes()) {
+            return false;
+        }
+        if (event.getItem() == null || event.getItem().getType() != Material.ENDER_EYE) {
+            return false;
+        }
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            return false;
+        }
+        return event.getAction() != Action.RIGHT_CLICK_BLOCK
+                || event.getClickedBlock() == null
+                || event.getClickedBlock().getType() != Material.END_PORTAL_FRAME;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
