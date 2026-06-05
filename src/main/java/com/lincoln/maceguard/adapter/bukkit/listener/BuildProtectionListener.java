@@ -41,6 +41,14 @@ public final class BuildProtectionListener implements Listener {
             EntityType.HOPPER_MINECART,
             EntityType.COMMAND_BLOCK_MINECART
     );
+    private static final Set<String> DENIED_MINECART_KEYS = Set.of(
+            "MINECART",
+            "TNT_MINECART",
+            "CHEST_MINECART",
+            "FURNACE_MINECART",
+            "HOPPER_MINECART",
+            "COMMAND_BLOCK_MINECART"
+    );
 
     private final MaceGuardPlugin plugin;
 
@@ -65,19 +73,7 @@ public final class BuildProtectionListener implements Listener {
         }
         List<GameplayZone> zones = query.highestZones();
 
-        if (!zones.isEmpty()) {
-            if (isDeniedSpecial(block.getType(), zones) && !creativeBypass(player)) {
-                event.setCancelled(true);
-                return;
-            }
-            if (!zones.stream().allMatch(GameplayZone::allowAllPlace)) {
-                boolean allowed = zones.stream().anyMatch(zone -> zone.allowAllPlace() || zone.allowedPlace().contains(block.getType().name()));
-                if (!allowed && !creativeBypass(player)) {
-                    event.setCancelled(true);
-                    return;
-                }
-            }
-        } else if (query.protectedRegion() && !creativeBypass(player)) {
+        if (placementDenied(query, block.getType(), player)) {
             event.setCancelled(true);
             return;
         }
@@ -99,13 +95,7 @@ public final class BuildProtectionListener implements Listener {
         }
         List<GameplayZone> zones = query.highestZones();
 
-        if (!zones.isEmpty()) {
-            boolean allowed = zones.stream().allMatch(zone -> zone.allowAllBreak() || zone.allowAllPlace() || zone.allowedPlace().contains(block.getType().name()));
-            if (!allowed && !creativeBypass(player)) {
-                event.setCancelled(true);
-                return;
-            }
-        } else if (query.protectedRegion() && !creativeBypass(player)) {
+        if (breakDenied(query, block.getType(), player)) {
             event.setCancelled(true);
             return;
         }
@@ -153,24 +143,17 @@ public final class BuildProtectionListener implements Listener {
             }
             return;
         }
-
-        Material placed = switch (event.getBucket()) {
-            case WATER_BUCKET -> Material.WATER;
-            case LAVA_BUCKET -> Material.LAVA;
-            default -> null;
-        };
+        Material placed = placedBucketMaterial(event.getBucket());
         if (placed == null) {
             return;
         }
-        if (!zones.stream().allMatch(GameplayZone::allowAllPlace)) {
-            boolean allowed = zones.stream().anyMatch(zone -> zone.allowAllPlace() || zone.allowedPlace().contains(placed.name()));
-            if (!allowed && !creativeBypass(event.getPlayer())) {
-                event.setCancelled(true);
-                return;
-            }
+
+        if (placementDenied(query, placed, event.getPlayer())) {
+            event.setCancelled(true);
+            return;
         }
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> trackPlacement(target, zones));
+        scheduleTrackPlacement(target, zones);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -185,26 +168,18 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         List<GameplayZone> zones = query.highestZones();
-        if (zones.isEmpty()) {
-            if (query.protectedRegion()) {
-                event.setCancelled(true);
-            }
-            return;
-        }
-
         String materialName = switch (event.getItem().getType()) {
             case WATER_BUCKET -> Material.WATER.name();
             case LAVA_BUCKET -> Material.LAVA.name();
             default -> event.getItem().getType().name();
         };
 
-        if (!zones.stream().allMatch(GameplayZone::allowAllPlace)
-                && zones.stream().noneMatch(zone -> zone.allowAllPlace() || zone.allowedPlace().contains(materialName))) {
+        if (placementDenied(query, materialName)) {
             event.setCancelled(true);
             return;
         }
 
-        plugin.getServer().getScheduler().runTask(plugin, () -> trackPlacement(target, zones));
+        scheduleTrackPlacement(target, zones);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -231,13 +206,7 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         List<GameplayZone> zones = query.highestZones();
-        if (zones.isEmpty()) {
-            if (query.protectedRegion() && !creativeBypass(event.getPlayer())) {
-                event.setCancelled(true);
-            }
-            return;
-        }
-        if (isDeniedSpecial(item.getType(), zones) && !creativeBypass(event.getPlayer())) {
+        if (placementDenied(query, item.getType(), event.getPlayer())) {
             event.setCancelled(true);
         }
     }
@@ -247,12 +216,9 @@ public final class BuildProtectionListener implements Listener {
         if (!plugin.isFeatureEnabled()) {
             return;
         }
-        if (event.getVehicle().getType() == EntityType.TNT_MINECART
-                && plugin.duelArenaFootprint().maybeRelevant(event.getVehicle().getLocation())) {
-            if (!plugin.warzoneDuelsHook().hasActiveDuel() || !plugin.duelArenaFootprint().contains(event.getVehicle().getLocation())) {
-                event.getVehicle().remove();
-                return;
-            }
+        if (shouldRemoveDuelArenaTntMinecart(event)) {
+            event.getVehicle().remove();
+            return;
         }
         if (!MINECART_TYPES.contains(event.getVehicle().getType())) {
             return;
@@ -262,20 +228,7 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
         List<GameplayZone> zones = query.highestZones();
-        if (zones.isEmpty()) {
-            if (query.protectedRegion()) {
-                event.getVehicle().remove();
-            }
-            return;
-        }
-        boolean denied = zones.stream().anyMatch(zone ->
-                zone.denyPlace().contains("MINECART")
-                        || zone.denyPlace().contains("TNT_MINECART")
-                        || zone.denyPlace().contains("CHEST_MINECART")
-                        || zone.denyPlace().contains("FURNACE_MINECART")
-                        || zone.denyPlace().contains("HOPPER_MINECART")
-                        || zone.denyPlace().contains("COMMAND_BLOCK_MINECART"));
-        if (denied) {
+        if (minecartDenied(query)) {
             event.getVehicle().remove();
         }
     }
@@ -386,6 +339,70 @@ public final class BuildProtectionListener implements Listener {
 
     private boolean creativeBypass(Player player) {
         return player != null && player.getGameMode() == GameMode.CREATIVE && player.hasPermission("maceguard.edit");
+    }
+
+    private boolean placementDenied(ZoneRegistry.ZoneQuery query, Material material, Player player) {
+        if (query.highestZones().isEmpty()) {
+            return query.protectedRegion() && !creativeBypass(player);
+        }
+        return !creativeBypass(player) && (isDeniedSpecial(material, query.highestZones()) || !canPlaceMaterial(query.highestZones(), material.name()));
+    }
+
+    private boolean placementDenied(ZoneRegistry.ZoneQuery query, String materialName) {
+        if (query.highestZones().isEmpty()) {
+            return query.protectedRegion();
+        }
+        return !canPlaceMaterial(query.highestZones(), materialName);
+    }
+
+    private boolean breakDenied(ZoneRegistry.ZoneQuery query, Material material, Player player) {
+        if (query.highestZones().isEmpty()) {
+            return query.protectedRegion() && !creativeBypass(player);
+        }
+        return !creativeBypass(player) && !canBreakMaterial(query.highestZones(), material.name());
+    }
+
+    private boolean canPlaceMaterial(List<GameplayZone> zones, String materialName) {
+        return zones.stream().allMatch(GameplayZone::allowAllPlace)
+                || zones.stream().anyMatch(zone -> zone.allowAllPlace() || zone.allowedPlace().contains(materialName));
+    }
+
+    private boolean canBreakMaterial(List<GameplayZone> zones, String materialName) {
+        return zones.stream().allMatch(zone -> zone.allowAllBreak() || zone.allowAllPlace() || zone.allowedPlace().contains(materialName));
+    }
+
+    private Material placedBucketMaterial(Material bucket) {
+        return switch (bucket) {
+            case WATER_BUCKET -> Material.WATER;
+            case LAVA_BUCKET -> Material.LAVA;
+            default -> null;
+        };
+    }
+
+    private void scheduleTrackPlacement(Block target, List<GameplayZone> zones) {
+        plugin.getServer().getScheduler().runTask(plugin, () -> trackPlacement(target, zones));
+    }
+
+    private boolean shouldRemoveDuelArenaTntMinecart(VehicleCreateEvent event) {
+        return event.getVehicle().getType() == EntityType.TNT_MINECART
+                && plugin.duelArenaFootprint().maybeRelevant(event.getVehicle().getLocation())
+                && (!plugin.warzoneDuelsHook().hasActiveDuel() || !plugin.duelArenaFootprint().contains(event.getVehicle().getLocation()));
+    }
+
+    private boolean minecartDenied(ZoneRegistry.ZoneQuery query) {
+        if (query.highestZones().isEmpty()) {
+            return query.protectedRegion();
+        }
+        return query.highestZones().stream().anyMatch(zone -> containsDeniedMinecart(zone.denyPlace()));
+    }
+
+    private boolean containsDeniedMinecart(Set<String> denyPlace) {
+        for (String minecartKey : DENIED_MINECART_KEYS) {
+            if (denyPlace.contains(minecartKey)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean canMoveBlock(Block source, Block target) {
