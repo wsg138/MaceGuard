@@ -7,16 +7,16 @@ public final class PerformanceCounters {
     private final LongAdder protectedChecks = new LongAdder();
     private final LongAdder skippedEvents = new LongAdder();
     private final LongAdder liquidEvents = new LongAdder();
-    private final LongAdder liquidSkipped = new LongAdder();
-    private final LongAdder explosionBlocksScanned = new LongAdder();
-    private final LongAdder explosionBlocksRemoved = new LongAdder();
-    private final LongAdder resetBlocksProcessed = new LongAdder();
+    private final LongAdder liquidSkippedCount = new LongAdder();
+    private final LongAdder explosionBlocksScannedCount = new LongAdder();
+    private final LongAdder explosionBlocksRemovedCount = new LongAdder();
+    private final LongAdder resetBlocksProcessedCount = new LongAdder();
     private final LongAdder drainQueuePeak = new LongAdder();
     private final LongAdder snapshotLoadMillis = new LongAdder();
     private final LongAdder snapshotSaveMillis = new LongAdder();
-    private final LongAdder snapshotLoadFailures = new LongAdder();
-    private final LongAdder snapshotSaveFailures = new LongAdder();
-    private final LongAdder backstopRepairs = new LongAdder();
+    private final LongAdder snapshotLoadFailureCount = new LongAdder();
+    private final LongAdder snapshotSaveFailureCount = new LongAdder();
+    private final LongAdder backstopRepairCount = new LongAdder();
     private final LongAdder reloadTaskRestarts = new LongAdder();
 
     public void zoneQuery() {
@@ -36,19 +36,19 @@ public final class PerformanceCounters {
     }
 
     public void liquidSkipped() {
-        liquidSkipped.increment();
+        liquidSkippedCount.increment();
     }
 
     public void explosionBlocksScanned(int count) {
-        explosionBlocksScanned.add(count);
+        explosionBlocksScannedCount.add(count);
     }
 
     public void explosionBlocksRemoved(int count) {
-        explosionBlocksRemoved.add(count);
+        explosionBlocksRemovedCount.add(count);
     }
 
     public void resetBlocksProcessed(int count) {
-        resetBlocksProcessed.add(count);
+        resetBlocksProcessedCount.add(count);
     }
 
     public void drainQueueSize(int size) {
@@ -58,19 +58,19 @@ public final class PerformanceCounters {
     public void snapshotLoad(long millis, boolean success) {
         snapshotLoadMillis.add(Math.max(0L, millis));
         if (!success) {
-            snapshotLoadFailures.increment();
+            snapshotLoadFailureCount.increment();
         }
     }
 
     public void snapshotSave(long millis, boolean success) {
         snapshotSaveMillis.add(Math.max(0L, millis));
         if (!success) {
-            snapshotSaveFailures.increment();
+            snapshotSaveFailureCount.increment();
         }
     }
 
     public void backstopRepair() {
-        backstopRepairs.increment();
+        backstopRepairCount.increment();
     }
 
     public void reloadTaskRestart() {
@@ -78,15 +78,15 @@ public final class PerformanceCounters {
     }
 
     public long snapshotLoadFailures() {
-        return snapshotLoadFailures.sum();
+        return snapshotLoadFailureCount.sum();
     }
 
     public long snapshotSaveFailures() {
-        return snapshotSaveFailures.sum();
+        return snapshotSaveFailureCount.sum();
     }
 
     public long backstopRepairs() {
-        return backstopRepairs.sum();
+        return backstopRepairCount.sum();
     }
 
     public String summary() {
@@ -94,16 +94,16 @@ public final class PerformanceCounters {
                 + ", protectedChecks=" + protectedChecks.sum()
                 + ", skippedEvents=" + skippedEvents.sum()
                 + ", liquidEvents=" + liquidEvents.sum()
-                + ", liquidSkipped=" + liquidSkipped.sum()
-                + ", explosionBlocksScanned=" + explosionBlocksScanned.sum()
-                + ", explosionBlocksRemoved=" + explosionBlocksRemoved.sum()
-                + ", resetBlocksProcessed=" + resetBlocksProcessed.sum()
+                + ", liquidSkipped=" + liquidSkippedCount.sum()
+                + ", explosionBlocksScanned=" + explosionBlocksScannedCount.sum()
+                + ", explosionBlocksRemoved=" + explosionBlocksRemovedCount.sum()
+                + ", resetBlocksProcessed=" + resetBlocksProcessedCount.sum()
                 + ", drainQueueTotal=" + drainQueuePeak.sum()
                 + ", snapshotLoadMillis=" + snapshotLoadMillis.sum()
                 + ", snapshotSaveMillis=" + snapshotSaveMillis.sum()
-                + ", snapshotLoadFailures=" + snapshotLoadFailures.sum()
-                + ", snapshotSaveFailures=" + snapshotSaveFailures.sum()
-                + ", backstopRepairs=" + backstopRepairs.sum()
+                + ", snapshotLoadFailures=" + snapshotLoadFailureCount.sum()
+                + ", snapshotSaveFailures=" + snapshotSaveFailureCount.sum()
+                + ", backstopRepairs=" + backstopRepairCount.sum()
                 + ", reloadTaskRestarts=" + reloadTaskRestarts.sum();
     }
 }

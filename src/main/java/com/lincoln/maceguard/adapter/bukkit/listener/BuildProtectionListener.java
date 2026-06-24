@@ -226,7 +226,6 @@ public final class BuildProtectionListener implements Listener {
         if (query.externallyManaged()) {
             return;
         }
-        List<GameplayZone> zones = query.highestZones();
         if (minecartDenied(query)) {
             event.getVehicle().remove();
         }

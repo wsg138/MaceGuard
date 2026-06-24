@@ -4,41 +4,41 @@ import java.util.List;
 import java.util.Map;
 
 public final class SnapshotData {
-    private final String zoneName;
-    private final String worldName;
-    private final CuboidRegion region;
-    private final Map<Long, String> blocks;
-    private final List<SnapshotBlock> serializedBlocks;
+    private final String snapshotZoneName;
+    private final String snapshotWorldName;
+    private final CuboidRegion snapshotRegion;
+    private final Map<Long, String> snapshotBlocks;
+    private final List<SnapshotBlock> snapshotSerializedBlocks;
 
     public SnapshotData(String zoneName, String worldName, CuboidRegion region, Map<Long, String> blocks, List<SnapshotBlock> serializedBlocks) {
-        this.zoneName = zoneName;
-        this.worldName = worldName;
-        this.region = region;
-        this.blocks = Map.copyOf(blocks);
-        this.serializedBlocks = List.copyOf(serializedBlocks);
+        this.snapshotZoneName = zoneName;
+        this.snapshotWorldName = worldName;
+        this.snapshotRegion = region;
+        this.snapshotBlocks = Map.copyOf(blocks);
+        this.snapshotSerializedBlocks = List.copyOf(serializedBlocks);
     }
 
     public String zoneName() {
-        return zoneName;
+        return snapshotZoneName;
     }
 
     public String worldName() {
-        return worldName;
+        return snapshotWorldName;
     }
 
     public CuboidRegion region() {
-        return region;
+        return snapshotRegion;
     }
 
     public Map<Long, String> blocks() {
-        return blocks;
+        return snapshotBlocks;
     }
 
     public List<SnapshotBlock> serializedBlocks() {
-        return serializedBlocks;
+        return snapshotSerializedBlocks;
     }
 
     public boolean isUsable() {
-        return !blocks.isEmpty();
+        return !snapshotBlocks.isEmpty();
     }
 }
