@@ -5,6 +5,7 @@ import com.lincoln.maceguard.core.model.EndAccessSettings;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.time.Instant;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class EndAccessService {
@@ -96,6 +97,8 @@ public final class EndAccessService {
             return;
         }
         configSaver.run();
-        logger.info(label + " reached scheduled enable time and were persisted as enabled.");
+        if (logger.isLoggable(Level.INFO)) {
+            logger.info(label + " reached scheduled enable time and were persisted as enabled.");
+        }
     }
 }

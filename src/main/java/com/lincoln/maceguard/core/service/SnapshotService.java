@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class SnapshotService {
@@ -63,9 +64,13 @@ public final class SnapshotService {
             Optional<SnapshotData> snapshot = repository.load(zoneName);
             snapshot.ifPresent(data -> snapshotsByZone.put(zoneName, data));
             success = true;
-            logger.info("Loaded snapshot for zone " + zoneName + " in " + (System.currentTimeMillis() - started) + "ms.");
+            if (logger.isLoggable(Level.INFO)) {
+                logger.info("Loaded snapshot for zone " + zoneName + " in " + (System.currentTimeMillis() - started) + "ms.");
+            }
         } catch (IOException ex) {
-            logger.warning("Failed to load snapshot for zone " + zoneName + ": " + ex.getMessage());
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Failed to load snapshot for zone " + zoneName + ": " + ex.getMessage());
+            }
         } finally {
             loadingByZone.remove(zoneName);
             counters.snapshotLoad(System.currentTimeMillis() - started, success);
@@ -150,10 +155,14 @@ public final class SnapshotService {
                         snapshotsByZone.put(zoneName, data);
                         success = true;
                         long duration = System.currentTimeMillis() - started;
-                        logger.info("Saved snapshot for zone " + zoneName + " in " + duration + "ms.");
+                        if (logger.isLoggable(Level.INFO)) {
+                            logger.info("Saved snapshot for zone " + zoneName + " in " + duration + "ms.");
+                        }
                         Bukkit.getScheduler().runTask(plugin, () -> feedback.accept("\u00A7aSnapshot saved for zone \u00A7f" + zoneName + "\u00A7a."));
                     } catch (IOException ex) {
-                        logger.warning("Failed to save snapshot for zone " + zoneName + ": " + ex.getMessage());
+                        if (logger.isLoggable(Level.WARNING)) {
+                            logger.warning("Failed to save snapshot for zone " + zoneName + ": " + ex.getMessage());
+                        }
                         Bukkit.getScheduler().runTask(plugin, () -> feedback.accept("\u00A7cFailed to save snapshot for \u00A7f" + zoneName + "\u00A7c. Check console."));
                     } finally {
                         counters.snapshotSave(System.currentTimeMillis() - started, success);
@@ -320,7 +329,9 @@ public final class SnapshotService {
         ioExecutor.shutdown();
         try {
             if (!ioExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
-                logger.warning("Timed out waiting for snapshot IO to finish; requesting shutdown.");
+                if (logger.isLoggable(Level.WARNING)) {
+                    logger.warning("Timed out waiting for snapshot IO to finish; requesting shutdown.");
+                }
                 ioExecutor.shutdownNow();
             }
         } catch (InterruptedException ex) {

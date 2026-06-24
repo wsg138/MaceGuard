@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class PluginConfigLoader {
@@ -120,7 +121,9 @@ public final class PluginConfigLoader {
         try {
             return LocalDateTime.parse(raw.trim(), EST_FORMAT).atZone(EST_ZONE).toInstant();
         } catch (DateTimeParseException ex) {
-            logger.warning("Failed to parse EST time \"" + raw + "\". Expected yyyy-MM-dd HH:mm.");
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Failed to parse EST time \"" + raw + "\". Expected yyyy-MM-dd HH:mm.");
+            }
             return null;
         }
     }
@@ -130,7 +133,9 @@ public final class PluginConfigLoader {
         for (Map<?, ?> entry : entries) {
             CuboidRegion region = parseRegion(entry);
             if (region == null) {
-                logger.warning("Skipping invalid protected region under " + path + ".");
+                if (logger.isLoggable(Level.WARNING)) {
+                    logger.warning("Skipping invalid protected region under " + path + ".");
+                }
                 continue;
             }
             protectedRegions.add(new ProtectedRegion(region.name(), region));

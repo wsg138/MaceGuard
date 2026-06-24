@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class ConfigMigrator {
@@ -62,17 +63,23 @@ public final class ConfigMigrator {
 
         File backup = backup(file);
         if (backup == null) {
-            logger.warning("Skipping migration for " + resourceName + " because a backup could not be created.");
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Skipping migration for " + resourceName + " because a backup could not be created.");
+            }
             return;
         }
         try {
             config.save(file);
-            logger.info("Migrated " + resourceName + " from config-version " + existingVersion + " to " + CURRENT_CONFIG_VERSION + ".");
-            logger.info("Config backup saved to " + backup.getName() + ".");
-            logger.info("Added/migrated config paths: " + String.join(", ", addedPaths));
+            if (logger.isLoggable(Level.INFO)) {
+                logger.info("Migrated " + resourceName + " from config-version " + existingVersion + " to " + CURRENT_CONFIG_VERSION + ".");
+                logger.info("Config backup saved to " + backup.getName() + ".");
+                logger.info("Added/migrated config paths: " + String.join(", ", addedPaths));
+            }
         } catch (IOException ex) {
-            logger.warning("Failed to save migrated " + resourceName + ": " + ex.getMessage());
-            logger.warning("Backup remains available at " + backup.getAbsolutePath() + ".");
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Failed to save migrated " + resourceName + ": " + ex.getMessage());
+                logger.warning("Backup remains available at " + backup.getAbsolutePath() + ".");
+            }
         }
     }
 
@@ -129,12 +136,16 @@ public final class ConfigMigrator {
     private YamlConfiguration loadDefaults(String resourceName) {
         try (InputStream input = plugin.getResource(resourceName)) {
             if (input == null) {
-                logger.warning("Cannot migrate " + resourceName + " because bundled defaults were not found.");
+                if (logger.isLoggable(Level.WARNING)) {
+                    logger.warning("Cannot migrate " + resourceName + " because bundled defaults were not found.");
+                }
                 return null;
             }
             return YamlConfiguration.loadConfiguration(new InputStreamReader(input, StandardCharsets.UTF_8));
         } catch (IOException ex) {
-            logger.warning("Cannot read bundled defaults for " + resourceName + ": " + ex.getMessage());
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Cannot read bundled defaults for " + resourceName + ": " + ex.getMessage());
+            }
             return null;
         }
     }
@@ -159,7 +170,9 @@ public final class ConfigMigrator {
     private File backup(File file) {
         File backupDirectory = new File(plugin.getDataFolder(), "backups");
         if (!backupDirectory.mkdirs() && !backupDirectory.isDirectory()) {
-            logger.warning("Failed to create config backup directory: " + backupDirectory.getAbsolutePath());
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Failed to create config backup directory: " + backupDirectory.getAbsolutePath());
+            }
             return null;
         }
         File backup = new File(backupDirectory, file.getName() + "." + LocalDateTime.now().format(BACKUP_FORMAT) + ".bak");
@@ -167,7 +180,9 @@ public final class ConfigMigrator {
             Files.copy(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
             return backup;
         } catch (IOException ex) {
-            logger.warning("Failed to back up " + file.getName() + " before migration: " + ex.getMessage());
+            if (logger.isLoggable(Level.WARNING)) {
+                logger.warning("Failed to back up " + file.getName() + " before migration: " + ex.getMessage());
+            }
             return null;
         }
     }
