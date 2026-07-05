@@ -22,7 +22,7 @@ import java.util.logging.Logger;
 
 public final class ConfigMigrator {
     public static final int CURRENT_CONFIG_VERSION = 5;
-    private static final DateTimeFormatter BACKUP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter BACKUP_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private final JavaPlugin plugin;
     private final Logger logger;
@@ -88,6 +88,7 @@ public final class ConfigMigrator {
         addMissingGameplayZonePath(config, "war-pit", "suppress_snapshot_drops", Boolean.TRUE, addedPaths);
     }
 
+    @SuppressWarnings({"PMD.UseConcurrentHashMap", "PMD.AvoidInstantiatingObjectsInLoops"})
     private void addMissingGameplayZonePath(YamlConfiguration config, String zoneName, String key, Object value, List<String> addedPaths) {
         List<Map<?, ?>> rawZones = config.getMapList("gameplay_zones");
         if (rawZones.isEmpty()) {
@@ -175,7 +176,8 @@ public final class ConfigMigrator {
             }
             return null;
         }
-        File backup = new File(backupDirectory, file.getName() + "." + LocalDateTime.now().format(BACKUP_FORMAT) + ".bak");
+        String backupStamp = LocalDateTime.now().format(BACKUP_FORMAT).replace(':', '-');
+        File backup = new File(backupDirectory, file.getName() + "." + backupStamp + ".bak");
         try {
             Files.copy(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING);
             return backup;

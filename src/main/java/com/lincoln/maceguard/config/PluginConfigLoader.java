@@ -238,7 +238,7 @@ public final class PluginConfigLoader {
         return values;
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "PMD.ReturnEmptyCollectionRatherThanNull"})
     private Map<String, Object> asStringObjectMap(Object raw) {
         if (!(raw instanceof Map<?, ?> map)) {
             return null;
