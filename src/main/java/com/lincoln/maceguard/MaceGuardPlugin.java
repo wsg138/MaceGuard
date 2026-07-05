@@ -27,11 +27,13 @@ import org.bukkit.scheduler.BukkitTask;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+@SuppressWarnings("PMD.DoNotUseThreads")
 public final class MaceGuardPlugin extends JavaPlugin {
-    private PluginRuntime pluginRuntime;
+    private Optional<PluginRuntime> pluginRuntime = Optional.empty();
     private DuelArenaFootprintService duelArenaFootprintService;
     private WarzoneDuelsHook duelsHook;
 
@@ -58,23 +60,22 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (pluginRuntime != null) {
-            pluginRuntime.shutdownForDisable();
-            pluginRuntime = null;
-        }
+        pluginRuntime.ifPresent(PluginRuntime::shutdownForDisable);
+        pluginRuntime = Optional.empty();
     }
 
     public void reloadPlugin() {
         ZoneStateService.ZoneStateSnapshot stateSnapshot = null;
-        if (pluginRuntime != null) {
-            stateSnapshot = pluginRuntime.zoneStateService().snapshotState();
-            if (!pluginRuntime.settings().reload().preserveTemporaryBlocks()) {
-                pluginRuntime.zoneStateService().clearTemporaryBlocksForReload();
+        PluginRuntime currentRuntime = pluginRuntime.orElse(null);
+        if (currentRuntime != null) {
+            stateSnapshot = currentRuntime.zoneStateService().snapshotState();
+            if (!currentRuntime.settings().reload().preserveTemporaryBlocks()) {
+                currentRuntime.zoneStateService().clearTemporaryBlocksForReload();
             }
-            getLogger().info("Reload preserving reset queue size " + pluginRuntime.zoneStateService().resetQueueSize()
-                    + " and temporary blocks " + pluginRuntime.zoneStateService().temporaryBlockCount()
-                    + " (preserve-temporary-blocks=" + pluginRuntime.settings().reload().preserveTemporaryBlocks() + ").");
-            pluginRuntime.shutdownForReload();
+            getLogger().info("Reload preserving reset queue size " + currentRuntime.zoneStateService().resetQueueSize()
+                    + " and temporary blocks " + currentRuntime.zoneStateService().temporaryBlockCount()
+                    + " (preserve-temporary-blocks=" + currentRuntime.settings().reload().preserveTemporaryBlocks() + ").");
+            currentRuntime.shutdownForReload();
         }
         migrateConfig();
         reloadConfig();
@@ -89,7 +90,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     public PluginRuntime runtime() {
-        return pluginRuntime;
+        return pluginRuntime.orElse(null);
     }
 
     public DuelArenaFootprintService duelArenaFootprint() {
@@ -101,7 +102,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     public boolean isFeatureEnabled() {
-        return pluginRuntime != null && pluginRuntime.settings().enabled();
+        return pluginRuntime.map(runtime -> runtime.settings().enabled()).orElse(false);
     }
 
     private void bootstrapRuntime(ZoneStateService.ZoneStateSnapshot stateSnapshot) {
@@ -110,7 +111,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         PluginConfigLoader loader = new PluginConfigLoader(getLogger());
         PluginSettings settings = loader.load(getConfig());
         getLogger().info("End island spear blocking is " + (settings.endIsland().blockSpears() ? "enabled" : "disabled") + ".");
-        PerformanceCounters counters = pluginRuntime != null ? pluginRuntime.counters() : new PerformanceCounters();
+        PerformanceCounters counters = pluginRuntime.map(PluginRuntime::counters).orElseGet(PerformanceCounters::new);
 
         ExecutorService ioExecutor = newSnapshotExecutor();
         FileSnapshotRepository repository = createSnapshotRepository();
@@ -127,7 +128,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         BukkitTask debugTicker = startDebugTicker(settings, counters, snapshotService, zoneStateService);
         counters.reloadTaskRestart();
 
-        pluginRuntime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, counters, ioExecutor, resetTicker, backstopTicker, debugTicker);
+        pluginRuntime = Optional.of(new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, counters, ioExecutor, resetTicker, backstopTicker, debugTicker));
     }
 
     private void refreshIntegrations() {

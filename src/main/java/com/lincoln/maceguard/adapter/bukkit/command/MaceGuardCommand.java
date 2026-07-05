@@ -18,14 +18,19 @@ import java.util.stream.Stream;
 
 public final class MaceGuardCommand implements TabExecutor {
     private static final String RELOAD_PERMISSION = "maceguard.reload";
+    private static final String RESET_COMMAND = "reset";
     private static final String END_EYES_COMMAND = "endeyes";
     private static final String END_PORTAL_COMMAND = "endportal";
     private static final int SUBCOMMAND_INDEX = 0;
     private static final int TARGET_INDEX = 1;
+    private static final int ROOT_TAB_ARGUMENTS = 1;
+    private static final int TARGET_TAB_ARGUMENTS = 2;
+    private static final int END_TOGGLE_MIN_ARGUMENTS = 2;
+    private static final int SCHEDULE_MIN_ARGUMENTS = 4;
     private static final String[] SUBCOMMANDS = {
-            "reload", "debug", "stats", "here", "clear", "snapshot", "reset", END_EYES_COMMAND, END_PORTAL_COMMAND, "endstatus"
+            "reload", "debug", "stats", "here", "clear", "snapshot", RESET_COMMAND, END_EYES_COMMAND, END_PORTAL_COMMAND, "endstatus"
     };
-    private static final String[] ZONE_COMMANDS = {"clear", "snapshot", "reset"};
+    private static final String[] ZONE_COMMANDS = {"clear", "snapshot", RESET_COMMAND};
     private static final String[] END_TOGGLE_COMMANDS = {END_EYES_COMMAND, END_PORTAL_COMMAND};
 
     private final MaceGuardPlugin plugin;
@@ -78,7 +83,7 @@ public final class MaceGuardCommand implements TabExecutor {
             case "snapshot" -> {
                 return handleSnapshot(sender, args);
             }
-            case "reset" -> {
+            case RESET_COMMAND -> {
                 return handleReset(sender, args);
             }
             case "stats" -> {
@@ -105,13 +110,13 @@ public final class MaceGuardCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> zoneNames = plugin.runtime().zoneRegistry().allGameplayZones().stream().map(GameplayZone::name).sorted(String.CASE_INSENSITIVE_ORDER).toList();
-        if (args.length == 1) {
+        if (args.length == ROOT_TAB_ARGUMENTS) {
             return filter(args[SUBCOMMAND_INDEX], SUBCOMMANDS);
         }
-        if (args.length == 2 && Stream.of(ZONE_COMMANDS).anyMatch(sub -> sub.equalsIgnoreCase(args[SUBCOMMAND_INDEX]))) {
+        if (args.length == TARGET_TAB_ARGUMENTS && Stream.of(ZONE_COMMANDS).anyMatch(sub -> sub.equalsIgnoreCase(args[SUBCOMMAND_INDEX]))) {
             return filter(args[TARGET_INDEX], zoneNames.toArray(String[]::new));
         }
-        if (args.length == 2 && Stream.of(END_TOGGLE_COMMANDS).anyMatch(sub -> sub.equalsIgnoreCase(args[SUBCOMMAND_INDEX]))) {
+        if (args.length == TARGET_TAB_ARGUMENTS && Stream.of(END_TOGGLE_COMMANDS).anyMatch(sub -> sub.equalsIgnoreCase(args[SUBCOMMAND_INDEX]))) {
             return filter(args[TARGET_INDEX], "on", "off", "at");
         }
         return List.of();
@@ -122,7 +127,7 @@ public final class MaceGuardCommand implements TabExecutor {
             sender.sendMessage("\u00A77Ender Eyes are not managed by MaceGuard because \u00A7fend_access.manage_eyes\u00A77 is false.");
             return true;
         }
-        if (args.length < 2) {
+        if (args.length < END_TOGGLE_MIN_ARGUMENTS) {
             sendEndToggleUsage(sender, eyes);
             return true;
         }
@@ -146,7 +151,7 @@ public final class MaceGuardCommand implements TabExecutor {
     }
 
     private boolean scheduleEndAccess(CommandSender sender, boolean eyes, String[] args) {
-        if (args.length < 4) {
+        if (args.length < SCHEDULE_MIN_ARGUMENTS) {
             sender.sendMessage("\u00A7eUsage: \u00A7f/maceguard " + endAccessCommand(eyes) + " at yyyy-MM-dd HH:mm");
             return true;
         }
@@ -223,7 +228,7 @@ public final class MaceGuardCommand implements TabExecutor {
 
     private boolean handleReset(CommandSender sender, String[] args) {
         requirePermission(sender, RELOAD_PERMISSION);
-        GameplayZone zone = requireZoneArg(sender, args, "reset");
+        GameplayZone zone = requireZoneArg(sender, args, RESET_COMMAND);
         if (zone == null) {
             return true;
         }
