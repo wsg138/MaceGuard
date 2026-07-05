@@ -34,6 +34,8 @@ public final class EndIslandListener implements Listener {
     private static final double TNT_BASE = 4.0D;
     private static final double BED_BASE = 5.0D;
     private static final double ANCHOR_BASE = 5.0D;
+    private static final double DISABLED_SCALE = 0.0D;
+    private static final double DRAGON_SPOT_RADIUS_SQUARED = 36.0D;
     private static final long DRAGON_SPOT_COOLDOWN_MILLIS = 60_000L;
 
     private final MaceGuardPlugin plugin;
@@ -115,7 +117,7 @@ public final class EndIslandListener implements Listener {
         if (!(shooter instanceof Player player)) {
             return;
         }
-        if (!Compat.isSpearEntity(event.getEntity().getType().name()) && !isHoldingSpear(player)) {
+        if (!launchedSpear(event, player)) {
             return;
         }
         if (!isMainIsland(player.getLocation(), settings) && !isMainIsland(event.getEntity().getLocation(), settings)) {
@@ -123,6 +125,10 @@ public final class EndIslandListener implements Listener {
         }
         event.setCancelled(true);
         event.getEntity().remove();
+    }
+
+    private boolean launchedSpear(ProjectileLaunchEvent event, Player player) {
+        return Compat.isSpearEntity(event.getEntity().getType().name()) || isHoldingSpear(player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -162,7 +168,7 @@ public final class EndIslandListener implements Listener {
             return;
         }
 
-        if (type == Material.TNT && settings.explosives().tntPercent() <= 0.0D) {
+        if (type == Material.TNT && settings.explosives().tntPercent() <= DISABLED_SCALE) {
             cancelWithMessage(event, "\u00A7cTNT is disabled on the main island.");
         }
     }
@@ -225,13 +231,7 @@ public final class EndIslandListener implements Listener {
             return;
         }
 
-        if (isPrimedTnt(entity.getType()) && settings.explosives().tntPercent() <= 0.0D) {
-            event.blockList().clear();
-            event.setCancelled(true);
-            entity.remove();
-            return;
-        }
-        if (isTntMinecart(entity.getType()) && settings.explosives().tntMinecartPercent() <= 0.0D) {
+        if (disabledTntExplosion(entity.getType(), settings.explosives())) {
             event.blockList().clear();
             event.setCancelled(true);
             entity.remove();
@@ -270,11 +270,15 @@ public final class EndIslandListener implements Listener {
         }
 
         EndIslandExplosiveSettings explosives = plugin.runtime().settings().endIsland().explosives();
-        if ((isPrimedTnt(damager.getType()) && explosives.tntPercent() <= 0.0D)
-                || (isTntMinecart(damager.getType()) && explosives.tntMinecartPercent() <= 0.0D)) {
+        if (disabledTntExplosion(damager.getType(), explosives)) {
             event.setCancelled(true);
             damager.remove();
         }
+    }
+
+    private boolean disabledTntExplosion(EntityType type, EndIslandExplosiveSettings explosives) {
+        return (isPrimedTnt(type) && explosives.tntPercent() <= DISABLED_SCALE)
+                || (isTntMinecart(type) && explosives.tntMinecartPercent() <= DISABLED_SCALE);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
@@ -303,7 +307,7 @@ public final class EndIslandListener implements Listener {
 
         event.setCancelled(true);
         double scale = isAnchor ? settings.explosives().scaleForRespawnAnchor() : settings.explosives().scaleForBed();
-        if (scale <= 0.0D) {
+        if (scale <= DISABLED_SCALE) {
             handleDisabledBedExplosion(event.getPlayer(), block, isBed, settings);
             return;
         }
@@ -401,7 +405,7 @@ public final class EndIslandListener implements Listener {
     }
 
     private void applyExplosionScale(ExplosionPrimeEvent event, double scale, double base) {
-        if (scale <= 0.0D) {
+        if (scale <= DISABLED_SCALE) {
             event.setCancelled(true);
             event.getEntity().remove();
             return;
@@ -419,7 +423,7 @@ public final class EndIslandListener implements Listener {
         }
         double x = block.getX() + 0.5D;
         double z = block.getZ() + 0.5D;
-        if ((x * x) + (z * z) > 36.0D) {
+        if ((x * x) + (z * z) > DRAGON_SPOT_RADIUS_SQUARED) {
             return false;
         }
         int bx = block.getX();

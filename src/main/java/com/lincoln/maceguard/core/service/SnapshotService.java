@@ -27,6 +27,7 @@ import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+@SuppressWarnings("PMD.DoNotUseThreads")
 public final class SnapshotService {
     private static final int CAPTURE_BLOCKS_PER_TICK = 4096;
     private static final Set<String> DEFERRED_SUFFIXES = Set.of(

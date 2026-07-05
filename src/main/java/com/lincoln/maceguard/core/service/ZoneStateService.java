@@ -26,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public final class ZoneStateService {
+    private static final long RESET_DUE_SECONDS = 0L;
+
     private final Plugin plugin;
     private final ZoneRegistry zoneRegistry;
     private final SnapshotService snapshotService;
@@ -259,7 +261,7 @@ public final class ZoneStateService {
                 }
             }
 
-            if (remainingSeconds == 0L) {
+            if (remainingSeconds == RESET_DUE_SECONDS) {
                 if (isRestoreRunning(zone.name())) {
                     continue;
                 }
@@ -304,8 +306,20 @@ public final class ZoneStateService {
                 continue;
             }
             int highestY = snapshotService.highestSnapshotY(zone.name(), world.getName(), location.getBlockX(), zone.region().minY(), zone.region().maxY(), location.getBlockZ());
-            player.teleport(new Location(world, location.getBlockX() + 0.5D, highestY + 1.1D, location.getBlockZ() + 0.5D, location.getYaw(), location.getPitch()));
+            teleportToSnapshotSurface(player, world, location, highestY);
         }
+    }
+
+    private void teleportToSnapshotSurface(Player player, World world, Location location, int highestY) {
+        Location target = new Location(
+                world,
+                location.getBlockX() + 0.5D,
+                highestY + 1.1D,
+                location.getBlockZ() + 0.5D,
+                location.getYaw(),
+                location.getPitch()
+        );
+        player.teleport(target);
     }
 
     private void drainLiquidInZone(Block start, GameplayZone zone) {
@@ -524,6 +538,14 @@ public final class ZoneStateService {
         if (snapshot == null) {
             return;
         }
+        restoreChangedBlocks(snapshot, clearInvalidZoneState);
+        restoreResetWarnings(snapshot, clearInvalidZoneState);
+        if (preserveTemporaryBlocks) {
+            restoreTemporaryBlockState(snapshot);
+        }
+    }
+
+    private void restoreChangedBlocks(ZoneStateSnapshot snapshot, boolean clearInvalidZoneState) {
         changedBlocksByZone.clear();
         for (Map.Entry<String, Set<BlockKey>> entry : snapshot.changedBlocksByZone().entrySet()) {
             if (clearInvalidZoneState && zoneRegistry.findZone(entry.getKey()) == null) {
@@ -531,6 +553,9 @@ public final class ZoneStateService {
             }
             changedBlocksByZone.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
         }
+    }
+
+    private void restoreResetWarnings(ZoneStateSnapshot snapshot, boolean clearInvalidZoneState) {
         lastResetAt.clear();
         for (Map.Entry<String, Long> entry : snapshot.lastResetAt().entrySet()) {
             if (!clearInvalidZoneState || zoneRegistry.findZone(entry.getKey()) != null) {
@@ -544,25 +569,32 @@ public final class ZoneStateService {
                 firedWarningsByZone.get(entry.getKey()).addAll(entry.getValue());
             }
         }
-        if (preserveTemporaryBlocks) {
-            temporaryBlocks.clear();
-            temporaryBlocks.addAll(snapshot.temporaryBlocks());
-            placedBlocks.clear();
-            placedBlocks.addAll(snapshot.placedBlocks());
-            ttlExpiresAt.clear();
-            ttlExpiresAt.putAll(snapshot.ttlExpiresAt());
-            ttlZonesByBlock.clear();
-            ttlZonesByBlock.putAll(snapshot.ttlZonesByBlock());
-            rescheduleTemporaryBlocks();
-        }
+    }
+
+    private void restoreTemporaryBlockState(ZoneStateSnapshot snapshot) {
+        temporaryBlocks.clear();
+        temporaryBlocks.addAll(snapshot.temporaryBlocks());
+        placedBlocks.clear();
+        placedBlocks.addAll(snapshot.placedBlocks());
+        ttlExpiresAt.clear();
+        ttlExpiresAt.putAll(snapshot.ttlExpiresAt());
+        ttlZonesByBlock.clear();
+        ttlZonesByBlock.putAll(snapshot.ttlZonesByBlock());
+        rescheduleTemporaryBlocks();
     }
 
     public void runBackstopPass(int maxZones, int maxBlocks, boolean repairMode, boolean reportOnly) {
+        repairChangedBlockBackstop(maxZones, maxBlocks, repairMode, reportOnly);
+        repairTemporaryBlockBackstop(repairMode, reportOnly);
+    }
+
+    private void repairChangedBlockBackstop(int maxZones, int maxBlocks, boolean repairMode, boolean reportOnly) {
         int processedZones = 0;
         for (String zoneName : new ArrayList<>(changedBlocksByZone.keySet())) {
-            if (processedZones++ >= maxZones) {
+            if (processedZones >= maxZones) {
                 return;
             }
+            processedZones++;
             if (zoneRegistry.findZone(zoneName) == null) {
                 if (repairMode && !reportOnly) {
                     changedBlocksByZone.remove(zoneName);
@@ -576,15 +608,19 @@ public final class ZoneStateService {
             }
             int checked = 0;
             for (BlockKey key : new ArrayList<>(changed)) {
-                if (checked++ >= maxBlocks) {
+                if (checked >= maxBlocks) {
                     break;
                 }
+                checked++;
                 if (Bukkit.getWorld(key.worldName()) == null && repairMode && !reportOnly) {
                     changed.remove(key);
                     counters.backstopRepair();
                 }
             }
         }
+    }
+
+    private void repairTemporaryBlockBackstop(boolean repairMode, boolean reportOnly) {
         for (BlockKey key : new ArrayList<>(temporaryBlocks)) {
             Long expiresAt = ttlExpiresAt.get(key);
             if (expiresAt != null && expiresAt <= System.currentTimeMillis() && repairMode && !reportOnly) {
