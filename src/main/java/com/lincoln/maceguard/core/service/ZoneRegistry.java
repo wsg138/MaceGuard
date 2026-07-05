@@ -197,12 +197,12 @@ public final class ZoneRegistry {
 
     private static final class WorldZoneIndex<T> {
         private final Map<Long, List<T>> byChunk;
-        private final List<T> allZones;
+        private final List<T> indexedZones;
         private final RegionAccessors<T> accessors;
 
         private WorldZoneIndex(List<T> zones, RegionAccessors<T> accessors) {
             this.accessors = accessors;
-            this.allZones = List.copyOf(zones);
+            this.indexedZones = List.copyOf(zones);
             this.byChunk = new ConcurrentHashMap<>();
             for (T zone : zones) {
                 for (int chunkX = accessors.minChunkX(zone); chunkX <= accessors.maxChunkX(zone); chunkX++) {
@@ -286,7 +286,7 @@ public final class ZoneRegistry {
         }
 
         List<T> allZones() {
-            return allZones;
+            return indexedZones;
         }
 
         private static long packChunk(int x, int z) {

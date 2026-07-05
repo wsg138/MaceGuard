@@ -13,10 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -55,7 +55,7 @@ public final class FileSnapshotRepository {
                     snapshotFile.maxY,
                     snapshotFile.maxZ
             );
-            Map<Long, String> blocks = new HashMap<>(snapshotFile.blocks.size());
+            Map<Long, String> blocks = new ConcurrentHashMap<>(snapshotFile.blocks.size());
             for (SnapshotBlock block : snapshotFile.blocks) {
                 blocks.put(com.lincoln.maceguard.core.model.BlockKey.pack(block.x(), block.y(), block.z()), block.blockData());
             }

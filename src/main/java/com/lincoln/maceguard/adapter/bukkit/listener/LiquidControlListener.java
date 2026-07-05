@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class LiquidControlListener implements Listener {
+    private static final int INFINITE_SOURCE_THRESHOLD = 2;
     private static final int[][] HORIZONTAL_OFFSETS = {
             {1, 0, 0},
             {-1, 0, 0},
@@ -93,7 +94,7 @@ public final class LiquidControlListener implements Listener {
             if (sourceWater(target.getRelative(offset[0], offset[1], offset[2]))) {
                 sources++;
             }
-            if (sources >= 2) {
+            if (sources >= INFINITE_SOURCE_THRESHOLD) {
                 return true;
             }
         }

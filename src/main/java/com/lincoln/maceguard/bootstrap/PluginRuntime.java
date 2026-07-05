@@ -10,6 +10,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.concurrent.ExecutorService;
 
+@SuppressWarnings("PMD.DoNotUseThreads")
 public record PluginRuntime(
         PluginSettings settings,
         ZoneRegistry zoneRegistry,

@@ -18,6 +18,7 @@ import java.util.stream.Stream;
 
 public final class MaceGuardCommand implements TabExecutor {
     private static final String RELOAD_PERMISSION = "maceguard.reload";
+    private static final String SNAPSHOT_COMMAND = "snapshot";
     private static final String RESET_COMMAND = "reset";
     private static final String END_EYES_COMMAND = "endeyes";
     private static final String END_PORTAL_COMMAND = "endportal";
@@ -28,9 +29,9 @@ public final class MaceGuardCommand implements TabExecutor {
     private static final int END_TOGGLE_MIN_ARGUMENTS = 2;
     private static final int SCHEDULE_MIN_ARGUMENTS = 4;
     private static final String[] SUBCOMMANDS = {
-            "reload", "debug", "stats", "here", "clear", "snapshot", RESET_COMMAND, END_EYES_COMMAND, END_PORTAL_COMMAND, "endstatus"
+            "reload", "debug", "stats", "here", "clear", SNAPSHOT_COMMAND, RESET_COMMAND, END_EYES_COMMAND, END_PORTAL_COMMAND, "endstatus"
     };
-    private static final String[] ZONE_COMMANDS = {"clear", "snapshot", RESET_COMMAND};
+    private static final String[] ZONE_COMMANDS = {"clear", SNAPSHOT_COMMAND, RESET_COMMAND};
     private static final String[] END_TOGGLE_COMMANDS = {END_EYES_COMMAND, END_PORTAL_COMMAND};
 
     private final MaceGuardPlugin plugin;
@@ -80,7 +81,7 @@ public final class MaceGuardCommand implements TabExecutor {
             case "clear" -> {
                 return handleClear(sender, args);
             }
-            case "snapshot" -> {
+            case SNAPSHOT_COMMAND -> {
                 return handleSnapshot(sender, args);
             }
             case RESET_COMMAND -> {
@@ -217,7 +218,7 @@ public final class MaceGuardCommand implements TabExecutor {
 
     private boolean handleSnapshot(CommandSender sender, String[] args) {
         requirePermission(sender, RELOAD_PERMISSION);
-        GameplayZone zone = requireZoneArg(sender, args, "snapshot");
+        GameplayZone zone = requireZoneArg(sender, args, SNAPSHOT_COMMAND);
         if (zone == null) {
             return true;
         }
