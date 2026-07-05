@@ -31,7 +31,7 @@ public final class DuelArenaFootprintService {
 
     public void reload() {
         enabled = false;
-        worldName = null;
+        worldName = "";
         exactBlocks = Set.of();
 
         if (!plugin.getConfig().getBoolean("duel_arena_footprint.enabled", true)) {

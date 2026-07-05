@@ -15,6 +15,13 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public final class LiquidControlListener implements Listener {
+    private static final int[][] HORIZONTAL_OFFSETS = {
+            {1, 0, 0},
+            {-1, 0, 0},
+            {0, 0, 1},
+            {0, 0, -1}
+    };
+
     private final MaceGuardPlugin plugin;
 
     public LiquidControlListener(MaceGuardPlugin plugin) {
@@ -30,45 +37,67 @@ public final class LiquidControlListener implements Listener {
         Block from = event.getBlock();
         Material type = from.getType();
         if (type != Material.WATER && type != Material.LAVA) {
-            plugin.runtime().counters().liquidSkipped();
+            skipLiquidEvent();
             return;
         }
 
         Block to = event.getToBlock();
-        if (plugin.runtime().zoneRegistry().query(from.getLocation()).externallyManaged()
-                || plugin.runtime().zoneRegistry().query(to.getLocation()).externallyManaged()) {
-            plugin.runtime().counters().liquidSkipped();
+        if (isExternallyManagedFlow(from, to)) {
+            skipLiquidEvent();
             return;
         }
-        Set<GameplayZone> candidates = new LinkedHashSet<>(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(from.getLocation()));
-        candidates.addAll(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(to.getLocation()));
-        for (GameplayZone zone : candidates) {
+        if (crossesConfinedZoneBoundary(from, to)) {
+            event.setCancelled(true);
+            return;
+        }
+
+        if (type == Material.WATER && shouldBlockInfiniteSource(to)) {
+            event.setCancelled(true);
+        }
+    }
+
+    private void skipLiquidEvent() {
+        plugin.runtime().counters().liquidSkipped();
+    }
+
+    private boolean isExternallyManagedFlow(Block from, Block to) {
+        return plugin.runtime().zoneRegistry().query(from.getLocation()).externallyManaged()
+                || plugin.runtime().zoneRegistry().query(to.getLocation()).externallyManaged();
+    }
+
+    private boolean crossesConfinedZoneBoundary(Block from, Block to) {
+        for (GameplayZone zone : confinedCandidates(from, to)) {
             boolean fromInside = zone.region().contains(from.getLocation());
             boolean toInside = zone.region().contains(to.getLocation());
             if (fromInside != toInside) {
-                event.setCancelled(true);
-                return;
+                return true;
             }
         }
+        return false;
+    }
 
-        if (type == Material.WATER) {
-            List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(to.getLocation());
-            if (zones.stream().anyMatch(GameplayZone::blockInfiniteSources) && wouldFormInfiniteSource(to)) {
-                event.setCancelled(true);
-            }
-        }
+    private Set<GameplayZone> confinedCandidates(Block from, Block to) {
+        Set<GameplayZone> candidates = new LinkedHashSet<>(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(from.getLocation()));
+        candidates.addAll(plugin.runtime().zoneRegistry().confinedLiquidZonesAt(to.getLocation()));
+        return candidates;
+    }
+
+    private boolean shouldBlockInfiniteSource(Block target) {
+        List<GameplayZone> zones = plugin.runtime().zoneRegistry().highestPriorityZonesAt(target.getLocation());
+        return zones.stream().anyMatch(GameplayZone::blockInfiniteSources) && wouldFormInfiniteSource(target);
     }
 
     private boolean wouldFormInfiniteSource(Block target) {
         int sources = 0;
-        sources += sourceWater(target.getRelative(1, 0, 0)) ? 1 : 0;
-        if (sources >= 2) return true;
-        sources += sourceWater(target.getRelative(-1, 0, 0)) ? 1 : 0;
-        if (sources >= 2) return true;
-        sources += sourceWater(target.getRelative(0, 0, 1)) ? 1 : 0;
-        if (sources >= 2) return true;
-        sources += sourceWater(target.getRelative(0, 0, -1)) ? 1 : 0;
-        return sources >= 2;
+        for (int[] offset : HORIZONTAL_OFFSETS) {
+            if (sourceWater(target.getRelative(offset[0], offset[1], offset[2]))) {
+                sources++;
+            }
+            if (sources >= 2) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean sourceWater(Block block) {

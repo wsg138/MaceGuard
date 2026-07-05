@@ -17,12 +17,12 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public final class ZoneStateService {
@@ -33,17 +33,17 @@ public final class ZoneStateService {
     private final int fullRestoreBatchSize;
     private final int liquidDrainBatchSize;
     private final PerformanceCounters counters;
-    private final Map<String, Set<BlockKey>> changedBlocksByZone = new HashMap<>();
-    private final Map<BlockKey, BukkitTask> ttlTasks = new HashMap<>();
-    private final Map<BlockKey, Long> ttlExpiresAt = new HashMap<>();
-    private final Map<BlockKey, Set<String>> ttlZonesByBlock = new HashMap<>();
-    private final Set<BlockKey> temporaryBlocks = new HashSet<>();
-    private final Set<BlockKey> placedBlocks = new HashSet<>();
-    private final Map<String, ZoneTaskHandle> activeZoneTasks = new HashMap<>();
-    private final Map<String, Set<BukkitTask>> activeDrainTasksByZone = new HashMap<>();
-    private final Map<String, Integer> drainQueueSizesByZone = new HashMap<>();
-    private final Map<String, Long> lastResetAt = new HashMap<>();
-    private final Map<String, Set<Integer>> firedWarningsByZone = new HashMap<>();
+    private final Map<String, Set<BlockKey>> changedBlocksByZone = new ConcurrentHashMap<>();
+    private final Map<BlockKey, BukkitTask> ttlTasks = new ConcurrentHashMap<>();
+    private final Map<BlockKey, Long> ttlExpiresAt = new ConcurrentHashMap<>();
+    private final Map<BlockKey, Set<String>> ttlZonesByBlock = new ConcurrentHashMap<>();
+    private final Set<BlockKey> temporaryBlocks = ConcurrentHashMap.newKeySet();
+    private final Set<BlockKey> placedBlocks = ConcurrentHashMap.newKeySet();
+    private final Map<String, ZoneTaskHandle> activeZoneTasks = new ConcurrentHashMap<>();
+    private final Map<String, Set<BukkitTask>> activeDrainTasksByZone = new ConcurrentHashMap<>();
+    private final Map<String, Integer> drainQueueSizesByZone = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastResetAt = new ConcurrentHashMap<>();
+    private final Map<String, Set<Integer>> firedWarningsByZone = new ConcurrentHashMap<>();
 
     public ZoneStateService(Plugin plugin, ZoneRegistry zoneRegistry, SnapshotService snapshotService, int changedBatchSize, int fullRestoreBatchSize, int liquidDrainBatchSize, PerformanceCounters counters) {
         this.plugin = plugin;
@@ -64,7 +64,7 @@ public final class ZoneStateService {
             }
             if (zone.fullResetMinutes() > 0) {
                 lastResetAt.put(zone.name(), now);
-                firedWarningsByZone.put(zone.name(), new HashSet<>());
+                firedWarningsByZone.put(zone.name(), ConcurrentHashMap.newKeySet());
             }
         }
     }
@@ -86,7 +86,7 @@ public final class ZoneStateService {
     }
 
     public void markChanged(String zoneName, Block block) {
-        changedBlocksByZone.computeIfAbsent(zoneName, ignored -> new LinkedHashSet<>()).add(BlockKey.of(block));
+        changedBlocksByZone.computeIfAbsent(zoneName, ignored -> ConcurrentHashMap.newKeySet()).add(BlockKey.of(block));
     }
 
     public void markPlaced(Block block) {
@@ -248,7 +248,7 @@ public final class ZoneStateService {
             long periodMillis = zone.fullResetMinutes() * 60_000L;
             long remainingSeconds = Math.max(0L, (last + periodMillis - now) / 1000L);
 
-            Set<Integer> fired = firedWarningsByZone.computeIfAbsent(zone.name(), ignored -> new HashSet<>());
+            Set<Integer> fired = firedWarningsByZone.computeIfAbsent(zone.name(), ignored -> ConcurrentHashMap.newKeySet());
             for (int warningSeconds : zone.warnBeforeSeconds()) {
                 if (remainingSeconds == warningSeconds && fired.add(warningSeconds)) {
                     for (Player player : Bukkit.getOnlinePlayers()) {
@@ -351,7 +351,7 @@ public final class ZoneStateService {
 
     private BukkitRunnable runBatch(String zoneName, List<BlockKey> work, int batchSize, java.util.function.Consumer<BlockKey> operation, Runnable onComplete) {
         return new BukkitRunnable() {
-            private int index = 0;
+            private int index;
 
             @Override
             public void run() {
@@ -436,7 +436,7 @@ public final class ZoneStateService {
             return;
         }
         BukkitTask task = runnable.runTaskTimer(plugin, 1L, 1L);
-        activeDrainTasksByZone.computeIfAbsent(zoneName, ignored -> new HashSet<>()).add(task);
+        activeDrainTasksByZone.computeIfAbsent(zoneName, ignored -> ConcurrentHashMap.newKeySet()).add(task);
     }
 
     private void cancelZoneTask(String zoneName) {
@@ -509,15 +509,15 @@ public final class ZoneStateService {
     }
 
     public ZoneStateSnapshot snapshotState() {
-        Map<String, Set<BlockKey>> changed = new HashMap<>();
+        Map<String, Set<BlockKey>> changed = new ConcurrentHashMap<>();
         for (Map.Entry<String, Set<BlockKey>> entry : changedBlocksByZone.entrySet()) {
             changed.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
         }
-        Map<String, Set<Integer>> warnings = new HashMap<>();
+        Map<String, Set<Integer>> warnings = new ConcurrentHashMap<>();
         for (Map.Entry<String, Set<Integer>> entry : firedWarningsByZone.entrySet()) {
             warnings.put(entry.getKey(), new HashSet<>(entry.getValue()));
         }
-        return new ZoneStateSnapshot(changed, new HashSet<>(temporaryBlocks), new HashSet<>(placedBlocks), new HashMap<>(ttlExpiresAt), new HashMap<>(ttlZonesByBlock), new HashMap<>(lastResetAt), warnings);
+        return new ZoneStateSnapshot(changed, new HashSet<>(temporaryBlocks), new HashSet<>(placedBlocks), new ConcurrentHashMap<>(ttlExpiresAt), new ConcurrentHashMap<>(ttlZonesByBlock), new ConcurrentHashMap<>(lastResetAt), warnings);
     }
 
     public void restoreState(ZoneStateSnapshot snapshot, boolean clearInvalidZoneState, boolean preserveTemporaryBlocks) {
@@ -540,7 +540,8 @@ public final class ZoneStateService {
         firedWarningsByZone.clear();
         for (Map.Entry<String, Set<Integer>> entry : snapshot.firedWarningsByZone().entrySet()) {
             if (!clearInvalidZoneState || zoneRegistry.findZone(entry.getKey()) != null) {
-                firedWarningsByZone.put(entry.getKey(), new HashSet<>(entry.getValue()));
+                firedWarningsByZone.put(entry.getKey(), ConcurrentHashMap.newKeySet(entry.getValue().size()));
+                firedWarningsByZone.get(entry.getKey()).addAll(entry.getValue());
             }
         }
         if (preserveTemporaryBlocks) {

@@ -16,7 +16,6 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -29,6 +28,77 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class SnapshotService {
+    private static final int CAPTURE_BLOCKS_PER_TICK = 4096;
+    private static final Set<String> DEFERRED_SUFFIXES = Set.of(
+            "_BUTTON",
+            "_SIGN",
+            "_HANGING_SIGN",
+            "_BANNER",
+            "_TORCH",
+            "_WALL_TORCH",
+            "_CORAL",
+            "_CORAL_FAN",
+            "_CORAL_WALL_FAN",
+            "_SAPLING",
+            "_DOOR",
+            "_TRAPDOOR",
+            "_PRESSURE_PLATE",
+            "_CARPET",
+            "_RAIL",
+            "_BED",
+            "_CANDLE",
+            "_CANDLE_CAKE",
+            "_HEAD",
+            "_SKULL",
+            "_POT",
+            "_PLANT",
+            "_ROOTS",
+            "_VINES",
+            "_STEM",
+            "_FUNGUS",
+            "_MUSHROOM",
+            "_FLOWER",
+            "_PETALS"
+    );
+    private static final Set<String> DEFERRED_EXACT_NAMES = Set.of(
+            "VINE",
+            "LILY_PAD",
+            "SEAGRASS",
+            "TALL_SEAGRASS",
+            "GRASS",
+            "SHORT_GRASS",
+            "TALL_GRASS",
+            "FERN",
+            "LARGE_FERN",
+            "DEAD_BUSH",
+            "SUGAR_CANE",
+            "BAMBOO",
+            "CACTUS",
+            "KELP",
+            "KELP_PLANT",
+            "WHEAT",
+            "CARROTS",
+            "POTATOES",
+            "BEETROOTS",
+            "NETHER_WART",
+            "COCOA",
+            "LADDER",
+            "LEVER",
+            "TRIPWIRE",
+            "TRIPWIRE_HOOK",
+            "REDSTONE_WIRE",
+            "REPEATER",
+            "COMPARATOR",
+            "LANTERN",
+            "SOUL_LANTERN",
+            "END_ROD",
+            "BELL",
+            "AMETHYST_CLUSTER",
+            "LARGE_AMETHYST_BUD",
+            "MEDIUM_AMETHYST_BUD",
+            "SMALL_AMETHYST_BUD"
+    );
+
     private final Plugin plugin;
     private final Logger logger;
     private final FileSnapshotRepository repository;
@@ -120,7 +190,7 @@ public final class SnapshotService {
                             }
                             y++;
                             processed++;
-                            if (processed >= 4096) {
+                            if (processed >= CAPTURE_BLOCKS_PER_TICK) {
                                 return;
                             }
                         }
@@ -144,7 +214,7 @@ public final class SnapshotService {
                 ioExecutor.execute(() -> {
                     long started = System.currentTimeMillis();
                     boolean success = false;
-                    Map<Long, String> blocks = new HashMap<>(entries.size());
+                    Map<Long, String> blocks = new ConcurrentHashMap<>(entries.size());
                     for (SnapshotBlock entry : entries) {
                         blocks.put(BlockKey.pack(entry.x(), entry.y(), entry.z()), entry.blockData());
                     }
@@ -232,72 +302,16 @@ public final class SnapshotService {
             return true;
         }
         String name = material.name();
-        return name.endsWith("_BUTTON")
-                || name.endsWith("_SIGN")
-                || name.endsWith("_HANGING_SIGN")
-                || name.endsWith("_BANNER")
-                || name.endsWith("_TORCH")
-                || name.endsWith("_WALL_TORCH")
-                || name.endsWith("_CORAL")
-                || name.endsWith("_CORAL_FAN")
-                || name.endsWith("_CORAL_WALL_FAN")
-                || name.endsWith("_SAPLING")
-                || name.endsWith("_DOOR")
-                || name.endsWith("_TRAPDOOR")
-                || name.endsWith("_PRESSURE_PLATE")
-                || name.endsWith("_CARPET")
-                || name.endsWith("_RAIL")
-                || name.endsWith("_BED")
-                || name.endsWith("_CANDLE")
-                || name.endsWith("_CANDLE_CAKE")
-                || name.endsWith("_HEAD")
-                || name.endsWith("_SKULL")
-                || name.endsWith("_POT")
-                || name.endsWith("_PLANT")
-                || name.endsWith("_ROOTS")
-                || name.endsWith("_VINES")
-                || name.endsWith("_STEM")
-                || name.endsWith("_FUNGUS")
-                || name.endsWith("_MUSHROOM")
-                || name.endsWith("_FLOWER")
-                || name.endsWith("_PETALS")
-                || name.startsWith("POTTED_")
-                || name.equals("VINE")
-                || name.equals("LILY_PAD")
-                || name.equals("SEAGRASS")
-                || name.equals("TALL_SEAGRASS")
-                || name.equals("GRASS")
-                || name.equals("SHORT_GRASS")
-                || name.equals("TALL_GRASS")
-                || name.equals("FERN")
-                || name.equals("LARGE_FERN")
-                || name.equals("DEAD_BUSH")
-                || name.equals("SUGAR_CANE")
-                || name.equals("BAMBOO")
-                || name.equals("CACTUS")
-                || name.equals("KELP")
-                || name.equals("KELP_PLANT")
-                || name.equals("WHEAT")
-                || name.equals("CARROTS")
-                || name.equals("POTATOES")
-                || name.equals("BEETROOTS")
-                || name.equals("NETHER_WART")
-                || name.equals("COCOA")
-                || name.equals("LADDER")
-                || name.equals("LEVER")
-                || name.equals("TRIPWIRE")
-                || name.equals("TRIPWIRE_HOOK")
-                || name.equals("REDSTONE_WIRE")
-                || name.equals("REPEATER")
-                || name.equals("COMPARATOR")
-                || name.equals("LANTERN")
-                || name.equals("SOUL_LANTERN")
-                || name.equals("END_ROD")
-                || name.equals("BELL")
-                || name.equals("AMETHYST_CLUSTER")
-                || name.equals("LARGE_AMETHYST_BUD")
-                || name.equals("MEDIUM_AMETHYST_BUD")
-                || name.equals("SMALL_AMETHYST_BUD");
+        return name.startsWith("POTTED_") || DEFERRED_EXACT_NAMES.contains(name) || hasDeferredSuffix(name);
+    }
+
+    private boolean hasDeferredSuffix(String materialName) {
+        for (String suffix : DEFERRED_SUFFIXES) {
+            if (materialName.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Material materialFromBlockData(String blockData) {

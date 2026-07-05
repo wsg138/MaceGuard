@@ -8,15 +8,14 @@ import org.bukkit.Location;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ZoneRegistry {
     private final Set<String> allowedWorlds;
-    private final List<ProtectedRegion> protectedRegions;
     private final Map<String, WorldZoneIndex<GameplayZone>> gameplayByWorld;
     private final Map<String, WorldZoneIndex<ProtectedRegion>> protectedByWorld;
     private final Map<String, WorldZoneIndex<GameplayZone>> confinedLiquidByWorld;
@@ -24,7 +23,6 @@ public final class ZoneRegistry {
 
     public ZoneRegistry(PluginSettings settings, PerformanceCounters counters) {
         this.allowedWorlds = settings.allowedWorlds();
-        this.protectedRegions = settings.protectedRegions();
         this.counters = counters;
         this.gameplayByWorld = buildGameplayIndex(settings.gameplayZones());
         this.protectedByWorld = buildProtectedIndex(settings.protectedRegions());
@@ -173,12 +171,12 @@ public final class ZoneRegistry {
     }
 
     private Map<String, WorldZoneIndex<GameplayZone>> buildGameplayIndex(List<GameplayZone> zones) {
-        Map<String, List<GameplayZone>> perWorld = new HashMap<>();
+        Map<String, List<GameplayZone>> perWorld = new ConcurrentHashMap<>();
         for (GameplayZone zone : zones) {
             perWorld.computeIfAbsent(zone.region().worldName(), ignored -> new ArrayList<>()).add(zone);
         }
 
-        Map<String, WorldZoneIndex<GameplayZone>> index = new HashMap<>();
+        Map<String, WorldZoneIndex<GameplayZone>> index = new ConcurrentHashMap<>();
         for (Map.Entry<String, List<GameplayZone>> entry : perWorld.entrySet()) {
             index.put(entry.getKey(), WorldZoneIndex.gameplay(entry.getValue()));
         }
@@ -186,11 +184,11 @@ public final class ZoneRegistry {
     }
 
     private Map<String, WorldZoneIndex<ProtectedRegion>> buildProtectedIndex(List<ProtectedRegion> zones) {
-        Map<String, List<ProtectedRegion>> perWorld = new HashMap<>();
+        Map<String, List<ProtectedRegion>> perWorld = new ConcurrentHashMap<>();
         for (ProtectedRegion zone : zones) {
             perWorld.computeIfAbsent(zone.region().worldName(), ignored -> new ArrayList<>()).add(zone);
         }
-        Map<String, WorldZoneIndex<ProtectedRegion>> index = new HashMap<>();
+        Map<String, WorldZoneIndex<ProtectedRegion>> index = new ConcurrentHashMap<>();
         for (Map.Entry<String, List<ProtectedRegion>> entry : perWorld.entrySet()) {
             index.put(entry.getKey(), WorldZoneIndex.protectedRegions(entry.getValue()));
         }
@@ -205,7 +203,7 @@ public final class ZoneRegistry {
         private WorldZoneIndex(List<T> zones, RegionAccessors<T> accessors) {
             this.accessors = accessors;
             this.allZones = List.copyOf(zones);
-            this.byChunk = new HashMap<>();
+            this.byChunk = new ConcurrentHashMap<>();
             for (T zone : zones) {
                 for (int chunkX = accessors.minChunkX(zone); chunkX <= accessors.maxChunkX(zone); chunkX++) {
                     for (int chunkZ = accessors.minChunkZ(zone); chunkZ <= accessors.maxChunkZ(zone); chunkZ++) {

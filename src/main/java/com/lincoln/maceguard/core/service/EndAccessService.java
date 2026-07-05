@@ -15,7 +15,7 @@ public final class EndAccessService {
     private final Logger logger;
 
     private final boolean manageEyes;
-    private final boolean persistAutoEnable;
+    private final boolean persistAutoEnableEnabled;
     private boolean eyesAllowed;
     private Instant eyesEnableAt;
     private boolean portalsAllowed;
@@ -27,7 +27,7 @@ public final class EndAccessService {
         this.configSaver = configSaver;
         this.logger = logger;
         this.manageEyes = settings.manageEyes();
-        this.persistAutoEnable = settings.persistAutoEnable();
+        this.persistAutoEnableEnabled = settings.persistAutoEnable();
         this.eyesAllowed = settings.allowEyes();
         this.eyesEnableAt = settings.eyesEnableAt();
         this.portalsAllowed = settings.allowPortals();
@@ -56,14 +56,14 @@ public final class EndAccessService {
 
     public void setEyes(boolean allowed, Instant enableAt) {
         this.eyesAllowed = allowed;
-        this.eyesEnableAt = allowed ? null : enableAt;
+        this.eyesEnableAt = scheduledEnableAt(allowed, enableAt);
         config.set("end_access.allow_eyes", eyesAllowed);
         config.set("end_access.eyes_enable_at_est", eyesEnableAt == null ? "" : formatEst(eyesEnableAt));
     }
 
     public void setPortals(boolean allowed, Instant enableAt) {
         this.portalsAllowed = allowed;
-        this.portalsEnableAt = allowed ? null : enableAt;
+        this.portalsEnableAt = scheduledEnableAt(allowed, enableAt);
         config.set("end_access.allow_portals", portalsAllowed);
         config.set("end_access.portals_enable_at_est", portalsEnableAt == null ? "" : formatEst(portalsEnableAt));
     }
@@ -92,8 +92,12 @@ public final class EndAccessService {
         return PluginConfigLoader.EST_FORMAT.withZone(PluginConfigLoader.EST_ZONE).format(instant);
     }
 
+    private Instant scheduledEnableAt(boolean allowed, Instant enableAt) {
+        return allowed ? null : enableAt;
+    }
+
     private void persistAutoEnable(String label) {
-        if (!persistAutoEnable) {
+        if (!persistAutoEnableEnabled) {
             return;
         }
         configSaver.run();

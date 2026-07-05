@@ -31,10 +31,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MaceGuardPlugin extends JavaPlugin {
-    private PluginRuntime runtime;
-    private MaceGuardCommand command;
+    private PluginRuntime pluginRuntime;
     private DuelArenaFootprintService duelArenaFootprintService;
-    private WarzoneDuelsHook warzoneDuelsHook;
+    private WarzoneDuelsHook duelsHook;
 
     @Override
     public void onEnable() {
@@ -49,7 +48,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new EndAccessListener(this), this);
         Bukkit.getPluginManager().registerEvents(new EndIslandListener(this), this);
 
-        command = new MaceGuardCommand(this);
+        MaceGuardCommand command = new MaceGuardCommand(this);
         command.register();
 
         if (!Compat.isMaceSupported()) {
@@ -59,23 +58,23 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (runtime != null) {
-            runtime.shutdownForDisable();
-            runtime = null;
+        if (pluginRuntime != null) {
+            pluginRuntime.shutdownForDisable();
+            pluginRuntime = null;
         }
     }
 
     public void reloadPlugin() {
         ZoneStateService.ZoneStateSnapshot stateSnapshot = null;
-        if (runtime != null) {
-            stateSnapshot = runtime.zoneStateService().snapshotState();
-            if (!runtime.settings().reload().preserveTemporaryBlocks()) {
-                runtime.zoneStateService().clearTemporaryBlocksForReload();
+        if (pluginRuntime != null) {
+            stateSnapshot = pluginRuntime.zoneStateService().snapshotState();
+            if (!pluginRuntime.settings().reload().preserveTemporaryBlocks()) {
+                pluginRuntime.zoneStateService().clearTemporaryBlocksForReload();
             }
-            getLogger().info("Reload preserving reset queue size " + runtime.zoneStateService().resetQueueSize()
-                    + " and temporary blocks " + runtime.zoneStateService().temporaryBlockCount()
-                    + " (preserve-temporary-blocks=" + runtime.settings().reload().preserveTemporaryBlocks() + ").");
-            runtime.shutdownForReload();
+            getLogger().info("Reload preserving reset queue size " + pluginRuntime.zoneStateService().resetQueueSize()
+                    + " and temporary blocks " + pluginRuntime.zoneStateService().temporaryBlockCount()
+                    + " (preserve-temporary-blocks=" + pluginRuntime.settings().reload().preserveTemporaryBlocks() + ").");
+            pluginRuntime.shutdownForReload();
         }
         migrateConfig();
         reloadConfig();
@@ -90,7 +89,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     public PluginRuntime runtime() {
-        return runtime;
+        return pluginRuntime;
     }
 
     public DuelArenaFootprintService duelArenaFootprint() {
@@ -98,41 +97,23 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     public WarzoneDuelsHook warzoneDuelsHook() {
-        return warzoneDuelsHook;
+        return duelsHook;
     }
 
     public boolean isFeatureEnabled() {
-        return runtime != null && runtime.settings().enabled();
+        return pluginRuntime != null && pluginRuntime.settings().enabled();
     }
 
     private void bootstrapRuntime(ZoneStateService.ZoneStateSnapshot stateSnapshot) {
         reloadConfig();
-        if (warzoneDuelsHook == null) {
-            warzoneDuelsHook = new WarzoneDuelsHook(this);
-        }
-        warzoneDuelsHook.refresh();
-        if (duelArenaFootprintService == null) {
-            duelArenaFootprintService = new DuelArenaFootprintService(this);
-        }
-        duelArenaFootprintService.reload();
+        refreshIntegrations();
         PluginConfigLoader loader = new PluginConfigLoader(getLogger());
         PluginSettings settings = loader.load(getConfig());
         getLogger().info("End island spear blocking is " + (settings.endIsland().blockSpears() ? "enabled" : "disabled") + ".");
-        PerformanceCounters counters = runtime != null ? runtime.counters() : new PerformanceCounters();
+        PerformanceCounters counters = pluginRuntime != null ? pluginRuntime.counters() : new PerformanceCounters();
 
-        ExecutorService ioExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread thread = new Thread(r, "MaceGuard-IO");
-            thread.setDaemon(true);
-            return thread;
-        });
-
-        FileSnapshotRepository repository = new FileSnapshotRepository(Path.of(getDataFolder().getAbsolutePath(), "snapshots"));
-        try {
-            repository.ensureDirectory();
-        } catch (IOException ex) {
-            getLogger().warning("Failed to create snapshot directory: " + ex.getMessage());
-        }
-
+        ExecutorService ioExecutor = newSnapshotExecutor();
+        FileSnapshotRepository repository = createSnapshotRepository();
         ZoneRegistry zoneRegistry = new ZoneRegistry(settings, counters);
         SnapshotService snapshotService = new SnapshotService(this, getLogger(), repository, ioExecutor, counters);
         snapshotService.loadAll(zoneRegistry.allGameplayZones());
@@ -141,34 +122,75 @@ public final class MaceGuardPlugin extends JavaPlugin {
             zoneStateService.restoreState(stateSnapshot, settings.reload().clearInvalidZoneState(), settings.reload().preserveTemporaryBlocks());
         }
         EndAccessService endAccessService = new EndAccessService(getConfig(), loader, this::saveConfig, getLogger(), settings.endAccess());
-        BukkitTask resetTicker = Bukkit.getScheduler().runTaskTimer(this, () -> {
+        BukkitTask resetTicker = startResetTicker(zoneStateService);
+        BukkitTask backstopTicker = startBackstopTicker(settings, zoneStateService);
+        BukkitTask debugTicker = startDebugTicker(settings, counters, snapshotService, zoneStateService);
+        counters.reloadTaskRestart();
+
+        pluginRuntime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, counters, ioExecutor, resetTicker, backstopTicker, debugTicker);
+    }
+
+    private void refreshIntegrations() {
+        if (duelsHook == null) {
+            duelsHook = new WarzoneDuelsHook(this);
+        }
+        duelsHook.refresh();
+        if (duelArenaFootprintService == null) {
+            duelArenaFootprintService = new DuelArenaFootprintService(this);
+        }
+        duelArenaFootprintService.reload();
+    }
+
+    private ExecutorService newSnapshotExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "MaceGuard-IO");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    private FileSnapshotRepository createSnapshotRepository() {
+        FileSnapshotRepository repository = new FileSnapshotRepository(Path.of(getDataFolder().getAbsolutePath(), "snapshots"));
+        try {
+            repository.ensureDirectory();
+        } catch (IOException ex) {
+            getLogger().warning("Failed to create snapshot directory: " + ex.getMessage());
+        }
+        return repository;
+    }
+
+    private BukkitTask startResetTicker(ZoneStateService zoneStateService) {
+        return Bukkit.getScheduler().runTaskTimer(this, () -> {
             if (isFeatureEnabled()) {
                 zoneStateService.tickResets();
             }
         }, 100L, 100L);
-        BukkitTask backstopTicker = null;
-        if (settings.backstopScan().enabled()) {
-            long intervalTicks = settings.backstopScan().intervalMinutes() * 60L * 20L;
-            backstopTicker = Bukkit.getScheduler().runTaskTimer(this, () -> {
-                if (isFeatureEnabled()) {
-                    zoneStateService.runBackstopPass(settings.backstopScan().maxZonesPerTick(), settings.backstopScan().maxBlocksPerTick(), settings.backstopScan().repairMode(), settings.backstopScan().reportOnly());
-                }
-            }, intervalTicks, intervalTicks);
-        }
-        BukkitTask debugTicker = null;
-        if (settings.debugPerformance().enabled()) {
-            long intervalTicks = settings.debugPerformance().logIntervalSeconds() * 20L;
-            debugTicker = Bukkit.getScheduler().runTaskTimer(this, () -> getLogger().info("Performance counters: " + counters.summary()
-                    + ", snapshotLoading=" + snapshotService.loadingZones()
-                    + ", resetQueueSize=" + zoneStateService.resetQueueSize()
-                    + ", activeZoneTasks=" + zoneStateService.activeZoneTaskCount()
-                    + ", activeDrainTasks=" + zoneStateService.activeDrainTaskCount()
-                    + ", drainQueueSize=" + zoneStateService.drainQueueSize()
-                    + ", temporaryBlocks=" + zoneStateService.temporaryBlockCount()), intervalTicks, intervalTicks);
-        }
-        counters.reloadTaskRestart();
+    }
 
-        runtime = new PluginRuntime(settings, zoneRegistry, zoneStateService, snapshotService, endAccessService, counters, ioExecutor, resetTicker, backstopTicker, debugTicker);
+    private BukkitTask startBackstopTicker(PluginSettings settings, ZoneStateService zoneStateService) {
+        if (!settings.backstopScan().enabled()) {
+            return null;
+        }
+        long intervalTicks = settings.backstopScan().intervalMinutes() * 60L * 20L;
+        return Bukkit.getScheduler().runTaskTimer(this, () -> {
+            if (isFeatureEnabled()) {
+                zoneStateService.runBackstopPass(settings.backstopScan().maxZonesPerTick(), settings.backstopScan().maxBlocksPerTick(), settings.backstopScan().repairMode(), settings.backstopScan().reportOnly());
+            }
+        }, intervalTicks, intervalTicks);
+    }
+
+    private BukkitTask startDebugTicker(PluginSettings settings, PerformanceCounters counters, SnapshotService snapshotService, ZoneStateService zoneStateService) {
+        if (!settings.debugPerformance().enabled()) {
+            return null;
+        }
+        long intervalTicks = settings.debugPerformance().logIntervalSeconds() * 20L;
+        return Bukkit.getScheduler().runTaskTimer(this, () -> getLogger().info("Performance counters: " + counters.summary()
+                + ", snapshotLoading=" + snapshotService.loadingZones()
+                + ", resetQueueSize=" + zoneStateService.resetQueueSize()
+                + ", activeZoneTasks=" + zoneStateService.activeZoneTaskCount()
+                + ", activeDrainTasks=" + zoneStateService.activeDrainTaskCount()
+                + ", drainQueueSize=" + zoneStateService.drainQueueSize()
+                + ", temporaryBlocks=" + zoneStateService.temporaryBlockCount()), intervalTicks, intervalTicks);
     }
 
     private void saveBundledFootprint() {
