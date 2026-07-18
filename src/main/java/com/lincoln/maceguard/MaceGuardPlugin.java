@@ -8,6 +8,7 @@ import com.lincoln.maceguard.adapter.bukkit.listener.EndIslandListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.LiquidControlListener;
 import com.lincoln.maceguard.adapter.bukkit.listener.MaceDurabilityListener;
 import com.lincoln.maceguard.adapter.storage.FileSnapshotRepository;
+import com.lincoln.maceguard.adapter.storage.SparseBaselineRepository;
 import com.lincoln.maceguard.bootstrap.PluginRuntime;
 import com.lincoln.maceguard.config.ConfigMigrator;
 import com.lincoln.maceguard.config.PluginConfigLoader;
@@ -19,6 +20,7 @@ import com.lincoln.maceguard.core.service.SnapshotService;
 import com.lincoln.maceguard.core.service.ZoneRegistry;
 import com.lincoln.maceguard.core.service.ZoneStateService;
 import com.lincoln.maceguard.integration.WarzoneDuelsHook;
+import com.lincoln.maceguard.integration.WarzoneRotatorHook;
 import com.lincoln.maceguard.util.Compat;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -36,6 +38,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
     private Optional<PluginRuntime> pluginRuntime = Optional.empty();
     private DuelArenaFootprintService duelArenaFootprintService;
     private WarzoneDuelsHook duelsHook;
+    private WarzoneRotatorHook warzoneRotatorHook;
 
     @Override
     public void onEnable() {
@@ -101,6 +104,10 @@ public final class MaceGuardPlugin extends JavaPlugin {
         return duelsHook;
     }
 
+    public WarzoneRotatorHook warzoneRotatorHook() {
+        return warzoneRotatorHook;
+    }
+
     public boolean isFeatureEnabled() {
         return pluginRuntime.map(runtime -> runtime.settings().enabled()).orElse(false);
     }
@@ -118,7 +125,8 @@ public final class MaceGuardPlugin extends JavaPlugin {
         ZoneRegistry zoneRegistry = new ZoneRegistry(settings, counters);
         SnapshotService snapshotService = new SnapshotService(this, getLogger(), repository, ioExecutor, counters);
         snapshotService.loadAll(zoneRegistry.allGameplayZones());
-        ZoneStateService zoneStateService = new ZoneStateService(this, zoneRegistry, snapshotService, settings.performance().resetBatchSize(), settings.performance().fullRestoreBatchSize(), settings.performance().liquidDrainBatchSize(), counters);
+        SparseBaselineRepository sparseBaseline = new SparseBaselineRepository(Path.of(getDataFolder().getAbsolutePath(), "sparse-baselines"));
+        ZoneStateService zoneStateService = new ZoneStateService(this, zoneRegistry, snapshotService, sparseBaseline, settings.performance().resetBatchSize(), settings.performance().fullRestoreBatchSize(), settings.performance().liquidDrainBatchSize(), counters, warzoneRotatorHook);
         if (stateSnapshot != null) {
             zoneStateService.restoreState(stateSnapshot, settings.reload().clearInvalidZoneState(), settings.reload().preserveTemporaryBlocks());
         }
@@ -136,6 +144,10 @@ public final class MaceGuardPlugin extends JavaPlugin {
             duelsHook = new WarzoneDuelsHook(this);
         }
         duelsHook.refresh();
+        if (warzoneRotatorHook == null) {
+            warzoneRotatorHook = new WarzoneRotatorHook(this);
+        }
+        warzoneRotatorHook.refresh();
         if (duelArenaFootprintService == null) {
             duelArenaFootprintService = new DuelArenaFootprintService(this);
         }

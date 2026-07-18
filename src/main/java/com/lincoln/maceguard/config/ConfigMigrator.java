@@ -21,7 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class ConfigMigrator {
-    public static final int CURRENT_CONFIG_VERSION = 5;
+    public static final int CURRENT_CONFIG_VERSION = 6;
     private static final DateTimeFormatter BACKUP_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private final JavaPlugin plugin;
@@ -86,6 +86,11 @@ public final class ConfigMigrator {
     private void addKnownMigrationPaths(YamlConfiguration config, YamlConfiguration defaults, List<String> addedPaths) {
         addMissingPath(config, defaults, "end_island.block_spears", Boolean.TRUE, addedPaths);
         addMissingGameplayZonePath(config, "war-pit", "suppress_snapshot_drops", Boolean.TRUE, addedPaths);
+        addMissingGameplayZonePath(config, "warzone", "allowed_break", List.of(), addedPaths);
+        addMissingGameplayZonePath(config, "warzone", "allow_break_replaceable", Boolean.TRUE, addedPaths);
+        addMissingGameplayZonePath(config, "warzone", "cobweb_policy", "WARZONE_ROTATOR", addedPaths);
+        addMissingGameplayZonePath(config, "warzone", "reset_mode", "SPARSE_SNAPSHOT", addedPaths);
+        addMissingGameplayZonePath(config, "warzone", "weekly_reset", Map.of("enabled", true, "day", "SUNDAY", "time", "04:00", "timezone", "America/Indiana/Indianapolis"), addedPaths);
     }
 
     @SuppressWarnings({"PMD.UseConcurrentHashMap", "PMD.AvoidInstantiatingObjectsInLoops"})

@@ -1,6 +1,7 @@
 package com.lincoln.maceguard.config;
 
 import com.lincoln.maceguard.core.model.CuboidRegion;
+import com.lincoln.maceguard.core.model.CobwebPolicy;
 import com.lincoln.maceguard.core.model.EndAccessSettings;
 import com.lincoln.maceguard.core.model.EndIslandExplosiveSettings;
 import com.lincoln.maceguard.core.model.EndIslandSettings;
@@ -9,11 +10,14 @@ import com.lincoln.maceguard.core.model.MaceDurabilityRule;
 import com.lincoln.maceguard.core.model.ProtectedRegion;
 import com.lincoln.maceguard.core.model.ResetMode;
 import com.lincoln.maceguard.core.model.ResetScope;
+import com.lincoln.maceguard.core.model.WeeklyResetSchedule;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
 import java.time.Instant;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -153,7 +157,10 @@ public final class PluginConfigLoader {
         boolean allowAllPlace = bool(rawZone.get("allow_all_place"), false);
         boolean allowAllBreak = bool(rawZone.get("allow_all_break"), false);
         Set<String> allowedPlace = materialNameSet(rawZone.get("allowed_place"));
+        Set<String> allowedBreak = materialNameSet(rawZone.get("allowed_break"));
         Set<String> denyPlace = materialNameSet(rawZone.get("deny_place"));
+        boolean allowBreakReplaceable = bool(rawZone.get("allow_break_replaceable"), false);
+        CobwebPolicy cobwebPolicy = enumValue(rawZone.get("cobweb_policy"), CobwebPolicy.NONE);
         boolean externallyManaged = bool(rawZone.get("externally_managed"), false);
         boolean confineLiquids = bool(rawZone.get("confine_liquids"), false);
         boolean blockInfiniteSources = bool(rawZone.get("block_infinite_sources"), false);
@@ -162,6 +169,7 @@ public final class PluginConfigLoader {
         int fullResetMinutes = Math.max(0, integer(rawZone.get("full_reset_minutes"), 0));
         ResetMode resetMode = enumValue(rawZone.get("reset_mode"), ResetMode.AIR);
         ResetScope resetScope = enumValue(rawZone.get("reset_scope"), ResetScope.CHANGED);
+        WeeklyResetSchedule weeklyReset = weeklyReset(rawZone.get("weekly_reset"));
         List<Integer> warnBeforeSeconds = integerList(rawZone.get("warn_before_seconds"));
         warnBeforeSeconds.sort(Comparator.reverseOrder());
         int priority = integer(rawZone.get("priority"), 0);
@@ -181,7 +189,10 @@ public final class PluginConfigLoader {
                 allowAllPlace,
                 allowAllBreak,
                 Set.copyOf(allowedPlace),
+                Set.copyOf(allowedBreak),
                 Set.copyOf(denyPlace),
+                allowBreakReplaceable,
+                cobwebPolicy,
                 externallyManaged,
                 confineLiquids,
                 blockInfiniteSources,
@@ -190,6 +201,7 @@ public final class PluginConfigLoader {
                 fullResetMinutes,
                 resetMode,
                 resetScope,
+                weeklyReset,
                 List.copyOf(warnBeforeSeconds),
                 maceDurabilityRule
         );
@@ -236,6 +248,21 @@ public final class PluginConfigLoader {
             }
         }
         return values;
+    }
+
+    private WeeklyResetSchedule weeklyReset(Object raw) {
+        if (!(raw instanceof Map<?, ?> values) || !bool(values.get("enabled"), false)) {
+            return WeeklyResetSchedule.DISABLED;
+        }
+        try {
+            DayOfWeek day = DayOfWeek.valueOf(string(values.get("day"), "SUNDAY").trim().toUpperCase(Locale.ROOT));
+            LocalTime time = LocalTime.parse(string(values.get("time"), "04:00").trim());
+            ZoneId zone = ZoneId.of(string(values.get("timezone"), "America/Indiana/Indianapolis").trim());
+            return new WeeklyResetSchedule(true, day, time, zone);
+        } catch (RuntimeException ex) {
+            logger.warning("Invalid weekly_reset configuration; the weekly reset is disabled: " + ex.getMessage());
+            return WeeklyResetSchedule.DISABLED;
+        }
     }
 
     @SuppressWarnings({"unchecked", "PMD.ReturnEmptyCollectionRatherThanNull"})

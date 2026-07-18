@@ -1,4 +1,4 @@
-config-version: 5
+config-version: 6
 enabled: true
 debug: false
 
@@ -135,13 +135,24 @@ gameplay_zones:
     allow_all_place: false
     allow_all_break: false
     allowed_place: []
+    allowed_break: []
     deny_place: []
+    # Delegates only cobweb placement/removal to WarzoneRotator. All other blocks remain denied.
+    cobweb_policy: WARZONE_ROTATOR
+    # Lets a permitted cobweb replace grass, vines, snow, and other Paper-replaceable blocks.
+    allow_break_replaceable: true
     confine_liquids: true
     block_infinite_sources: false
     ttl_seconds: 0
     full_reset_minutes: 0
-    reset_mode: AIR
+    reset_mode: SPARSE_SNAPSHOT
     reset_scope: CHANGED
+    weekly_reset:
+      enabled: true
+      day: SUNDAY
+      time: "04:00"
+      timezone: America/Indiana/Indianapolis
+    warn_before_seconds: [600, 300, 60, 30, 10, 5]
     mace_armor_durability:
       enabled: true
       damage_per_armor_piece: 2

@@ -4,6 +4,8 @@ import com.lincoln.maceguard.core.model.BlockKey;
 import com.lincoln.maceguard.core.model.GameplayZone;
 import com.lincoln.maceguard.core.model.ResetMode;
 import com.lincoln.maceguard.core.model.ResetScope;
+import com.lincoln.maceguard.adapter.storage.SparseBaselineRepository;
+import com.lincoln.maceguard.integration.WarzoneRotatorHook;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -24,6 +26,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import java.time.ZonedDateTime;
+import java.time.temporal.TemporalAdjusters;
 
 public final class ZoneStateService {
     private static final long RESET_DUE_SECONDS = 0L;
@@ -31,6 +35,8 @@ public final class ZoneStateService {
     private final Plugin plugin;
     private final ZoneRegistry zoneRegistry;
     private final SnapshotService snapshotService;
+    private final SparseBaselineRepository sparseBaseline;
+    private final WarzoneRotatorHook warzoneRotatorHook;
     private final int changedBatchSize;
     private final int fullRestoreBatchSize;
     private final int liquidDrainBatchSize;
@@ -46,16 +52,34 @@ public final class ZoneStateService {
     private final Map<String, Integer> drainQueueSizesByZone = new ConcurrentHashMap<>();
     private final Map<String, Long> lastResetAt = new ConcurrentHashMap<>();
     private final Map<String, Set<Integer>> firedWarningsByZone = new ConcurrentHashMap<>();
+    private final Map<String, Map<BlockKey, String>> sparseOriginalsByZone = new ConcurrentHashMap<>();
 
-    public ZoneStateService(Plugin plugin, ZoneRegistry zoneRegistry, SnapshotService snapshotService, int changedBatchSize, int fullRestoreBatchSize, int liquidDrainBatchSize, PerformanceCounters counters) {
+    public ZoneStateService(Plugin plugin, ZoneRegistry zoneRegistry, SnapshotService snapshotService, SparseBaselineRepository sparseBaseline, int changedBatchSize, int fullRestoreBatchSize, int liquidDrainBatchSize, PerformanceCounters counters, WarzoneRotatorHook warzoneRotatorHook) {
         this.plugin = plugin;
         this.zoneRegistry = zoneRegistry;
         this.snapshotService = snapshotService;
+        this.sparseBaseline = sparseBaseline;
+        this.warzoneRotatorHook = warzoneRotatorHook;
         this.changedBatchSize = changedBatchSize;
         this.fullRestoreBatchSize = fullRestoreBatchSize;
         this.liquidDrainBatchSize = liquidDrainBatchSize;
         this.counters = counters;
         initializeResetState();
+        loadSparseBaselines();
+    }
+
+    private void loadSparseBaselines() {
+        for (GameplayZone zone : zoneRegistry.allGameplayZones()) {
+            if (zone.resetMode() != ResetMode.SPARSE_SNAPSHOT) {
+                continue;
+            }
+            try {
+                sparseOriginalsByZone.put(zone.name(), new ConcurrentHashMap<>(sparseBaseline.load(zone.name())));
+            } catch (java.io.IOException ex) {
+                plugin.getLogger().warning("Cannot load sparse baseline for " + zone.name() + ": " + ex.getMessage());
+                sparseOriginalsByZone.put(zone.name(), new ConcurrentHashMap<>());
+            }
+        }
     }
 
     private void initializeResetState() {
@@ -67,6 +91,9 @@ public final class ZoneStateService {
             if (zone.fullResetMinutes() > 0) {
                 lastResetAt.put(zone.name(), now);
                 firedWarningsByZone.put(zone.name(), ConcurrentHashMap.newKeySet());
+            }
+            if (zone.weeklyReset().enabled()) {
+                lastResetAt.put(zone.name(), sparseBaseline.loadLastReset(zone.name()));
             }
         }
     }
@@ -89,6 +116,47 @@ public final class ZoneStateService {
 
     public void markChanged(String zoneName, Block block) {
         changedBlocksByZone.computeIfAbsent(zoneName, ignored -> ConcurrentHashMap.newKeySet()).add(BlockKey.of(block));
+    }
+
+    /** Records a block before it changes. Callers cancel the mutation when the durable write fails. */
+    public boolean captureSparseOriginals(Collection<GameplayZone> zones, Block block) {
+        return captureSparseOriginals(zones, BlockKey.of(block), block.getBlockData().getAsString(true));
+    }
+
+    public boolean captureSparseOriginals(Collection<GameplayZone> zones, BlockKey key, String original) {
+        for (GameplayZone zone : zones) {
+            if (zone.resetMode() != ResetMode.SPARSE_SNAPSHOT) {
+                continue;
+            }
+            Map<BlockKey, String> entries = sparseOriginalsByZone.computeIfAbsent(zone.name(), ignored -> new ConcurrentHashMap<>());
+            if (entries.containsKey(key)) {
+                continue;
+            }
+            if (!sparseBaseline.appendOriginal(zone.name(), key, original)) {
+                plugin.getLogger().warning("Sparse baseline write failed for " + zone.name() + " at " + key + "; mutation denied.");
+                return false;
+            }
+            entries.putIfAbsent(key, original);
+        }
+        return true;
+    }
+
+    public boolean preservePermanentEdit(Collection<GameplayZone> zones, Block block) {
+        for (GameplayZone zone : zones) {
+            if (zone.resetMode() != ResetMode.SPARSE_SNAPSHOT) {
+                continue;
+            }
+            BlockKey key = BlockKey.of(block);
+            Map<BlockKey, String> entries = sparseOriginalsByZone.getOrDefault(zone.name(), Map.of());
+            if (entries.containsKey(key)) {
+                if (!sparseBaseline.appendDelete(zone.name(), key)) {
+                    plugin.getLogger().warning("Sparse baseline delete failed for staff edit at " + key + "; mutation denied.");
+                    return false;
+                }
+                entries.remove(key);
+            }
+        }
+        return true;
     }
 
     public void markPlaced(Block block) {
@@ -172,6 +240,27 @@ public final class ZoneStateService {
             return;
         }
 
+        if (zone.resetMode() == ResetMode.SPARSE_SNAPSHOT) {
+            Map<BlockKey, String> originals = sparseOriginalsByZone.getOrDefault(zone.name(), Map.of());
+            if (originals.isEmpty()) {
+                persistWeeklyReset(zone);
+                return;
+            }
+            List<Map.Entry<BlockKey, String>> work = new ArrayList<>(originals.entrySet());
+            startZoneTask(zone.name(), ZoneTaskType.RESTORE, runSparseBatch(zone.name(), work, () -> {
+                if (sparseBaseline.clear(zone.name())) {
+                    sparseOriginalsByZone.remove(zone.name());
+                    persistWeeklyReset(zone);
+                    if (warzoneRotatorHook != null) {
+                        warzoneRotatorHook.resetCompleted();
+                    }
+                } else {
+                    feedback.accept("§cSparse baseline was restored but could not be compacted; it will be retried.");
+                }
+            }));
+            return;
+        }
+
         if (zone.resetScope() == ResetScope.CHANGED) {
             Set<BlockKey> changed = changedBlocksByZone.get(zone.name());
             if (changed == null || changed.isEmpty()) {
@@ -243,6 +332,10 @@ public final class ZoneStateService {
             if (zone.externallyManaged()) {
                 continue;
             }
+            if (zone.weeklyReset().enabled()) {
+                tickWeeklyReset(zone, now);
+                continue;
+            }
             if (zone.fullResetMinutes() <= 0) {
                 continue;
             }
@@ -269,6 +362,40 @@ public final class ZoneStateService {
                 fired.clear();
                 resetZone(zone, message -> {});
             }
+        }
+    }
+
+    private void tickWeeklyReset(GameplayZone zone, long now) {
+        ZonedDateTime current = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), zone.weeklyReset().zoneId());
+        ZonedDateTime scheduled = current.with(TemporalAdjusters.previousOrSame(zone.weeklyReset().day())).with(zone.weeklyReset().time());
+        long dueAt = scheduled.toInstant().toEpochMilli();
+        long last = lastResetAt.getOrDefault(zone.name(), 0L);
+        ZonedDateTime upcoming = current.with(TemporalAdjusters.nextOrSame(zone.weeklyReset().day())).with(zone.weeklyReset().time());
+        if (!upcoming.isAfter(current)) {
+            upcoming = upcoming.plusWeeks(1);
+        }
+        long remainingSeconds = Math.max(0L, (upcoming.toInstant().toEpochMilli() - now) / 1000L);
+        Set<Integer> fired = firedWarningsByZone.computeIfAbsent(zone.name(), ignored -> ConcurrentHashMap.newKeySet());
+        for (int warningSeconds : zone.warnBeforeSeconds()) {
+            if (remainingSeconds == warningSeconds && fired.add(warningSeconds)) {
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    if (zone.region().contains(player.getLocation())) {
+                        player.sendMessage("§e[" + zone.name() + "] Reset in §c" + warningSeconds + "§es.");
+                    }
+                }
+            }
+        }
+        if (now < dueAt || last >= dueAt || isRestoreRunning(zone.name())) {
+            return;
+        }
+        lastResetAt.put(zone.name(), now);
+        fired.clear();
+        resetZone(zone, message -> plugin.getLogger().info(message));
+    }
+
+    private void persistWeeklyReset(GameplayZone zone) {
+        if (zone.weeklyReset().enabled() && !sparseBaseline.saveLastReset(zone.name(), lastResetAt.getOrDefault(zone.name(), System.currentTimeMillis()))) {
+            plugin.getLogger().warning("Could not persist weekly reset timestamp for " + zone.name() + "; recovery may run again after restart.");
         }
     }
 
@@ -361,6 +488,36 @@ public final class ZoneStateService {
                 }
             }
         });
+    }
+
+    private BukkitRunnable runSparseBatch(String zoneName, List<Map.Entry<BlockKey, String>> work, Runnable complete) {
+        return new BukkitRunnable() {
+            private int index;
+
+            @Override
+            public void run() {
+                int end = Math.min(index + changedBatchSize, work.size());
+                for (int current = index; current < end; current++) {
+                    Map.Entry<BlockKey, String> entry = work.get(current);
+                    BlockKey key = entry.getKey();
+                    World world = Bukkit.getWorld(key.worldName());
+                    if (world != null) {
+                        try {
+                            world.getBlockAt(key.x(), key.y(), key.z()).setBlockData(Bukkit.createBlockData(entry.getValue()), false);
+                        } catch (IllegalArgumentException ex) {
+                            plugin.getLogger().warning("Skipping invalid sparse block data at " + key + ": " + ex.getMessage());
+                        }
+                    }
+                }
+                counters.resetBlocksProcessed(end - index);
+                index = end;
+                if (index >= work.size()) {
+                    complete.run();
+                    clearZoneTask(zoneName, this);
+                    cancel();
+                }
+            }
+        };
     }
 
     private BukkitRunnable runBatch(String zoneName, List<BlockKey> work, int batchSize, java.util.function.Consumer<BlockKey> operation, Runnable onComplete) {

@@ -10,7 +10,10 @@ public record GameplayZone(
         boolean allowAllPlace,
         boolean allowAllBreak,
         Set<String> allowedPlace,
+        Set<String> allowedBreak,
         Set<String> denyPlace,
+        boolean allowBreakReplaceable,
+        CobwebPolicy cobwebPolicy,
         boolean externallyManaged,
         boolean confineLiquids,
         boolean blockInfiniteSources,
@@ -19,6 +22,7 @@ public record GameplayZone(
         int fullResetMinutes,
         ResetMode resetMode,
         ResetScope resetScope,
+        WeeklyResetSchedule weeklyReset,
         List<Integer> warnBeforeSeconds,
         MaceDurabilityRule maceDurabilityRule
 ) {

@@ -3,6 +3,8 @@ package com.lincoln.maceguard.adapter.bukkit.listener;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.bootstrap.PluginRuntime;
 import com.lincoln.maceguard.core.model.GameplayZone;
+import com.lincoln.maceguard.core.model.CobwebPolicy;
+import com.lincoln.maceguard.core.model.BlockKey;
 import com.lincoln.maceguard.core.service.ZoneRegistry;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -73,7 +75,16 @@ public final class BuildProtectionListener implements Listener {
         }
         List<GameplayZone> zones = query.highestZones();
 
-        if (placementDenied(query, block.getType(), player)) {
+        if (placementDenied(query, block.getType(), player, block.getLocation())) {
+            event.setCancelled(true);
+            return;
+        }
+        if (player.hasPermission("maceguard.permanent-edit")) {
+            if (!runtime.zoneStateService().preservePermanentEdit(zones, block)) {
+                event.setCancelled(true);
+                return;
+            }
+        } else if (!runtime.zoneStateService().captureSparseOriginals(zones, BlockKey.of(block), event.getBlockReplacedState().getBlockData().getAsString(true))) {
             event.setCancelled(true);
             return;
         }
@@ -95,7 +106,16 @@ public final class BuildProtectionListener implements Listener {
         }
         List<GameplayZone> zones = query.highestZones();
 
-        if (breakDenied(query, block.getType(), player)) {
+        if (breakDenied(query, block, player)) {
+            event.setCancelled(true);
+            return;
+        }
+        if (player.hasPermission("maceguard.permanent-edit")) {
+            if (!runtime.zoneStateService().preservePermanentEdit(zones, block)) {
+                event.setCancelled(true);
+                return;
+            }
+        } else if (!runtime.zoneStateService().captureSparseOriginals(zones, block)) {
             event.setCancelled(true);
             return;
         }
@@ -148,7 +168,7 @@ public final class BuildProtectionListener implements Listener {
             return;
         }
 
-        if (placementDenied(query, placed, event.getPlayer())) {
+        if (placementDenied(query, placed, event.getPlayer(), target.getLocation())) {
             event.setCancelled(true);
             return;
         }
@@ -205,7 +225,7 @@ public final class BuildProtectionListener implements Listener {
         if (query.externallyManaged()) {
             return;
         }
-        if (placementDenied(query, item.getType(), event.getPlayer())) {
+        if (placementDenied(query, item.getType(), event.getPlayer(), target.getLocation())) {
             event.setCancelled(true);
         }
     }
@@ -339,9 +359,12 @@ public final class BuildProtectionListener implements Listener {
         return player != null && player.getGameMode() == GameMode.CREATIVE && player.hasPermission("maceguard.edit");
     }
 
-    private boolean placementDenied(ZoneRegistry.ZoneQuery query, Material material, Player player) {
+    private boolean placementDenied(ZoneRegistry.ZoneQuery query, Material material, Player player, org.bukkit.Location location) {
         if (query.highestZones().isEmpty()) {
             return query.protectedRegion() && !creativeBypass(player);
+        }
+        if (!creativeBypass(player) && material == Material.COBWEB && delegatedCobwebs(query.highestZones())) {
+            return plugin.warzoneRotatorHook() == null || !plugin.warzoneRotatorHook().canPlace(player, location);
         }
         return !creativeBypass(player) && (isDeniedSpecial(material, query.highestZones()) || !canPlaceMaterial(query.highestZones(), material.name()));
     }
@@ -353,11 +376,18 @@ public final class BuildProtectionListener implements Listener {
         return !canPlaceMaterial(query.highestZones(), materialName);
     }
 
-    private boolean breakDenied(ZoneRegistry.ZoneQuery query, Material material, Player player) {
+    private boolean breakDenied(ZoneRegistry.ZoneQuery query, Block block, Player player) {
         if (query.highestZones().isEmpty()) {
             return query.protectedRegion() && !creativeBypass(player);
         }
-        return !creativeBypass(player) && !canBreakMaterial(query.highestZones(), material.name());
+        if (creativeBypass(player)) {
+            return false;
+        }
+        if (block.getType() == Material.COBWEB && delegatedCobwebs(query.highestZones())) {
+            return plugin.warzoneRotatorHook() == null || !plugin.warzoneRotatorHook().isTracked(block);
+        }
+        return !canBreakMaterial(query.highestZones(), block.getType().name())
+                && !(block.isReplaceable() && query.highestZones().stream().allMatch(GameplayZone::allowBreakReplaceable));
     }
 
     private boolean canPlaceMaterial(List<GameplayZone> zones, String materialName) {
@@ -366,7 +396,11 @@ public final class BuildProtectionListener implements Listener {
     }
 
     private boolean canBreakMaterial(List<GameplayZone> zones, String materialName) {
-        return zones.stream().allMatch(zone -> zone.allowAllBreak() || zone.allowAllPlace() || zone.allowedPlace().contains(materialName));
+        return zones.stream().allMatch(zone -> zone.allowAllBreak() || zone.allowAllPlace() || zone.allowedBreak().contains(materialName));
+    }
+
+    private boolean delegatedCobwebs(List<GameplayZone> zones) {
+        return !zones.isEmpty() && zones.stream().allMatch(zone -> zone.cobwebPolicy() == CobwebPolicy.WARZONE_ROTATOR);
     }
 
     private Material placedBucketMaterial(Material bucket) {
