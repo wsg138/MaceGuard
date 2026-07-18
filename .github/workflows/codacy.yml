@@ -10,13 +10,15 @@ permissions:
 jobs:
   analysis:
     runs-on: ubuntu-latest
+    env:
+      CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: codacy/codacy-analysis-cli-action@v4
-        if: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+        if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
         with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          project-token: ${{ env.CODACY_PROJECT_TOKEN }}
       - run: echo "CODACY_PROJECT_TOKEN is not configured; add it to enable analysis."
-        if: ${{ secrets.CODACY_PROJECT_TOKEN == '' }}
+        if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
