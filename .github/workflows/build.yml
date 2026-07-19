@@ -17,7 +17,7 @@ jobs:
           java-version: '21'
       - name: Verify and package
         run: ./mvnw -B clean verify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: MaceGuard
           path: target/MaceGuard.jar
