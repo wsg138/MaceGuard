@@ -39,6 +39,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
     private DuelArenaFootprintService duelArenaFootprintService;
     private WarzoneDuelsHook duelsHook;
     private WarzoneRotatorHook warzoneRotatorHook;
+    private MaceDurabilityListener maceDurabilityListener;
 
     @Override
     public void onEnable() {
@@ -49,7 +50,8 @@ public final class MaceGuardPlugin extends JavaPlugin {
         Bukkit.getPluginManager().registerEvents(new BuildProtectionListener(this), this);
         Bukkit.getPluginManager().registerEvents(new DuelArenaExplosiveListener(this), this);
         Bukkit.getPluginManager().registerEvents(new LiquidControlListener(this), this);
-        Bukkit.getPluginManager().registerEvents(new MaceDurabilityListener(this), this);
+        maceDurabilityListener = new MaceDurabilityListener(this);
+        Bukkit.getPluginManager().registerEvents(maceDurabilityListener, this);
         Bukkit.getPluginManager().registerEvents(new EndAccessListener(this), this);
         Bukkit.getPluginManager().registerEvents(new EndIslandListener(this), this);
 
@@ -63,11 +65,17 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (maceDurabilityListener != null) {
+            maceDurabilityListener.clear();
+        }
         pluginRuntime.ifPresent(PluginRuntime::shutdownForDisable);
         pluginRuntime = Optional.empty();
     }
 
     public void reloadPlugin() {
+        if (maceDurabilityListener != null) {
+            maceDurabilityListener.clear();
+        }
         ZoneStateService.ZoneStateSnapshot stateSnapshot = null;
         PluginRuntime currentRuntime = pluginRuntime.orElse(null);
         if (currentRuntime != null) {

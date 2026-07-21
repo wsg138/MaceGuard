@@ -23,3 +23,9 @@ Keep WorldGuard `build`, `block-place`, and `block-break` available for the broa
 ```powershell
 ./mvnw -B clean verify
 ```
+
+## Mace armor durability verification
+
+MaceGuard identifies smash attacks from Paper's `DamageSource` (`DamageType.MACE_SMASH`), rather than from the attacker's later hand state. Normal mace attacks use a Paper pre-attack item snapshot, with the current held mace only as a final fallback. Health damage, item swaps, attack cooldown, enchantments, and mace smash behavior are untouched.
+
+To reproduce the former rapid-swap issue, equip a victim with low-durability armor, stand in the plain `warzone` outside higher-priority child zones, and check `/maceguard here`. Start an attack with a sword, rapidly switch to a mace, then perform a high-altitude smash; repeat while immediately switching back to the sword. In both runs, health damage remains vanilla and each equipped armor piece loses no more than `damage_per_armor_piece`. Repeat outside `warzone` to confirm vanilla armor durability. Leaf/Paper attribute-swap configuration is server-specific and is intentionally not changed by MaceGuard.

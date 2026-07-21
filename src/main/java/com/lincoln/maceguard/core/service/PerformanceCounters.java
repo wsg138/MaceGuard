@@ -18,6 +18,11 @@ public final class PerformanceCounters {
     private final LongAdder snapshotSaveFailureCount = new LongAdder();
     private final LongAdder backstopRepairCount = new LongAdder();
     private final LongAdder reloadTaskRestarts = new LongAdder();
+    private final LongAdder maceAttacksRecognized = new LongAdder();
+    private final LongAdder maceSmashesRecognized = new LongAdder();
+    private final LongAdder maceFallbackClassifications = new LongAdder();
+    private final LongAdder maceDurabilityContexts = new LongAdder();
+    private final LongAdder maceArmorEventsCapped = new LongAdder();
 
     public void zoneQuery() {
         zoneQueries.increment();
@@ -77,6 +82,20 @@ public final class PerformanceCounters {
         reloadTaskRestarts.increment();
     }
 
+    public void maceAttackRecognized(boolean smash, boolean fallback) {
+        maceAttacksRecognized.increment();
+        if (smash) {
+            maceSmashesRecognized.increment();
+        }
+        if (fallback) {
+            maceFallbackClassifications.increment();
+        }
+    }
+
+    public void maceDurabilityContext() { maceDurabilityContexts.increment(); }
+
+    public void maceArmorEventCapped() { maceArmorEventsCapped.increment(); }
+
     public long snapshotLoadFailures() {
         return snapshotLoadFailureCount.sum();
     }
@@ -104,6 +123,11 @@ public final class PerformanceCounters {
                 + ", snapshotLoadFailures=" + snapshotLoadFailureCount.sum()
                 + ", snapshotSaveFailures=" + snapshotSaveFailureCount.sum()
                 + ", backstopRepairs=" + backstopRepairCount.sum()
-                + ", reloadTaskRestarts=" + reloadTaskRestarts.sum();
+                + ", reloadTaskRestarts=" + reloadTaskRestarts.sum()
+                + ", maceAttacksRecognized=" + maceAttacksRecognized.sum()
+                + ", maceSmashesRecognized=" + maceSmashesRecognized.sum()
+                + ", maceFallbackClassifications=" + maceFallbackClassifications.sum()
+                + ", maceDurabilityContexts=" + maceDurabilityContexts.sum()
+                + ", maceArmorEventsCapped=" + maceArmorEventsCapped.sum();
     }
 }
