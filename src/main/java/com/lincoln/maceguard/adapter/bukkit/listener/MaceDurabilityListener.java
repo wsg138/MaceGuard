@@ -54,9 +54,6 @@ public final class MaceDurabilityListener implements Listener {
         boolean snapshotMace = !maceSmash && tracker.consumeMaceAttackSnapshot(attacker.getUniqueId(), victim.getUniqueId());
         MaceAttackClassifier.Source source = classifier.classify(maceSmash, snapshotMace, !maceSmash && isMace(attacker.getInventory().getItemInMainHand()));
         if (source == MaceAttackClassifier.Source.NONE) {
-            if (maceSmash) {
-                debug("rejected mace-smash damage source without a valid classification context");
-            }
             return;
         }
 
@@ -132,8 +129,9 @@ public final class MaceDurabilityListener implements Listener {
     private Optional<MaceDurabilityTracker.ArmorSlot> equippedArmorSlot(Player player, ItemStack item) {
         for (MaceDurabilityTracker.ArmorSlot slot : MaceDurabilityTracker.ArmorSlot.values()) {
             ItemStack equipped = player.getInventory().getItem(toBukkitSlot(slot));
-            // PlayerItemDamageEvent has no EquipmentSlot in Paper 1.21.11. Restrict
-            // matching to the corresponding live armor slot; never scan inventory.
+            // PlayerItemDamageEvent has no EquipmentSlot, DamageSource, or attacker
+            // in Paper 1.21.11. Restrict matching to the corresponding live armor
+            // slot and the immediate tick-scoped hit context; never scan inventory.
             if (isDamageableArmor(equipped) && equipped.getType() == item.getType() && equipped.equals(item)) {
                 return Optional.of(slot);
             }

@@ -11,7 +11,10 @@ final class MaceAttackClassifier {
         if (maceSmashDamageType) {
             return Source.DAMAGE_TYPE;
         }
-        if (macePreAttackSnapshot) {
+        // A pre-attack event can be emitted without a later successful hit. For
+        // generic player attacks, require the live attack-time hand to still be
+        // a mace so a stale failed-attempt snapshot cannot cap a sword hit.
+        if (macePreAttackSnapshot && maceHeldItem) {
             return Source.PRE_ATTACK_SNAPSHOT;
         }
         return maceHeldItem ? Source.HELD_ITEM_FALLBACK : Source.NONE;
