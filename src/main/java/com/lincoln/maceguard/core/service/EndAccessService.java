@@ -1,6 +1,6 @@
 package com.lincoln.maceguard.core.service;
 
-import com.lincoln.maceguard.config.PluginConfigLoader;
+import com.lincoln.maceguard.config.ConfigLoader;
 import com.lincoln.maceguard.core.model.EndAccessSettings;
 import org.bukkit.configuration.file.FileConfiguration;
 
@@ -10,7 +10,6 @@ import java.util.logging.Logger;
 
 public final class EndAccessService {
     private final FileConfiguration config;
-    private final PluginConfigLoader configLoader;
     private final Runnable configSaver;
     private final Logger logger;
 
@@ -21,9 +20,8 @@ public final class EndAccessService {
     private boolean portalsAllowed;
     private Instant portalsEnableAt;
 
-    public EndAccessService(FileConfiguration config, PluginConfigLoader configLoader, Runnable configSaver, Logger logger, EndAccessSettings settings) {
+    public EndAccessService(FileConfiguration config, Runnable configSaver, Logger logger, EndAccessSettings settings) {
         this.config = config;
-        this.configLoader = configLoader;
         this.configSaver = configSaver;
         this.logger = logger;
         this.manageEyes = settings.manageEyes();
@@ -85,11 +83,13 @@ public final class EndAccessService {
     }
 
     public Instant parseEst(String value) {
-        return configLoader.parseEstInstant(value);
+        if (value == null || value.isBlank()) return null;
+        try { return java.time.LocalDateTime.parse(value.trim(), ConfigLoader.EST_FORMAT).atZone(ConfigLoader.EST_ZONE).toInstant(); }
+        catch (java.time.format.DateTimeParseException ex) { return null; }
     }
 
     public String formatEst(Instant instant) {
-        return PluginConfigLoader.EST_FORMAT.withZone(PluginConfigLoader.EST_ZONE).format(instant);
+        return ConfigLoader.EST_FORMAT.withZone(ConfigLoader.EST_ZONE).format(instant);
     }
 
     private Instant scheduledEnableAt(boolean allowed, Instant enableAt) {

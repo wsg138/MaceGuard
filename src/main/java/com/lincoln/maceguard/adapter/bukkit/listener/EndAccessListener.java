@@ -39,18 +39,6 @@ public final class EndAccessListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onAllowedEyeUse(PlayerInteractEvent event) {
-        if (!isManagedEyeUse(event)) {
-            return;
-        }
-        if (!plugin.runtime().endAccessService().areEyesAllowed()) {
-            return;
-        }
-        event.setCancelled(false);
-        event.setUseItemInHand(Event.Result.ALLOW);
-    }
-
     private boolean isManagedEyeUse(PlayerInteractEvent event) {
         if (!plugin.isFeatureEnabled() || !plugin.runtime().endAccessService().managesEyes()) {
             return false;

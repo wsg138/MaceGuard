@@ -4,10 +4,10 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.damage.DamageType;
 
 /** Keeps Bukkit/Paper damage-source classification separate from hit tracking. */
-final class MaceAttackClassifier {
-    enum Source { DAMAGE_TYPE, PRE_ATTACK_SNAPSHOT, HELD_ITEM_FALLBACK, NONE }
+public final class MaceAttackClassifier {
+    public enum Source { DAMAGE_TYPE, PRE_ATTACK_SNAPSHOT, NONE }
 
-    Source classify(boolean maceSmashDamageType, boolean macePreAttackSnapshot, boolean maceHeldItem) {
+    public Source classify(boolean maceSmashDamageType, boolean macePreAttackSnapshot, boolean maceHeldItem) {
         if (maceSmashDamageType) {
             return Source.DAMAGE_TYPE;
         }
@@ -17,14 +17,14 @@ final class MaceAttackClassifier {
         if (macePreAttackSnapshot && maceHeldItem) {
             return Source.PRE_ATTACK_SNAPSHOT;
         }
-        return maceHeldItem ? Source.HELD_ITEM_FALLBACK : Source.NONE;
+        return Source.NONE;
     }
 
-    boolean isMaceSmash(DamageType damageType) {
+    public boolean isMaceSmash(DamageType damageType) {
         return isMaceSmash(damageType.getKey());
     }
 
-    boolean isMaceSmash(NamespacedKey damageTypeKey) {
+    public boolean isMaceSmash(NamespacedKey damageTypeKey) {
         // Compare the vanilla registry key. Referencing DamageType.MACE_SMASH in
         // a unit test initializes Paper's live registry, which is unavailable off-server.
         return NamespacedKey.MINECRAFT.equals(damageTypeKey.getNamespace()) && "mace_smash".equals(damageTypeKey.getKey());

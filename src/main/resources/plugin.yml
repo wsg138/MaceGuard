@@ -1,22 +1,21 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 2.4.0-beta.1
+version: 3.0.0
 api-version: '1.21'
 author: P2wn
-description: Zone protections, manual snapshot resets, End access controls, and End island combat/explosion restrictions.
-softdepend: [WarzoneDuels]
+description: WorldGuard-scoped mace durability, temporary cobwebs, safe resets, and End controls.
+depend: [WorldGuard]
+softdepend: [WarzoneRotator]
 
 commands:
   maceguard:
     description: MaceGuard admin command
-    usage: /<command> reload|debug|stats|here|clear [zone]|snapshot <zone>|reset <zone>|endeyes <on|off|at time>|endportal <on|off|at time>|endstatus
-    permission: maceguard.reload
+    usage: /<command> here|status|capture|validate|plan|arm|disarm|reset|recover|temporary|reload|endeyes|endportal|endstatus
 
 permissions:
+  maceguard.admin:
+    default: op
   maceguard.reload:
     default: op
-  maceguard.edit:
-    default: op
-  maceguard.permanent-edit:
-    description: Keeps staff edits out of the warzone sparse baseline.
+  maceguard.reset:
     default: op

@@ -1,61 +1,33 @@
-config-version: 6
+config-version: 7
 enabled: true
 debug: false
 
-reload:
-  # Preserve tracked arena/reset changes across /maceguard reload when the zone still exists.
-  preserve-temporary-blocks: true
-  clear-invalid-zone-state: true
+mace-durability:
+  damage-per-armor-piece: 2
 
-protection:
-  special-deny:
-    # Preserve legacy behavior: these are denied in gameplay zones even if omitted from deny_place.
-    respawn-anchor: true
-    end-crystal: true
+temporary-blocks:
+  cobweb-ttl-seconds: 60
+  allowed-replacement-materials: [AIR, GRASS, TALL_GRASS, VINE, SNOW]
+  max-tracked-blocks: 10000
 
 performance:
-  reset-batch-size: 1500
-  full-restore-batch-size: 1024
-  liquid-drain-batch-size: 1000
-  max-zone-queries-per-tick-debug-warning: 0
+  capture-batch-size: 2000
+  plan-batch-size: 4000
+  restore-batch-size: 1000
 
-backstop-scan:
-  enabled: true
-  interval-minutes: 10
-  max-zones-per-tick: 1
-  max-blocks-per-tick: 100
-  repair-mode: true
-  report-only: false
+storage:
+  fsync: true
 
-debug:
-  performance:
-    enabled: false
-    log-interval-seconds: 300
-
-# This plugin no longer owns PvP messaging or safe-zone enter/exit messaging.
-# Use WorldGuard or another region plugin for PvP flags and player-facing region messages.
-# This plugin still owns the build/reset/liquid/snapshot rules configured below.
-
-# Restrict legacy protected regions to specific worlds.
-# Leave empty to allow them in every world listed in the region definitions.
-allowed_worlds: []
-
-duel_arena_footprint:
-  enabled: true
-  # Relative paths are resolved from the MaceGuard plugin data folder.
-  # This file is bundled by default and contains the exact scanned duel arena footprint.
-  source_file: duel-arena-footprint.yml
+# Regions and coordinates belong exclusively to WorldGuard. Profiles are inert
+# until a WorldGuard region references one, a baseline is captured, and an
+# administrator explicitly arms that exact region geometry.
+reset-profiles: {}
 
 end_access:
-  # Set false to make MaceGuard completely ignore Ender Eye use/spawns.
   manage_eyes: true
-  # Persist scheduled End access auto-enable when the scheduled time passes.
   persist_auto_enable: true
-  # Ender Eyes are disabled by default when manage_eyes is true.
-  # You can enable them directly or schedule a time in EST.
   allow_eyes: false
   eyes_enable_at_est: ""
-  # End portals are disabled by default. You can enable them directly or schedule a time in EST.
   allow_portals: false
   portals_enable_at_est: ""
 
@@ -64,164 +36,3 @@ end_island:
   island_radius: 1024
   block_maces: true
   block_spears: true
-  fun_bed_sleep: true
-  explosives:
-    # 0 disables the explosion entirely. 100 is vanilla strength.
-    # End crystals are always blocked on the main island except for dragon respawn placements.
-    tnt:
-      power_percent: 0
-    tnt_minecart:
-      power_percent: 0
-    respawn_anchor:
-      power_percent: 0
-    bed:
-      power_percent: 0
-
-# Legacy compatibility:
-# These regions no longer control mace damage. They now act as "protected fallback" areas where
-# building is denied unless a higher-priority gameplay zone allows it.
-zones:
-  - name: spawn-mace-nerf
-    world: world
-    min: { x: -130, y: -60, z: -130 }
-    max: { x: 130, y: 319, z: 130 }
-
-gameplay_zones:
-  - name: death-duels-arena
-    priority: 60
-    world: world
-    min: { x: -193, y: 131, z: -370 }
-    max: { x: -83, y: 222, z: -263 }
-    externally_managed: true
-    allow_all_place: true
-    allow_all_break: true
-    allowed_place: []
-    deny_place: []
-    confine_liquids: false
-    block_infinite_sources: false
-    ttl_seconds: 0
-    full_reset_minutes: 0
-    reset_mode: AIR
-    reset_scope: CHANGED
-    mace_armor_durability:
-      enabled: false
-      damage_per_armor_piece: 2
-
-  - name: spawn-core
-    priority: 40
-    world: world
-    min: { x: -30, y: -60, z: -30 }
-    max: { x: 30, y: 319, z: 30 }
-    allow_all_place: false
-    allow_all_break: false
-    allowed_place: []
-    deny_place: []
-    confine_liquids: true
-    block_infinite_sources: false
-    ttl_seconds: 0
-    full_reset_minutes: 0
-    reset_mode: AIR
-    reset_scope: CHANGED
-    # Zone-scoped mace durability cap. Health damage stays vanilla.
-    mace_armor_durability:
-      enabled: false
-      damage_per_armor_piece: 2
-
-  - name: warzone
-    priority: 10
-    world: world
-    min: { x: -130, y: -60, z: -130 }
-    max: { x: 130, y: 319, z: 130 }
-    allow_all_place: false
-    allow_all_break: false
-    allowed_place: []
-    allowed_break: []
-    deny_place: []
-    # Delegates only cobweb placement/removal to WarzoneRotator. All other blocks remain denied.
-    cobweb_policy: WARZONE_ROTATOR
-    # Lets a permitted cobweb replace grass, vines, snow, and other Paper-replaceable blocks.
-    allow_break_replaceable: true
-    confine_liquids: true
-    block_infinite_sources: false
-    ttl_seconds: 0
-    full_reset_minutes: 0
-    reset_mode: SPARSE_SNAPSHOT
-    reset_scope: CHANGED
-    weekly_reset:
-      enabled: true
-      day: SUNDAY
-      time: "04:00"
-      timezone: America/Indiana/Indianapolis
-    warn_before_seconds: [600, 300, 60, 30, 10, 5]
-    mace_armor_durability:
-      enabled: true
-      damage_per_armor_piece: 2
-
-  - name: war-pit
-    priority: 30
-    world: world
-    min: { x: -26, y: 33, z: -126 }
-    max: { x: 25, y: 160, z: -76 }
-    allow_all_place: true
-    allow_all_break: true
-    deny_place:
-      - TNT_MINECART
-      - MINECART
-      - CHEST_MINECART
-      - FURNACE_MINECART
-      - HOPPER_MINECART
-      - COMMAND_BLOCK_MINECART
-      - END_CRYSTAL
-      - RESPAWN_ANCHOR
-    allowed_place: []
-    confine_liquids: true
-    block_infinite_sources: false
-    suppress_snapshot_drops: true
-    ttl_seconds: 0
-    full_reset_minutes: 60
-    reset_mode: SNAPSHOT
-    reset_scope: FULL
-    warn_before_seconds: [300, 60, 30, 5]
-    # Manual snapshot only.
-    # If the snapshot file is missing or completely empty, resets are skipped instead of pasting air.
-    mace_armor_durability:
-      enabled: false
-      damage_per_armor_piece: 2
-
-  - name: cobweb-box
-    priority: 30
-    world: world
-    min: { x: -130, y: -60, z: -49 }
-    max: { x: -81, y: 160, z: 49 }
-    allow_all_place: false
-    allow_all_break: false
-    allowed_place: [ COBWEB, WATER, ICE ]
-    deny_place: []
-    confine_liquids: true
-    block_infinite_sources: true
-    ttl_seconds: 60
-    full_reset_minutes: 0
-    reset_mode: AIR
-    reset_scope: CHANGED
-    mace_armor_durability:
-      enabled: false
-      damage_per_armor_piece: 2
-
-  - name: no-crystal-ring
-    priority: 0
-    world: world
-    min: { x: -200, y: -60, z: -200 }
-    max: { x: 200, y: 319, z: 200 }
-    allow_all_place: true
-    allow_all_break: true
-    allowed_place: []
-    deny_place: [ END_CRYSTAL, RESPAWN_ANCHOR ]
-    confine_liquids: false
-    block_infinite_sources: false
-    ttl_seconds: 0
-    full_reset_minutes: 0
-    reset_mode: AIR
-    reset_scope: CHANGED
-    mace_armor_durability:
-      enabled: false
-      damage_per_armor_piece: 2

@@ -19,7 +19,7 @@ class MaceAttackClassifierTest {
     void normalMaceAttacksUseAttackTimeSnapshotOnlyWithAMaceHand() {
         assertEquals(MaceAttackClassifier.Source.PRE_ATTACK_SNAPSHOT, classifier.classify(false, true, true));
         assertEquals(MaceAttackClassifier.Source.NONE, classifier.classify(false, true, false));
-        assertEquals(MaceAttackClassifier.Source.HELD_ITEM_FALLBACK, classifier.classify(false, false, true));
+        assertEquals(MaceAttackClassifier.Source.NONE, classifier.classify(false, false, true));
         assertEquals(MaceAttackClassifier.Source.NONE, classifier.classify(false, false, false));
     }
 }
