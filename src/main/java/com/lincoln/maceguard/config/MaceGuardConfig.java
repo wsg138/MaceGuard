@@ -1,6 +1,5 @@
 package com.lincoln.maceguard.config;
 
-import com.lincoln.maceguard.core.model.EndAccessSettings;
 import com.lincoln.maceguard.core.model.EndIslandSettings;
 
 import java.util.Map;
@@ -14,7 +13,6 @@ public record MaceGuardConfig(
         TemporarySettings temporary,
         PerformanceSettings performance,
         Map<String, ResetProfile> resetProfiles,
-        EndAccessSettings endAccess,
         EndIslandSettings endIsland,
         Set<String> errors
 ) {

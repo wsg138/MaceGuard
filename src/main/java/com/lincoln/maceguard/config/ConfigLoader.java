@@ -1,6 +1,5 @@
 package com.lincoln.maceguard.config;
 
-import com.lincoln.maceguard.core.model.EndAccessSettings;
 import com.lincoln.maceguard.core.model.EndIslandSettings;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -36,17 +35,13 @@ public final class ConfigLoader {
                 positive(config, "performance.capture-batch-size", 2_000, errors),
                 positive(config, "performance.plan-batch-size", 4_000, errors),
                 positive(config, "performance.restore-batch-size", 1_000, errors));
-        EndAccessSettings access = new EndAccessSettings(
-                config.getBoolean("end_access.manage_eyes", true), config.getBoolean("end_access.persist_auto_enable", true),
-                config.getBoolean("end_access.allow_eyes", false), parseEst(config.getString("end_access.eyes_enable_at_est"), errors),
-                config.getBoolean("end_access.allow_portals", false), parseEst(config.getString("end_access.portals_enable_at_est"), errors));
         EndIslandSettings island = new EndIslandSettings(config.getBoolean("end_island.enabled", true),
                 Math.max(16, config.getInt("end_island.island_radius", 1024)), config.getBoolean("end_island.block_maces", true),
                 config.getBoolean("end_island.block_spears", true));
         int durabilityCap = positive(config, "mace-durability.damage-per-armor-piece", 2, errors);
         return new MaceGuardConfig(errors.isEmpty(), config.getBoolean("enabled", true), config.getBoolean("debug", false),
                 durabilityCap, temporary, performance,
-                Map.copyOf(profiles), access, island, Set.copyOf(errors));
+                Map.copyOf(profiles), island, Set.copyOf(errors));
     }
 
     private Map<String, ResetProfile> parseProfiles(ConfigurationSection root, Set<String> errors) {
@@ -86,11 +81,5 @@ public final class ConfigLoader {
         Set<String> result = new LinkedHashSet<>();
         values.forEach(value -> result.add(value.trim().toUpperCase(Locale.ROOT)));
         return Set.copyOf(result);
-    }
-
-    public Instant parseEst(String raw, Set<String> errors) {
-        if (raw == null || raw.isBlank()) return null;
-        try { return LocalDateTime.parse(raw.trim(), EST_FORMAT).atZone(EST_ZONE).toInstant(); }
-        catch (DateTimeParseException ex) { errors.add("invalid EST date: " + raw); return null; }
     }
 }

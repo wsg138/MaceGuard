@@ -31,7 +31,7 @@ Do not set `build allow` merely to enable MaceGuard behavior. Configure WorldGua
 
 ## Safe configuration
 
-There are no coordinates in `config.yml`. Numeric limits, schedules, batching, storage policy, and global End restrictions remain MaceGuard settings.
+There are no coordinates in `config.yml`. Numeric limits, schedules, batching, storage policy, and global End island restrictions remain MaceGuard settings.
 
 ```yaml
 config-version: 7
@@ -98,9 +98,7 @@ MaceGuard only tracks a successful, WorldGuard-permitted cobweb placement when t
 
 Mace durability uses Paper's damage source plus a tick-scoped pre-attack context. It changes only equipped armor item-damage events and clears state on expiry, quit, death, reload, and disable. Health, damage calculation, knockback, cooldowns, enchantments, attributes, and weapon switching remain vanilla.
 
-End Eye/portal scheduling and main-End-island mace/spear restrictions remain global configuration. MaceGuard no longer controls End explosions or ordinary block interactions; use WorldGuard for those.
-
-WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering were removed. Configure duel ownership, explosion behavior, and block permissions in WorldGuard; MaceGuard no longer needs a WarzoneDuels hook.
+Main-End-island mace/spear blocking remains a global configuration setting. End explosions, eye/portal management, and ordinary block interactions were removed from MaceGuard; use WorldGuard for region-scoped protection and other plugins for dimension access control. WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering were removed as well.
 
 ## Commands and permissions
 
@@ -111,7 +109,6 @@ WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering 
 - `/maceguard recover <region>`
 - `/maceguard temporary`
 - `/maceguard reload` — refused during capture/restore
-- `/maceguard endeyes`, `endportal`, `endstatus`
 
 Permissions are `maceguard.admin`, `maceguard.reset`, and `maceguard.reload` (operator by default).
 
@@ -130,3 +127,4 @@ Use the [production migration checklist](docs/PRODUCTION_MIGRATION.md) before de
 - Unsupported tile entity: remove it from reset scope or wait for explicit codec support; capture fails safely.
 - Sparse mode journals direct player place/break changes. Non-player mutation sources must be controlled with WorldGuard if they need deterministic restoration.
 - Interrupted journal: automatic continuation is intentionally unsupported.
+- End crystals and respawn anchors: MaceGuard v3 contains no crystal/anchor listeners. Configure WorldGuard `other-explosion` and `enderpearl` flags to control them.

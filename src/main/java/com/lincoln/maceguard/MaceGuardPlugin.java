@@ -1,13 +1,11 @@
 package com.lincoln.maceguard;
 
-import com.lincoln.maceguard.adapter.bukkit.listener.EndAccessListener;
 import com.lincoln.maceguard.end.EndRestrictionListener;
 import com.lincoln.maceguard.bootstrap.PluginRuntime;
 import com.lincoln.maceguard.command.MaceGuardCommand;
 import com.lincoln.maceguard.config.ConfigLoader;
 import com.lincoln.maceguard.config.LegacyMigrationReporter;
 import com.lincoln.maceguard.config.MaceGuardConfig;
-import com.lincoln.maceguard.core.service.EndAccessService;
 import com.lincoln.maceguard.integration.WarzoneRotatorAdapter;
 import com.lincoln.maceguard.mace.MaceDurabilityListener;
 import com.lincoln.maceguard.reset.ResetCoordinator;
@@ -70,8 +68,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
                 new ArmStateRepository(data.resolve("state").resolve("armed.json")), new ResetJournalRepository(data.resolve("state").resolve("restore-journal.json")), io);
         TemporaryBlockService temporary = new TemporaryBlockService(this, new TemporaryBlockRepository(data.resolve("state").resolve("temporary-blocks.json")),
                 queries, io, settings.temporary().maxTrackedBlocks());
-        EndAccessService endAccess = new EndAccessService(getConfig(), this::persistConfigAsync, getLogger(), settings.endAccess());
-        runtime = new PluginRuntime(settings, queries, resets, temporary, endAccess, io);
+        runtime = new PluginRuntime(settings, queries, resets, temporary, io);
         getServer().getScheduler().runTaskTimer(this, resets::tickAutomaticResets, 1200L, 1200L);
 
         WarzoneRotatorAdapter rotator = new WarzoneRotatorAdapter(this);
@@ -79,7 +76,6 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(durabilityListener, this);
         getServer().getPluginManager().registerEvents(new CobwebListener(queries, rotator, temporary, settings), this);
         getServer().getPluginManager().registerEvents(new SparseOriginalListener(resets), this);
-        getServer().getPluginManager().registerEvents(new EndAccessListener(this), this);
         getServer().getPluginManager().registerEvents(new EndRestrictionListener(this), this);
         MaceGuardCommand command = new MaceGuardCommand(this);
         java.util.Objects.requireNonNull(getCommand("maceguard")).setExecutor(command);
@@ -98,22 +94,5 @@ public final class MaceGuardPlugin extends JavaPlugin {
         }
         durabilityListener = null;
         runtime = null;
-    }
-
-    public void persistConfigAsync() {
-        if (runtime == null) return;
-        String yaml = getConfig().saveToString();
-        Path target = getDataFolder().toPath().resolve("config.yml");
-        runtime.io().execute(() -> {
-            Path temp = null;
-            try {
-                temp = java.nio.file.Files.createTempFile(target.getParent(), "config-", ".tmp");
-                java.nio.file.Files.writeString(temp, yaml, java.nio.charset.StandardCharsets.UTF_8);
-                try (java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(temp, java.nio.file.StandardOpenOption.WRITE)) { channel.force(true); }
-                try { java.nio.file.Files.move(temp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
-                catch (java.nio.file.AtomicMoveNotSupportedException ex) { java.nio.file.Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
-            } catch (java.io.IOException ex) { getLogger().severe("Could not persist config: " + ex.getMessage()); }
-            finally { if (temp != null) try { java.nio.file.Files.deleteIfExists(temp); } catch (java.io.IOException ignored) { } }
-        });
     }
 }
