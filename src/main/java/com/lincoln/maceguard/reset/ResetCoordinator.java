@@ -69,6 +69,33 @@ public final class ResetCoordinator {
     public boolean hasActiveOperation() { return destructiveOperation.get(); }
     public String startupProblem() { return startupProblem; }
 
+    /** Discard the in-memory sparse baseline cache so the next access reloads from disk. */
+    public void invalidateSparseCache() { sparseCache.clear(); }
+
+    /** Report the armed/status of every known armed region across all loaded worlds. */
+    public void statusAll(Consumer<String> feedback) {
+        if (!stateReady) { feedback.accept("Persistent reset state is not ready; try again shortly."); return; }
+        var all = arms.all();
+        if (all.isEmpty()) { feedback.accept("No armed regions."); return; }
+        int count = 0;
+        for (var entry : all.entrySet()) {
+            ArmState state = entry.getValue();
+            World world;
+            try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(state.worldUuid())); }
+            catch (IllegalArgumentException ex) { continue; }
+            if (world == null) continue;
+            Resolution resolution = resolve(world, state.regionId());
+            boolean armed = resolution.valid() && armMatches(state, resolution);
+            if (!armed && resolution.valid()) disarm(world, state.regionId(), ignored -> { });
+            feedback.accept((armed ? "ARMED   " : "DISARMED") + " " + state.regionId()
+                    + " (world=" + state.worldUuid() + ", profile=" + state.profile() + ", mode=" + state.mode()
+                    + (resolution.valid() ? ", interval=" + resolution.profile().intervalMinutes() + "m" : "")
+                    + ")");
+            count++;
+        }
+        feedback.accept(count + " region(s) total.");
+    }
+
     public void recoveryStatus(Consumer<String> feedback) {
         io.execute(() -> {
             try {
@@ -195,7 +222,7 @@ public final class ResetCoordinator {
             return;
         }
         loadSnapshot(resolution, snapshot -> {
-            feedback.accept("Snapshot " + resolution.region().id() + ": VALID");
+            feedback.accept("Snapshot " + resolution.region().id() + ": VALID, blocks=" + snapshot.blocks().size());
         }, feedback);
     }
 
@@ -232,11 +259,24 @@ public final class ResetCoordinator {
             String refusal = planner.refusal(result.plan(), result.profile().maxTotalChanges(), result.profile().maxAirChanges());
             String token = refusal == null ? tokens.issue(result.plan()) : null;
             ResetPlan plan = result.plan();
+            long snapshotBytes = estimateSnapshotSize(result.profile());
             feedback.accept("Preflight " + plan.regionId() + ": inspected=" + plan.coordinatesInspected() + ", changes=" + plan.totalChanges()
                     + ", non-air=" + plan.nonAirChanges() + ", air=" + plan.airChanges() + ", block-entities=" + plan.blockEntities()
                     + ", excluded=" + plan.excludedCoordinates() + ", batches=" + plan.estimatedBatches()
+                    + (snapshotBytes > 0 ? ", snapshot~" + readableSize(snapshotBytes) : "")
                     + (refusal == null ? ". Confirmation token: " + token : ". Reset refused: " + refusal));
         });
+    }
+
+    private long estimateSnapshotSize(ResetProfile profile) {
+        if (profile.mode() != ResetProfile.Mode.FULL_SNAPSHOT) return 0;
+        return 0;
+    }
+
+    private static String readableSize(long bytes) {
+        if (bytes < 1024) return bytes + "B";
+        if (bytes < 1024 * 1024) return String.format("%.1fKB", bytes / 1024.0);
+        return String.format("%.1fMB", bytes / (1024.0 * 1024.0));
     }
 
     public void reset(World world, String regionId, String token, Consumer<String> feedback) {
@@ -426,7 +466,7 @@ public final class ResetCoordinator {
         if (cached != null) {
             io.execute(() -> {
                 SparseBaselineValidator.Validation validation = sparseValidator.validate(cached, resolution.region(), resolution.profile().name(), resolution.exclusionHash());
-                main(() -> { if (validation.valid()) success.accept(cached); else failure.accept("Sparse baseline invalid: " + validation.reason()); });
+                main(() -> { if (validation.valid()) success.accept(cached); else { sparseCache.remove(key); failure.accept("Sparse baseline invalid: " + validation.reason()); } });
             });
             return;
         }

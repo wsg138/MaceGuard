@@ -26,8 +26,7 @@ public final class ResetPlanner {
             if (isAir(target.blockData())) air++; else nonAir++;
             if (target.blockEntity() != null) entities++;
         }
-        String canonical = snapshot.regionId() + "|" + snapshot.geometryHash() + "|" + snapshot.checksum() + "|" + new com.google.gson.Gson().toJson(changes);
-        String hash = sha256(canonical);
+        String hash = hashPlan(snapshot, changes);
         return new ResetPlan(snapshot.regionId(), snapshot.worldUuid(), snapshot.geometryHash(), snapshot.checksum(),
                 snapshot.blocks().size(), changes.size(), nonAir, air, entities, 0, excludedCount,
                 changes.isEmpty() ? 0 : (changes.size() + batchSize - 1) / batchSize, hash, List.copyOf(changes));
@@ -41,8 +40,29 @@ public final class ResetPlanner {
     }
 
     private boolean isAir(String value) { return value.equals("minecraft:air") || value.startsWith("minecraft:air["); }
-    private String sha256(String value) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
-        catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
+
+    /** Stream-hash the plan identity without materializing the full change list as a JSON string. */
+    static String hashPlan(Snapshot snapshot, List<ResetPlan.Change> changes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(snapshot.regionId().getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) '|');
+            digest.update(snapshot.geometryHash().getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) '|');
+            digest.update(snapshot.checksum().getBytes(StandardCharsets.UTF_8));
+            for (ResetPlan.Change change : changes) {
+                digest.update((byte) '|');
+                digest.update(Integer.toString(change.x()).getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) ',');
+                digest.update(Integer.toString(change.y()).getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) ',');
+                digest.update(Integer.toString(change.z()).getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) ':');
+                digest.update(change.before().blockData().getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) '>');
+                digest.update(change.target().blockData().getBytes(StandardCharsets.UTF_8));
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) { throw new IllegalStateException(ex); }
     }
 }

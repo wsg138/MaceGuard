@@ -22,6 +22,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
         if (sub.equals("here")) { if (!sender.hasPermission("maceguard.admin")) return denied(sender); return here(sender); }
         if (sub.equals("temporary")) { if (!sender.hasPermission("maceguard.admin")) return denied(sender); sender.sendMessage("Temporary blocks: " + plugin.runtime().temporaryBlocks().count() + ", persistence=" + plugin.runtime().temporaryBlocks().persistenceHealthy()); return true; }
         if (sub.equals("reload")) { if (!sender.hasPermission("maceguard.reload")) return denied(sender); plugin.reloadPlugin(sender); return true; }
+        if (sub.equals("status-all")) { if (!sender.hasPermission("maceguard.reset")) return denied(sender); plugin.runtime().resets().statusAll(sender::sendMessage); return true; }
         if (sub.equals("endstatus")) { if (!sender.hasPermission("maceguard.admin")) return denied(sender); sender.sendMessage(plugin.runtime().endAccessService().statusLine(true)); sender.sendMessage(plugin.runtime().endAccessService().statusLine(false)); return true; }
         if (sub.equals("endeyes") || sub.equals("endportal")) return endAccess(sender, sub.equals("endeyes"), args);
         if (!sender.hasPermission("maceguard.reset")) return denied(sender);
@@ -71,8 +72,8 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean denied(CommandSender sender) { sender.sendMessage("You do not have permission."); return true; }
-    private void help(CommandSender sender) { sender.sendMessage("/maceguard here|status <region>|capture <region>|validate <region>|plan <region>|arm <region>|disarm <region>|reset <region> <token>|recover <region>|temporary|reload|endstatus"); }
+    private void help(CommandSender sender) { sender.sendMessage("/maceguard here|status <region>|status-all|capture <region>|validate <region>|plan <region>|arm <region>|disarm <region>|reset <region> <token>|recover <region>|temporary|reload|endstatus"); }
     @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        return args.length == 1 ? List.of("here", "status", "capture", "validate", "plan", "arm", "disarm", "reset", "recover", "temporary", "reload", "endstatus", "endeyes", "endportal") : List.of();
+        return args.length == 1 ? List.of("here", "status", "status-all", "capture", "validate", "plan", "arm", "disarm", "reset", "recover", "temporary", "reload", "endstatus", "endeyes", "endportal") : List.of();
     }
 }

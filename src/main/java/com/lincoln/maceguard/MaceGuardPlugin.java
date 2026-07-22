@@ -56,7 +56,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         stopRuntime();
         reloadConfig();
         startRuntime();
-        feedback.sendMessage("MaceGuard harmless configuration reloaded. Reset state was revalidated and never re-armed automatically.");
+        feedback.sendMessage("MaceGuard harmless configuration reloaded. Sparse caches were invalidated; reset state was revalidated and never re-armed automatically.");
     }
 
     private void startRuntime() {
@@ -75,6 +75,11 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, resets::tickAutomaticResets, 1200L, 1200L);
 
         WarzoneRotatorAdapter rotator = new WarzoneRotatorAdapter(this);
+        if (rotator.available()) {
+            getLogger().info("WarzoneRotator integration active: custom cobweb TTL behavior enabled.");
+        } else {
+            getLogger().info("WarzoneRotator not detected or incompatible; custom cobweb handling disabled.");
+        }
         durabilityListener = new MaceDurabilityListener(this, settings, queries);
         getServer().getPluginManager().registerEvents(durabilityListener, this);
         getServer().getPluginManager().registerEvents(new CobwebListener(queries, rotator, temporary, settings), this);
@@ -91,6 +96,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getScheduler().cancelTasks(this);
         if (durabilityListener != null) durabilityListener.clear();
         if (runtime != null) {
+            runtime.resets().invalidateSparseCache();
             runtime.temporaryBlocks().shutdown();
             runtime.io().shutdown();
             try { if (!runtime.io().awaitTermination(5, TimeUnit.SECONDS)) getLogger().warning("Timed out waiting for storage writes during shutdown; journals remain for recovery."); }

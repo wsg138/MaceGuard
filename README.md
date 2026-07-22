@@ -2,6 +2,32 @@
 
 MaceGuard adds a small set of opt-in behaviors to WorldGuard regions. WorldGuard is the sole authority for region geometry, membership, ownership, priorities, parents, build/break permission, pistons, liquids, explosions, interactions, and containers. MaceGuard contains no region coordinates and never acts as a general protection plugin.
 
+## Quickstart
+
+```yaml
+# config.yml
+config-version: 7
+reset-profiles:
+  war-pit:
+    mode: FULL_SNAPSHOT
+    interval-minutes: 0      # start with 0, enable timer after testing
+    max-coordinates: 500000
+    max-total-changes: 100000
+    max-air-changes: 25000
+    excluded-region-ids: []
+```
+
+1. Define a cuboid region in WorldGuard: `/rg define war-pit`
+2. Tag it: `/rg flag war-pit maceguard-reset-profile war-pit`
+3. Load all chunks in the region, then: `/maceguard capture war-pit`
+4. Verify: `/maceguard validate war-pit`
+5. Review before arming: `/maceguard plan war-pit`
+6. Arm: `/maceguard arm war-pit`
+7. To manually reset: `/maceguard plan war-pit` then `/maceguard reset war-pit <token>`
+8. Check all armed regions: `/maceguard status-all`
+
+Set `interval-minutes` only after at least one observed successful manual cycle. A manual reset via token re-arms the region with a fresh schedule — the interval clock restarts from that moment.
+
 ## Requirements and installation
 
 - Java 21
@@ -52,6 +78,8 @@ reset-profiles:
 ```
 
 Missing/unknown modes, missing profiles, invalid limits, unresolved exclusions, and old config versions disable destructive behavior. There is no `AIR` mode.
+
+Snapshot storage uses gzipped JSON. Since the full snapshot includes every block coordinate (including air), repeated "minecraft:air" entries compress to negligible size. A region's snapshot file is roughly proportional to its non-air block count, not its total volume.
 
 ## Full snapshot reset lifecycle
 
@@ -105,12 +133,13 @@ WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering 
 ## Commands and permissions
 
 - `/maceguard here` — final effective custom behavior and actual applicable WorldGuard regions/priorities
-- `/maceguard status <region>` — profile, mode, arming, recovery state
+- `/maceguard status <region>` — profile, mode, arming, recovery state for one region
+- `/maceguard status-all` — armed/disarmed status for every known region across all loaded worlds
 - `/maceguard capture|validate|plan|arm|disarm <region>`
 - `/maceguard reset <region> <token>`
 - `/maceguard recover <region>`
 - `/maceguard temporary`
-- `/maceguard reload` — refused during capture/restore
+- `/maceguard reload` — refused during capture/restore; invalidates sparse baseline cache
 - `/maceguard endeyes`, `endportal`, `endstatus`
 
 Permissions are `maceguard.admin`, `maceguard.reset`, and `maceguard.reload` (operator by default).
@@ -130,3 +159,4 @@ Use the [production migration checklist](docs/PRODUCTION_MIGRATION.md) before de
 - Unsupported tile entity: remove it from reset scope or wait for explicit codec support; capture fails safely.
 - Sparse mode journals direct player place/break changes. Non-player mutation sources must be controlled with WorldGuard if they need deterministic restoration.
 - Interrupted journal: automatic continuation is intentionally unsupported.
+- Region changed externally: if a WorldGuard region is redefined, the next tick cycle (up to 60s) detects the geometry mismatch and disarms it. There is no real-time event listener — WorldGuard does not expose public region modification events.
