@@ -2,6 +2,7 @@ package com.lincoln.maceguard.storage;
 
 import com.lincoln.maceguard.reset.ResetJournal;
 import com.lincoln.maceguard.reset.SparseBaseline;
+import com.lincoln.maceguard.reset.ArmState;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,5 +36,27 @@ class PersistenceSafetyTest {
         SparseBaselineRepository repository = new SparseBaselineRepository(directory.resolve("sparse"));
         repository.save(baseline);
         assertEquals(original, new SparseBaselineRepository(directory.resolve("sparse")).load(baseline.worldUuid(), "warzone").orElseThrow().originals().get("0:0:0"));
+    }
+
+    @Test void pausedAutomaticScheduleSurvivesRepositoryRestart() throws Exception {
+        Path file = directory.resolve("armed.json");
+        ArmState state = new ArmState("world", "war-pit", "geometry", "war-pit", "FULL_SNAPSHOT",
+                "exclusions", 1, "checksum", 123L, false);
+        ArmStateRepository repository = new ArmStateRepository(file);
+        repository.arm(state);
+        ArmStateRepository restarted = new ArmStateRepository(file);
+        restarted.load();
+        ArmState loaded = restarted.get("world", "war-pit").orElseThrow();
+        assertFalse(loaded.isScheduleEnabled());
+    }
+
+    @Test void legacyArmingStateKeepsItsExistingAutomaticScheduleBehavior() throws Exception {
+        Path file = directory.resolve("legacy-armed.json");
+        java.nio.file.Files.writeString(file, "{\"world:war-pit\":{\"worldUuid\":\"world\",\"regionId\":\"war-pit\","
+                + "\"geometryHash\":\"geometry\",\"profile\":\"war-pit\",\"mode\":\"FULL_SNAPSHOT\","
+                + "\"exclusionsHash\":\"exclusions\",\"snapshotFormat\":1,\"snapshotChecksum\":\"checksum\",\"armedAt\":123}}", java.nio.charset.StandardCharsets.UTF_8);
+        ArmStateRepository repository = new ArmStateRepository(file);
+        repository.load();
+        assertTrue(repository.get("world", "war-pit").orElseThrow().isScheduleEnabled());
     }
 }

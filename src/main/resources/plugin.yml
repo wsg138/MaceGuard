@@ -1,16 +1,16 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 3.0.0
+version: 3.1.0
 api-version: '1.21'
 author: P2wn
-description: WorldGuard-scoped mace durability, temporary cobwebs, safe resets, and End controls.
+description: WorldGuard-scoped mace durability, temporary cobwebs, explosive controls, and safe resets.
 depend: [WorldGuard]
 softdepend: [WarzoneRotator]
 
 commands:
   maceguard:
     description: MaceGuard admin command
-    usage: /<command> here|status|capture|validate|plan|arm|disarm|reset|recover|temporary|reload|endeyes|endportal|endstatus
+    usage: /<command> here|status|capture|validate|plan|arm|disarm|filler|restore|schedule|reset|recover|temporary|reload
 
 permissions:
   maceguard.admin:

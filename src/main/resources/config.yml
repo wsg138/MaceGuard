@@ -23,14 +23,6 @@ storage:
 # administrator explicitly arms that exact region geometry.
 reset-profiles: {}
 
-end_access:
-  manage_eyes: true
-  persist_auto_enable: true
-  allow_eyes: false
-  eyes_enable_at_est: ""
-  allow_portals: false
-  portals_enable_at_est: ""
-
 end_island:
   enabled: true
   island_radius: 1024

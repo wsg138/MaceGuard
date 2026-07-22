@@ -147,6 +147,7 @@ public final class ResetCoordinator {
         if (!stateReady || startupProblem != null || destructiveOperation.get()) return;
         long now = System.currentTimeMillis();
         for (ArmState state : arms.all().values()) {
+            if (!state.isScheduleEnabled()) continue;
             if (destructiveOperation.get()) return;
             World world;
             try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(state.worldUuid())); }
@@ -206,7 +207,7 @@ public final class ResetCoordinator {
         if (resolution.profile().mode() == ResetProfile.Mode.SPARSE_ORIGINALS) {
             loadSparse(resolution, baseline -> {
                 ArmState state = new ArmState(baseline.worldUuid(), baseline.regionId(), baseline.geometry().geometryHash(), resolution.profile().name(),
-                        resolution.profile().mode().name(), resolution.exclusionHash(), baseline.formatVersion(), "SPARSE", System.currentTimeMillis());
+                        resolution.profile().mode().name(), resolution.exclusionHash(), baseline.formatVersion(), "SPARSE", System.currentTimeMillis(), true);
                 io.execute(() -> { try { arms.arm(state); main(() -> feedback.accept("Armed " + baseline.regionId() + " for sparse original journaling and reset.")); }
                 catch (IOException ex) { main(() -> feedback.accept("Arm failed: " + ex.getMessage())); } });
             }, feedback);
@@ -214,7 +215,7 @@ public final class ResetCoordinator {
         }
         loadSnapshot(resolution, snapshot -> {
             ArmState state = new ArmState(snapshot.worldUuid(), snapshot.regionId(), snapshot.geometryHash(), resolution.profile().name(),
-                    resolution.profile().mode().name(), resolution.exclusionHash(), snapshot.formatVersion(), snapshot.checksum(), System.currentTimeMillis());
+                    resolution.profile().mode().name(), resolution.exclusionHash(), snapshot.formatVersion(), snapshot.checksum(), System.currentTimeMillis(), true);
             io.execute(() -> { try { arms.arm(state); main(() -> feedback.accept("Armed " + snapshot.regionId() + " for this exact geometry and snapshot.")); }
             catch (IOException ex) { main(() -> feedback.accept("Arm failed: " + ex.getMessage())); } });
         }, feedback);
@@ -224,6 +225,26 @@ public final class ResetCoordinator {
         String worldUuid = world.getUID().toString();
         io.execute(() -> { try { arms.disarm(worldUuid, regionId); main(() -> feedback.accept("Disarmed " + regionId + ".")); }
         catch (IOException ex) { main(() -> feedback.accept("Disarm failed: " + ex.getMessage())); } });
+    }
+
+    public void setSchedule(World world, String regionId, boolean enabled, Consumer<String> feedback) {
+        String worldUuid = world.getUID().toString();
+        Optional<ArmState> current = arms.get(worldUuid, regionId);
+        if (current.isEmpty()) { feedback.accept("Schedule unchanged: " + regionId + " is not armed."); return; }
+        ArmState state = current.get();
+        Resolution resolution = resolve(world, regionId);
+        if (!resolution.valid() || !armMatches(state, resolution)) {
+            disarm(world, regionId, ignored -> { });
+            feedback.accept("Schedule refused: armed state no longer matches the region/profile and was disarmed.");
+            return;
+        }
+        long timerAnchor = enabled ? System.currentTimeMillis() : state.armedAt();
+        ArmState updated = new ArmState(state.worldUuid(), state.regionId(), state.geometryHash(), state.profile(), state.mode(),
+                state.exclusionsHash(), state.snapshotFormat(), state.snapshotChecksum(), timerAnchor, enabled);
+        io.execute(() -> {
+            try { arms.arm(updated); main(() -> feedback.accept("Automatic snapshot restores " + (enabled ? "enabled" : "paused") + " for " + regionId + ".")); }
+            catch (IOException ex) { main(() -> feedback.accept("Schedule change failed: " + ex.getMessage())); }
+        });
     }
 
     public void plan(World world, String regionId, Consumer<String> feedback) {
@@ -288,7 +309,7 @@ public final class ResetCoordinator {
 
     private void touchArm(World world, String regionId) {
         arms.get(world.getUID().toString(), regionId).ifPresent(state -> io.execute(() -> {
-            try { arms.arm(new ArmState(state.worldUuid(), state.regionId(), state.geometryHash(), state.profile(), state.mode(), state.exclusionsHash(), state.snapshotFormat(), state.snapshotChecksum(), System.currentTimeMillis())); }
+            try { arms.arm(new ArmState(state.worldUuid(), state.regionId(), state.geometryHash(), state.profile(), state.mode(), state.exclusionsHash(), state.snapshotFormat(), state.snapshotChecksum(), System.currentTimeMillis(), state.scheduleEnabled())); }
             catch (IOException ex) { plugin.getLogger().severe("Reset completed but schedule state could not be committed; disarm this region before further operation: " + ex.getMessage()); }
         }));
     }
@@ -303,14 +324,15 @@ public final class ResetCoordinator {
             return;
         }
         if (resolution.profile().mode() == ResetProfile.Mode.SPARSE_ORIGINALS) {
-            loadSparse(resolution, baseline -> feedback.accept(statusLine(regionId, resolution, true) + ", originals=" + baseline.originals().size()),
+            loadSparse(resolution, baseline -> feedback.accept(statusLine(regionId, resolution, true) + ", schedule="
+                            + (armed.get().isScheduleEnabled() ? "enabled" : "paused") + ", originals=" + baseline.originals().size()),
                     error -> { disarm(world, regionId, ignored -> { }); feedback.accept(statusLine(regionId, resolution, false) + ", baseline=" + error); });
             return;
         }
         loadSnapshot(resolution, snapshot -> {
             boolean matches = armed.get().snapshotChecksum().equals(snapshot.checksum());
             if (!matches) disarm(world, regionId, ignored -> { });
-            feedback.accept(statusLine(regionId, resolution, matches));
+            feedback.accept(statusLine(regionId, resolution, matches) + ", schedule=" + (armed.get().isScheduleEnabled() ? "enabled" : "paused"));
         }, error -> { disarm(world, regionId, ignored -> { }); feedback.accept(statusLine(regionId, resolution, false) + ", snapshot=" + error); });
     }
 

@@ -1,6 +1,6 @@
 # MaceGuard
 
-MaceGuard adds a small set of opt-in behaviors to WorldGuard regions. WorldGuard is the sole authority for region geometry, membership, ownership, priorities, parents, build/break permission, pistons, liquids, explosions, interactions, and containers. MaceGuard contains no region coordinates and never acts as a general protection plugin.
+MaceGuard adds a small set of opt-in behaviors to WorldGuard regions. WorldGuard is the sole authority for region geometry, membership, ownership, priorities, parents, and ordinary protection. MaceGuard contains no region coordinates and never acts as a general protection plugin.
 
 ## Requirements and installation
 
@@ -17,6 +17,7 @@ Install WorldEdit and WorldGuard first, then MaceGuard. `plugin.yml` declares Wo
 | --- | --- | --- |
 | `maceguard-mace-durability` | state | `ALLOW` enables the configured armor durability cap at the victim. Missing/`DENY` does nothing. |
 | `maceguard-cobwebs` | state | `ALLOW` enables tracked cobweb TTL behavior only after WorldGuard allows the placement and WarzoneRotator allows it. |
+| `maceguard-explosives` | state | `DENY` blocks explosive placement/use and cancels explosions. Missing/`ALLOW` does nothing. |
 | `maceguard-reset-profile` | string | Directly associates an exact WorldGuard cuboid region with a named config profile. |
 
 Examples:
@@ -25,13 +26,27 @@ Examples:
 /rg flag warzone maceguard-mace-durability allow
 /rg flag warzone maceguard-cobwebs allow
 /rg flag war-pit maceguard-reset-profile war-pit
+/rg flag war-pit maceguard-explosives deny
 ```
+
+Create the war-pit region from the exact WorldEdit cuboid selected on the server, then apply its policy:
+
+```text
+/rg define war-pit
+/rg flag war-pit block-break allow
+/rg flag war-pit block-place allow
+/rg flag war-pit maceguard-cobwebs allow
+/rg flag war-pit maceguard-reset-profile war-pit
+/rg flag war-pit maceguard-explosives deny
+```
+
+The repository cannot safely pre-create that live WorldGuard region because the world and selected bounds belong to the server's WorldGuard data. MaceGuard deliberately stores no duplicate war-pit coordinates.
 
 Do not set `build allow` merely to enable MaceGuard behavior. Configure WorldGuard membership, passthrough, parents, priorities, and protection flags normally.
 
 ## Safe configuration
 
-There are no coordinates in `config.yml`. Numeric limits, schedules, batching, storage policy, and global End restrictions remain MaceGuard settings.
+There are no coordinates in `config.yml`. Numeric limits, schedules, batching, storage policy, and main-End-island weapon restrictions remain MaceGuard settings.
 
 ```yaml
 config-version: 7
@@ -64,7 +79,9 @@ Missing/unknown modes, missing profiles, invalid limits, unresolved exclusions, 
 7. Run `/maceguard arm <region>`.
 8. Run `plan` again and execute `/maceguard reset <region> <token>` with the current one-use token.
 
-An interval greater than zero enables automatic preflight after arming. Automatic resets never use confirmation-token overrides and are disarmed if resolution, validation, or a safety threshold fails.
+An interval greater than zero enables automatic preflight after arming. `/maceguard schedule <region> off` pauses automatic restores without discarding the valid armed snapshot; `on` starts a fresh interval. Automatic resets never use confirmation-token overrides and are disarmed if resolution, validation, or a safety threshold fails.
+
+`/maceguard filler <region> off` (also available as `restore`) durably disarms the region, stopping both manual and automatic restores. Turning it on uses the normal `arm` path and therefore refuses to enable if the snapshot/baseline is missing or invalid. A missing snapshot never causes MaceGuard to fill a region with air or any fallback material.
 
 Snapshots contain a format/plugin version, region/world identity, world UUID, exact cuboid geometry and hash, profile, capture timestamps, completion marker, full coordinate count, explicit air block data, checksum, and supported container inventories. A snapshot with unsupported tile entities is not captured. Legacy snapshots are never loaded from the old directory.
 
@@ -94,11 +111,17 @@ Rollback procedure:
 
 MaceGuard only tracks a successful, WorldGuard-permitted cobweb placement when the effective custom flag is `ALLOW`, WarzoneRotator explicitly permits it, the replaced material is configured, and persistence is healthy. Expiry restores the recorded original block only if the block still exactly matches the tracked cobweb and remains in an enabled location. Missing integrations fail closed for custom TTL behavior without cancelling normal construction. Liquids are left to WorldGuard; MaceGuard does not drain them.
 
+For a cobweb/warzone area: define the WorldGuard region, configure its membership and `block-break`/`block-place` policy, set `maceguard-cobwebs allow`, and then capture/validate/arm it only if that same region also needs reset behavior. Cobweb TTL alone does not require a snapshot. A resetting war pit additionally needs `maceguard-reset-profile war-pit`, followed by `capture`, `validate`, `plan`, and `arm`.
+
+## Explosive behavior
+
+`maceguard-explosives deny` blocks TNT placement, TNT minecart and end-crystal placement, respawn-anchor use, crystal detonation, priming, and entity/block explosion events at the effective WorldGuard location. This also stops other explosion sources such as creepers and beds because the flag means no explosions, not merely no block damage. The flag does not replace WorldGuard's other build or interaction flags.
+
 ## Mace durability and End behavior
 
 Mace durability uses Paper's damage source plus a tick-scoped pre-attack context. It changes only equipped armor item-damage events and clears state on expiry, quit, death, reload, and disable. Health, damage calculation, knockback, cooldowns, enchantments, attributes, and weapon switching remain vanilla.
 
-End Eye/portal scheduling and main-End-island mace/spear restrictions remain global configuration. MaceGuard no longer controls End explosions or ordinary block interactions; use WorldGuard for those.
+End Eye throwing and End portal lighting are no longer intercepted or scheduled by MaceGuard. Main-End-island mace/spear restrictions remain global configuration.
 
 WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering were removed. Configure duel ownership, explosion behavior, and block permissions in WorldGuard; MaceGuard no longer needs a WarzoneDuels hook.
 
@@ -111,7 +134,8 @@ WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering 
 - `/maceguard recover <region>`
 - `/maceguard temporary`
 - `/maceguard reload` — refused during capture/restore
-- `/maceguard endeyes`, `endportal`, `endstatus`
+- `/maceguard filler|restore <region> <on|off>`
+- `/maceguard schedule <region> <on|off>`
 
 Permissions are `maceguard.admin`, `maceguard.reset`, and `maceguard.reload` (operator by default).
 

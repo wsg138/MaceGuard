@@ -9,16 +9,20 @@ import com.sk89q.worldguard.protection.flags.StringFlag;
 import java.util.logging.Logger;
 
 public final class MaceGuardFlags {
+    /** Stable WorldGuard registry keys. Renaming one would orphan that flag in existing region data. */
     public static final String DURABILITY_NAME = "maceguard-mace-durability";
     public static final String COBWEBS_NAME = "maceguard-cobwebs";
+    public static final String EXPLOSIVES_NAME = "maceguard-explosives";
     public static final String RESET_PROFILE_NAME = "maceguard-reset-profile";
     private StateFlag durability;
     private StateFlag cobwebs;
+    private StateFlag explosives;
     private StringFlag resetProfile;
 
     public void register(Logger logger) {
         durability = registerState(DURABILITY_NAME, logger);
         cobwebs = registerState(COBWEBS_NAME, logger);
+        explosives = registerState(EXPLOSIVES_NAME, logger);
         resetProfile = registerString(RESET_PROFILE_NAME, logger);
     }
 
@@ -46,5 +50,6 @@ public final class MaceGuardFlags {
 
     public StateFlag durability() { return durability; }
     public StateFlag cobwebs() { return cobwebs; }
+    public StateFlag explosives() { return explosives; }
     public StringFlag resetProfile() { return resetProfile; }
 }

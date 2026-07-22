@@ -6,9 +6,9 @@
 
     <groupId>dev.lincoln</groupId>
     <artifactId>maceguard</artifactId>
-    <version>3.0.0</version>
+    <version>3.1.0</version>
     <name>MaceGuard</name>
-    <description>WorldGuard-scoped mace durability, temporary cobwebs, and fail-closed region resets.</description>
+    <description>WorldGuard-scoped mace durability, temporary cobwebs, explosive controls, and fail-closed region resets.</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
