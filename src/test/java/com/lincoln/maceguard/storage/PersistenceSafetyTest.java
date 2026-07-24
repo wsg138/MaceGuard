@@ -27,6 +27,39 @@ class PersistenceSafetyTest {
         assertFalse(repository.load().orElseThrow().interrupted());
     }
 
+    @Test void failedJournalBlocksAnotherResetInTheSameRuntime() throws Exception {
+        ResetJournalRepository repository = new ResetJournalRepository(directory.resolve("journal.json"));
+        ResetJournal failed = journal(ResetJournal.Status.FAILED, 3);
+        repository.save(failed);
+        assertFalse(repository.savePreparedIfNoUnresolved(journal(ResetJournal.Status.PREPARED, 0)));
+        assertEquals(failed, repository.load().orElseThrow());
+    }
+
+    @Test void failedJournalBlocksAnotherResetAfterRepositoryReload() throws Exception {
+        Path file = directory.resolve("journal.json");
+        new ResetJournalRepository(file).save(journal(ResetJournal.Status.FAILED, 3));
+        ResetJournalRepository restarted = new ResetJournalRepository(file);
+        assertFalse(restarted.savePreparedIfNoUnresolved(journal(ResetJournal.Status.PREPARED, 0)));
+        assertEquals(ResetJournal.Status.FAILED, restarted.load().orElseThrow().status());
+    }
+
+    @Test void completeJournalDoesNotBlockTheNextReset() throws Exception {
+        ResetJournalRepository repository = new ResetJournalRepository(directory.resolve("journal.json"));
+        repository.save(journal(ResetJournal.Status.COMPLETE, 10));
+        assertTrue(repository.savePreparedIfNoUnresolved(journal(ResetJournal.Status.PREPARED, 0)));
+        assertEquals(ResetJournal.Status.PREPARED, repository.load().orElseThrow().status());
+    }
+
+    @Test void failedRestoreAfterPartialProgressCannotReplaceItsJournal() throws Exception {
+        ResetJournalRepository repository = new ResetJournalRepository(directory.resolve("journal.json"));
+        ResetJournal failedAfterPartialProgress = journal(ResetJournal.Status.FAILED, 5);
+        repository.save(failedAfterPartialProgress);
+        assertFalse(repository.savePreparedIfNoUnresolved(journal(ResetJournal.Status.PREPARED, 0)));
+        ResetJournal retained = repository.load().orElseThrow();
+        assertEquals(ResetJournal.Status.FAILED, retained.status());
+        assertEquals(5, retained.nextChange());
+    }
+
     @Test void sparseOriginalSurvivesRepositoryRestart() throws Exception {
         var region = new com.lincoln.maceguard.worldguard.RegionDescriptor("warzone", "world", java.util.UUID.randomUUID(), "CUBOID", 0,0,0,0,0,0,"hash",1);
         var original = new com.lincoln.maceguard.reset.SnapshotBlock(0,0,0,"minecraft:stone",null);
@@ -58,5 +91,9 @@ class PersistenceSafetyTest {
         ArmStateRepository repository = new ArmStateRepository(file);
         repository.load();
         assertTrue(repository.get("world", "war-pit").orElseThrow().isScheduleEnabled());
+    }
+
+    private ResetJournal journal(ResetJournal.Status status, int nextChange) {
+        return new ResetJournal("op", "world", "pit", "geometry", "snapshot", "plan", status, nextChange, 10, 1);
     }
 }

@@ -2,6 +2,7 @@ package com.lincoln.maceguard.temporary;
 
 import com.lincoln.maceguard.config.MaceGuardConfig;
 import com.lincoln.maceguard.integration.WarzoneRotatorAdapter;
+import com.lincoln.maceguard.runtime.RuntimeSafetyPolicy;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import com.lincoln.maceguard.worldguard.CustomBehaviorDecision;
 import org.bukkit.Material;
@@ -23,6 +24,7 @@ public final class CobwebListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
+        if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
         if (!CustomBehaviorDecision.enabled(worldGuard.buildAllowed(event.getBlockPlaced().getLocation(), event.getPlayer()),
                 worldGuard.cobwebsAllowed(event.getBlockPlaced().getLocation(), event.getPlayer()),
                 rotator.allows(event.getPlayer(), event.getBlockPlaced().getLocation()))) return;

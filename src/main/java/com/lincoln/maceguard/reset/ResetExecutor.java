@@ -21,16 +21,25 @@ public final class ResetExecutor {
         this.plugin = plugin; this.io = io; this.journals = journals; this.batchSize = batchSize;
     }
 
-    public void execute(World world, ResetPlan plan, Consumer<String> done) {
+    public void execute(World world, ResetPlan plan, Consumer<String> done, Consumer<String> lockRestores) {
         String operation = UUID.randomUUID().toString();
         ResetJournal prepared = journal(operation, plan, ResetJournal.Status.PREPARED, 0);
         io.execute(() -> {
-            try { journals.save(prepared); plugin.getServer().getScheduler().runTask(plugin, () -> runBatches(world, plan, prepared, done)); }
+            try {
+                if (!journals.savePreparedIfNoUnresolved(prepared)) {
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        lockRestores.accept("an unresolved restore journal requires administrator review");
+                        done.accept("Reset refused: an unresolved restore journal already exists.");
+                    });
+                    return;
+                }
+                plugin.getServer().getScheduler().runTask(plugin, () -> runBatches(world, plan, prepared, done, lockRestores));
+            }
             catch (IOException ex) { plugin.getServer().getScheduler().runTask(plugin, () -> done.accept("Reset refused: could not persist restore journal: " + ex.getMessage())); }
         });
     }
 
-    private void runBatches(World world, ResetPlan plan, ResetJournal initial, Consumer<String> done) {
+    private void runBatches(World world, ResetPlan plan, ResetJournal initial, Consumer<String> done, Consumer<String> lockRestores) {
         new BukkitRunnable() {
             int index;
             boolean waiting;
@@ -63,6 +72,7 @@ public final class ResetExecutor {
             private void fail(String reason) {
                 cancel();
                 ResetJournal failed = journal(initial.operationId(), plan, ResetJournal.Status.FAILED, index);
+                lockRestores.accept("restore " + initial.operationId() + " failed at " + index + "/" + plan.totalChanges() + ": " + reason);
                 io.execute(() -> { try { journals.save(failed); } catch (IOException ignored) { } });
                 done.accept("Reset interrupted and remains journaled: " + reason);
             }

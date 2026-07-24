@@ -39,6 +39,7 @@ public final class ArmStateRepository {
 
     public synchronized void arm(ArmState state) throws IOException { states.put(key(state.worldUuid(), state.regionId()), state); persist(); }
     public synchronized void disarm(String worldUuid, String regionId) throws IOException { states.remove(key(worldUuid, regionId)); persist(); }
+    public synchronized void disarmAll() throws IOException { states.clear(); persist(); }
 
     private String key(String worldUuid, String regionId) { return worldUuid + ":" + regionId.toLowerCase(); }
 

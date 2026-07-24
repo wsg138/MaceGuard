@@ -20,13 +20,13 @@ public final class ResetJournalRepository {
     private final Gson gson = new Gson();
     public ResetJournalRepository(Path file) { this.file = file; }
 
-    public Optional<ResetJournal> load() throws IOException {
+    public synchronized Optional<ResetJournal> load() throws IOException {
         if (!Files.isRegularFile(file)) return Optional.empty();
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) { return Optional.ofNullable(gson.fromJson(reader, ResetJournal.class)); }
         catch (RuntimeException ex) { throw new IOException("Invalid reset journal", ex); }
     }
 
-    public void save(ResetJournal journal) throws IOException {
+    public synchronized void save(ResetJournal journal) throws IOException {
         Files.createDirectories(file.getParent());
         Path temp = Files.createTempFile(file.getParent(), "restore-", ".tmp");
         try {
@@ -35,5 +35,12 @@ public final class ResetJournalRepository {
             try { Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
             catch (AtomicMoveNotSupportedException ex) { Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING); }
         } finally { Files.deleteIfExists(temp); }
+    }
+
+    /** Starts a restore only when no prior partial or failed restore still needs administrator review. */
+    public synchronized boolean savePreparedIfNoUnresolved(ResetJournal prepared) throws IOException {
+        if (load().filter(ResetJournal::requiresAdministratorReview).isPresent()) return false;
+        save(prepared);
+        return true;
     }
 }

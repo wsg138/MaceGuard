@@ -2,6 +2,7 @@ package com.lincoln.maceguard.reset;
 
 import com.lincoln.maceguard.config.MaceGuardConfig;
 import com.lincoln.maceguard.config.ResetProfile;
+import com.lincoln.maceguard.runtime.RuntimeSafetyPolicy;
 import com.lincoln.maceguard.storage.ArmStateRepository;
 import com.lincoln.maceguard.storage.ResetJournalRepository;
 import com.lincoln.maceguard.storage.SnapshotRepository;
@@ -43,6 +44,7 @@ public final class ResetCoordinator {
     private final SnapshotCaptureService capture;
     private final ResetExecutor executor;
     private final AtomicBoolean destructiveOperation = new AtomicBoolean();
+    private final AtomicBoolean resetLocked = new AtomicBoolean();
     private volatile String activeRegionKey;
     private volatile RegionDescriptor activeRegion;
     private final java.util.Map<String, SparseBaseline> sparseCache = new ConcurrentHashMap<>();
@@ -50,6 +52,7 @@ public final class ResetCoordinator {
     private final java.util.Set<String> sparsePendingCoordinates = ConcurrentHashMap.newKeySet();
     private volatile boolean stateReady;
     private volatile String startupProblem;
+    private volatile String resetLockReason;
 
     public ResetCoordinator(JavaPlugin plugin, MaceGuardConfig config, MaceGuardFlags flags, WorldGuardRegionService regions,
                             SnapshotRepository snapshots, ArmStateRepository arms, ResetJournalRepository journals, Executor io) {
@@ -82,7 +85,7 @@ public final class ResetCoordinator {
 
     /** Returns true only when an explicitly armed sparse profile must delay this first change for a durable write. */
     public boolean prepareSparseOriginal(Location location, BlockState original, Consumer<String> feedback) {
-        if (!stateReady || location.getWorld() == null || flags.resetProfile() == null) return false;
+        if (!RuntimeSafetyPolicy.allowsSparseOriginalInterception(config.enabled()) || !stateReady || location.getWorld() == null || flags.resetProfile() == null) return false;
         RegionDescriptor active = activeRegion;
         if (destructiveOperation.get() && active != null && active.worldUuid().equals(location.getWorld().getUID())
                 && active.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ())) {
@@ -144,7 +147,7 @@ public final class ResetCoordinator {
     }
 
     public void tickAutomaticResets() {
-        if (!stateReady || startupProblem != null || destructiveOperation.get()) return;
+        if (!RuntimeSafetyPolicy.allowsAutomaticReset(config.enabled()) || !stateReady || startupProblem != null || resetLocked.get() || destructiveOperation.get()) return;
         long now = System.currentTimeMillis();
         for (ArmState state : arms.all().values()) {
             if (!state.isScheduleEnabled()) continue;
@@ -161,6 +164,7 @@ public final class ResetCoordinator {
     }
 
     public void capture(World world, String regionId, Consumer<String> feedback) {
+        if (!RuntimeSafetyPolicy.allowsCapture(config.enabled())) { feedback.accept("Capture refused: MaceGuard is disabled in config."); return; }
         Resolution resolution = resolve(world, regionId);
         if (!resolution.valid()) { feedback.accept(resolution.error()); return; }
         if (!beginOperation(world, regionId)) { feedback.accept("Another capture or restore is active."); return; }
@@ -201,6 +205,7 @@ public final class ResetCoordinator {
     }
 
     public void arm(World world, String regionId, Consumer<String> feedback) {
+        if (!RuntimeSafetyPolicy.allowsArm(config.enabled())) { feedback.accept("Arm refused: MaceGuard is disabled in config."); return; }
         if (!stateReady) { feedback.accept("Persistent reset state is not ready; try again shortly."); return; }
         Resolution resolution = resolve(world, regionId);
         if (!resolution.valid()) { feedback.accept(resolution.error()); return; }
@@ -228,6 +233,7 @@ public final class ResetCoordinator {
     }
 
     public void setSchedule(World world, String regionId, boolean enabled, Consumer<String> feedback) {
+        if (!RuntimeSafetyPolicy.allowsScheduleChange(config.enabled(), enabled)) { feedback.accept("Schedule enable refused: MaceGuard is disabled in config."); return; }
         String worldUuid = world.getUID().toString();
         Optional<ArmState> current = arms.get(worldUuid, regionId);
         if (current.isEmpty()) { feedback.accept("Schedule unchanged: " + regionId + " is not armed."); return; }
@@ -261,7 +267,9 @@ public final class ResetCoordinator {
     }
 
     public void reset(World world, String regionId, String token, Consumer<String> feedback) {
+        if (!RuntimeSafetyPolicy.allowsManualReset(config.enabled())) { feedback.accept("Reset refused: MaceGuard is disabled in config."); return; }
         if (!stateReady) { feedback.accept("Persistent reset state is not ready."); return; }
+        if (resetLocked.get()) { feedback.accept("Reset refused: " + resetLockReason); return; }
         if (startupProblem != null) { feedback.accept("Reset refused: " + startupProblem); return; }
         if (!beginOperation(world, regionId)) { feedback.accept("Another capture or restore is active."); return; }
         buildPlan(world, regionId, result -> {
@@ -272,11 +280,12 @@ public final class ResetCoordinator {
             executor.execute(world, result.plan(), message -> {
                 if (message.startsWith("Reset completed:")) finishSuccessfulReset(world, regionId, result.profile(), message, feedback);
                 else { endOperation(); feedback.accept(message); }
-            });
+            }, this::lockRestores);
         });
     }
 
     private void automaticReset(World world, String regionId) {
+        if (!RuntimeSafetyPolicy.allowsAutomaticReset(config.enabled()) || resetLocked.get()) return;
         if (!beginOperation(world, regionId)) return;
         buildPlan(world, regionId, result -> {
             if (result.plan() == null) { endOperation(); plugin.getLogger().severe("Automatic reset disabled for " + regionId + ": " + result.error()); disarm(world, regionId, ignored -> { }); return; }
@@ -285,7 +294,7 @@ public final class ResetCoordinator {
             executor.execute(world, result.plan(), message -> {
                 if (message.startsWith("Reset completed:")) finishSuccessfulReset(world, regionId, result.profile(), message, plugin.getLogger()::info);
                 else { endOperation(); disarm(world, regionId, ignored -> { }); plugin.getLogger().info(message); }
-            });
+            }, this::lockRestores);
         });
     }
 
@@ -415,8 +424,9 @@ public final class ResetCoordinator {
     }
 
     private String statusLine(String regionId, Resolution resolution, boolean armed) {
+        String recovery = startupProblem != null ? startupProblem : resetLockReason;
         return "Reset " + regionId + ": profile=" + resolution.profile().name() + ", mode=" + resolution.profile().mode()
-                + ", armed=" + armed + (startupProblem == null ? "" : ", recovery=" + startupProblem);
+                + ", armed=" + armed + (recovery == null ? "" : ", recovery=" + recovery);
     }
 
     private String sha256(String value) {
@@ -474,8 +484,15 @@ public final class ResetCoordinator {
     private void loadPersistentState() {
         try {
             arms.load();
+            if (!config.enabled() && !arms.all().isEmpty()) {
+                arms.disarmAll();
+                plugin.getLogger().warning("MaceGuard is disabled; all reset arming states were cleared and require explicit re-arming after enable.");
+            }
             Optional<ResetJournal> journal = journals.load();
-            if (journal.filter(ResetJournal::interrupted).isPresent()) startupProblem = "interrupted restore " + journal.get().operationId() + " requires administrator review; region is not automatically resumed";
+            if (journal.filter(ResetJournal::requiresAdministratorReview).isPresent()) {
+                lockRestores("unresolved restore " + journal.get().operationId() + " requires administrator review; region is not automatically resumed");
+                startupProblem = resetLockReason;
+            }
             if (snapshots.hasIncompleteFiles()) startupProblem = "an interrupted snapshot capture was detected; capture a fresh snapshot";
             if (sparseBaselines.hasIncompleteFiles()) startupProblem = "an interrupted sparse baseline write was detected; sparse reset state requires administrator review";
             stateReady = true;
@@ -484,12 +501,16 @@ public final class ResetCoordinator {
 
     private void main(Runnable action) { plugin.getServer().getScheduler().runTask(plugin, action); }
     private boolean beginOperation(World world, String regionId) {
+        if (!config.enabled() || resetLocked.get()) return false;
         if (!destructiveOperation.compareAndSet(false, true)) return false;
         activeRegionKey = sparseKey(world.getUID().toString(), regionId);
         activeRegion = regions.cuboid(world, regionId).orElse(null);
         return true;
     }
     private void endOperation() { activeRegionKey = null; activeRegion = null; destructiveOperation.set(false); }
+    private void lockRestores(String reason) {
+        if (resetLocked.compareAndSet(false, true)) resetLockReason = reason;
+    }
     private record Resolution(RegionDescriptor region, ResetProfile profile, String exclusionHash, String error) {
         static Resolution failure(String error) { return new Resolution(null, null, null, error); }
         boolean valid() { return error == null; }
