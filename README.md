@@ -1,5 +1,8 @@
 # MaceGuard
 
+[![Build](https://github.com/wsg138/MaceGuard/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/wsg138/MaceGuard/actions/workflows/build.yml)
+[Download the latest automated JAR](https://github.com/wsg138/MaceGuard/releases/download/latest/MaceGuard.jar)
+
 MaceGuard adds a small set of opt-in behaviors to WorldGuard regions. WorldGuard is the sole authority for region geometry, membership, ownership, priorities, parents, and ordinary protection. MaceGuard contains no region coordinates and never acts as a general protection plugin.
 
 ## Requirements and installation

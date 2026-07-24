@@ -22,3 +22,26 @@ jobs:
           name: MaceGuard
           path: target/MaceGuard.jar
           if-no-files-found: error
+          retention-days: 14
+
+  publish-latest:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MaceGuard
+          path: dist
+      - name: Publish latest automated build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload latest dist/MaceGuard.jar --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit latest --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create latest dist/MaceGuard.jar --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
+          fi
