@@ -30,12 +30,12 @@ public final class LungeVelocityGate {
         this.windowNanos = window.toNanos();
     }
 
-    public void record(UUID playerId, Vec3 lookDirection, Vec3 initialVelocity,
+    public void record(UUID playerId, String materialName, Vec3 lookDirection, Vec3 initialVelocity,
                        boolean actorInside, boolean targetInside) {
         Vec3 normalized = lookDirection.normalized();
         if (normalized.lengthSquared() == 0) return;
         attempts.put(playerId, new Attempt(Math.addExact(nanoClock.getAsLong(), windowNanos),
-                normalized, initialVelocity, actorInside, targetInside));
+                materialName, normalized, initialVelocity, actorInside, targetInside));
     }
 
     public Optional<Attempt> consumeIfLunge(UUID playerId, Vec3 resultingVelocity) {
@@ -73,7 +73,7 @@ public final class LungeVelocityGate {
         return removed;
     }
 
-    public record Attempt(long deadlineNanos, Vec3 lookDirection, Vec3 initialVelocity,
+    public record Attempt(long deadlineNanos, String materialName, Vec3 lookDirection, Vec3 initialVelocity,
                           boolean actorInside, boolean targetInside) { }
 
     public record Vec3(double x, double y, double z) {
