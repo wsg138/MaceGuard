@@ -100,8 +100,10 @@ public final class WarzoneRuntime {
     }
 
     public CobwebDecision cobwebDecision(Player player, Location location) {
-        if (!config.enabled() || !region.contains(location)) return CobwebDecision.permit();
+        if (!config.enabled()) return CobwebDecision.permit();
         if (player.hasPermission("warzonerotator.bypass")) return CobwebDecision.permit();
+        if (!region.regionResolved() && region.inConfiguredWorld(location)) return CobwebDecision.unavailable();
+        if (!region.containsResolved(location)) return CobwebDecision.permit();
         if (!rotations.active().cobwebsAllowed()) return CobwebDecision.unavailable();
         RestrictionDecision restriction = restrictions.material(player.getUniqueId(), Material.COBWEB,
                 false, true, false);
