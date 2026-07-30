@@ -47,11 +47,16 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
         }
     }
 
+    /**
+     * Capability classification must remain usable in plain unit tests, before Paper installs
+     * its runtime registries. Only actions with stable, registry-independent success events are
+     * accepted here. Other arbitrary materials remain valid DISABLED targets but cannot use
+     * COOLDOWN mode.
+     */
     private static Set<CooldownCapability> capabilities(Material material) {
         EnumSet<CooldownCapability> result = EnumSet.noneOf(CooldownCapability.class);
         if (PROJECTILE_MATERIALS.contains(material) || isSpear(material))
             result.add(CooldownCapability.PROJECTILE);
-        if (material.isBlock()) result.add(CooldownCapability.BLOCK_PLACE);
         if (isDirectAttackMaterial(material)) result.add(CooldownCapability.DIRECT_ATTACK);
         if (result.isEmpty()) result.add(CooldownCapability.UNSUPPORTED);
         return result;
