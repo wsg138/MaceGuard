@@ -5,7 +5,6 @@ import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,6 +33,13 @@ class LungeRestrictionTest {
         assertTrue(cooldowns.active(player, RestrictionTarget.SPEAR_LUNGE));
     }
 
+    @Test void cancelledLungeDecisionDoesNotStartCooldownWithoutSuccessCallback() {
+        RestrictionService service = service(RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
+        RestrictionDecision accepted = service.lunge(player, false, true, false);
+        assertTrue(accepted.startsCooldownAfterSuccess());
+        assertFalse(cooldowns.active(player, RestrictionTarget.SPEAR_LUNGE));
+    }
+
     @Test void activeLungeCooldownSuppressesOnlyTheLungeDecision() {
         RestrictionService service = service(RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
         service.success(player, service.lunge(player, false, true, false));
@@ -51,16 +57,17 @@ class LungeRestrictionTest {
         assertFalse(attack.startsCooldownAfterSuccess());
     }
 
-    @Test void trackerAcceptsForwardLungeAndRejectsKnockbackOrPluginVelocity() {
+    @Test void targetContextExpiresAndAnewAttackReplacesIt() {
         AtomicLong nanos = new AtomicLong();
-        LungeAttemptTracker tracker = new LungeAttemptTracker(nanos::get, Duration.ofMillis(450));
-        var forward = new LungeAttemptTracker.Vec3(1, 0, 0);
-        var still = new LungeAttemptTracker.Vec3(0, 0, 0);
-        tracker.record(player, forward, still, false);
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(-1, 0, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(0, 1, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(5, 0, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(1.2, 0, 0)).isPresent());
+        LungeTargetTracker tracker = new LungeTargetTracker(nanos::get, Duration.ofMillis(450));
+        tracker.record(player, true);
+        assertTrue(tracker.targetInside(player));
+        tracker.record(player, false);
+        assertFalse(tracker.targetInside(player));
+        tracker.record(player, true);
+        nanos.addAndGet(Duration.ofMillis(451).toNanos());
+        assertFalse(tracker.targetInside(player));
+        assertEquals(0, tracker.size());
     }
 
     private RestrictionService service(RestrictionMode mode, Duration cooldown) {
