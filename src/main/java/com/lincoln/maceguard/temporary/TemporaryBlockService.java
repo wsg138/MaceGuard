@@ -38,9 +38,13 @@ public final class TemporaryBlockService implements Listener {
     }
 
     public boolean track(Block block, String originalData, long expiresAt) {
+        return track(block, originalData, expiresAt, false);
+    }
+
+    public boolean track(Block block, String originalData, long expiresAt, boolean warzoneOwned) {
         if (!persistenceHealthy || tracked.size() >= maxTracked) return false;
         TemporaryBlock entry = new TemporaryBlock(block.getWorld().getUID().toString(), block.getX(), block.getY(),
-                block.getZ(), block.getBlockData().getAsString(true), originalData, expiresAt, false);
+                block.getZ(), block.getBlockData().getAsString(true), originalData, expiresAt, false, warzoneOwned);
         tracked.put(key(entry), entry);
         persist();
         return true;
