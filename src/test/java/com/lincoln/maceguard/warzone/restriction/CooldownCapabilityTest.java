@@ -24,4 +24,16 @@ class CooldownCapabilityTest {
         assertEquals(2, VisualCooldownService.toTicks(Duration.ofMillis(51)));
         assertEquals(300, VisualCooldownService.toTicks(Duration.ofSeconds(15)));
     }
+
+    @Test void strongerExistingCooldownIsNeverShortened() {
+        assertFalse(VisualCooldownService.shouldApply(400, 300));
+        assertFalse(VisualCooldownService.shouldApply(300, 300));
+        assertTrue(VisualCooldownService.shouldApply(20, 300));
+    }
+
+    @Test void removingOwnedOverlayRestoresOnlyRecognizablePreviousState() {
+        assertEquals(20, VisualCooldownService.reconciledTicks(299, 300, 20));
+        assertEquals(-1, VisualCooldownService.reconciledTicks(450, 300, 20));
+        assertEquals(-1, VisualCooldownService.reconciledTicks(100, 300, 20));
+    }
 }
