@@ -36,4 +36,10 @@ class CooldownCapabilityTest {
         assertEquals(-1, VisualCooldownService.reconciledTicks(450, 300, 20));
         assertEquals(-1, VisualCooldownService.reconciledTicks(100, 300, 20));
     }
+
+    @Test void previousAndOwnedCooldownsUseActualServerTicks() {
+        assertEquals(250, VisualCooldownService.remainingTicks(300, 50));
+        assertEquals(0, VisualCooldownService.remainingTicks(20, 50));
+        assertEquals(300, VisualCooldownService.remainingTicks(300, -5));
+    }
 }
