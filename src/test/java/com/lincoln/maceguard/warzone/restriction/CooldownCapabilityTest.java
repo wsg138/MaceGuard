@@ -7,14 +7,13 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CooldownCapabilityTest {
-    @Test void classifiesReliableSuccessEvents() {
+    @Test void classifiesRegistryIndependentSuccessEvents() {
         assertTrue(RestrictionTarget.parse("ENDER_PEARL").orElseThrow()
                 .supports(CooldownCapability.PROJECTILE));
         assertTrue(RestrictionTarget.parse("DIAMOND_SWORD").orElseThrow()
                 .supports(CooldownCapability.DIRECT_ATTACK));
-        assertTrue(RestrictionTarget.parse("STONE").orElseThrow()
-                .supports(CooldownCapability.BLOCK_PLACE));
         assertTrue(RestrictionTarget.SPEAR_LUNGE.supports(CooldownCapability.LUNGE_EFFECT));
+        assertFalse(RestrictionTarget.parse("STONE").orElseThrow().supportsCooldown());
         assertFalse(RestrictionTarget.parse("SHIELD").orElseThrow().supportsCooldown());
     }
 
