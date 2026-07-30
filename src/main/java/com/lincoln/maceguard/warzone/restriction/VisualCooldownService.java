@@ -43,7 +43,7 @@ public final class VisualCooldownService {
         int ticks = toTicks(duration);
         if (ticks <= 0) return;
         int existing = player.getCooldown(material);
-        if (existing >= ticks) return;
+        if (!shouldApply(existing, ticks)) return;
 
         long now = clock.getAsLong();
         Key key = new Key(player.getUniqueId(), material);
@@ -80,14 +80,9 @@ public final class VisualCooldownService {
         long now = clock.getAsLong();
         int current = player.getCooldown(material);
         int expected = toTicks(Duration.ofMillis(Math.max(0L, overlay.expiresAtMillis() - now)));
-
-        // A larger cooldown was installed after ours; leave it untouched.
-        if (current > expected + 2) return;
-        // A smaller/cleared cooldown was changed independently; do not resurrect or override it.
-        if (current + 2 < expected) return;
-
         int previous = toTicks(Duration.ofMillis(Math.max(0L, overlay.previousExpiresAtMillis() - now)));
-        player.setCooldown(material, previous);
+        int replacement = reconciledTicks(current, expected, previous);
+        if (replacement >= 0) player.setCooldown(material, replacement);
     }
 
     public void forget(UUID playerId) {
@@ -104,6 +99,17 @@ public final class VisualCooldownService {
             removed++;
         }
         return removed;
+    }
+
+    static boolean shouldApply(int existingTicks, int requestedTicks) {
+        return requestedTicks > 0 && existingTicks < requestedTicks;
+    }
+
+    /** Returns -1 when the current cooldown was independently changed and must remain untouched. */
+    static int reconciledTicks(int currentTicks, int expectedOwnedTicks, int previousTicks) {
+        if (currentTicks > expectedOwnedTicks + 2) return -1;
+        if (currentTicks + 2 < expectedOwnedTicks) return -1;
+        return Math.max(0, previousTicks);
     }
 
     public static int toTicks(Duration duration) {
