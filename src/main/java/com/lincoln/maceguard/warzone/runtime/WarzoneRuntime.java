@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.runtime;
 
+import com.lincoln.maceguard.temporary.TemporaryBlock;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneMessages;
@@ -21,8 +22,13 @@ import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.function.Predicate;
 
 public final class WarzoneRuntime {
     private final JavaPlugin plugin;
@@ -35,9 +41,10 @@ public final class WarzoneRuntime {
     private final RestrictionService restrictions;
     private final RotationManager rotations;
     private final ItemRestrictionListener restrictionListener;
+    private final Path pendingCobwebClearMarker;
     private BukkitTask clockTask;
     private BukkitTask regionRefreshTask;
-    private boolean pendingWarzoneCobwebClear;
+    private volatile boolean pendingWarzoneCobwebClear;
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
@@ -45,6 +52,9 @@ public final class WarzoneRuntime {
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
         this.config = config;
+        this.pendingCobwebClearMarker = plugin.getDataFolder().toPath().resolve("state")
+                .resolve("warzone-cobweb-clear.pending");
+        this.pendingWarzoneCobwebClear = Files.exists(pendingCobwebClearMarker);
         this.region = new WarzoneRegionService(config.region(), plugin.getLogger());
         this.messages = new WarzoneMessageService(clock, region, config, templates);
         this.cooldowns = new CooldownService(clock::millis);
@@ -56,6 +66,7 @@ public final class WarzoneRuntime {
         this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns, region,
                 messages, new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         clearCobwebsAfterOfflineTransition();
+        if (pendingWarzoneCobwebClear && region.regionResolved()) clearTrackedCobwebs();
     }
 
     public void start() {
@@ -155,17 +166,54 @@ public final class WarzoneRuntime {
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 
     public int clearTrackedCobwebs() {
+        ensurePendingCobwebMarker();
+        pendingWarzoneCobwebClear = true;
+
         if (!region.regionResolved()) {
-            pendingWarzoneCobwebClear = true;
-            return 0;
+            return temporaryBlocks.clearMatching(TemporaryBlock::warzoneOwned);
         }
-        pendingWarzoneCobwebClear = false;
-        return temporaryBlocks.clearMatching(entry -> {
-            org.bukkit.World world;
-            try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(entry.worldUuid())); }
-            catch (IllegalArgumentException ex) { return false; }
-            return world != null && region.containsResolved(new Location(world, entry.x(), entry.y(), entry.z()));
-        });
+
+        Predicate<TemporaryBlock> selected = this::isWarzoneCobweb;
+        int affected = temporaryBlocks.clearMatching(selected);
+        if (temporaryBlocks.countMatching(selected) == 0) {
+            temporaryBlocks.persistCurrentState().whenComplete((ignored, failure) -> {
+                if (failure != null) {
+                    plugin.getLogger().severe("Could not durably finish the warzone cobweb clear; the pending marker was retained: "
+                            + failure.getMessage());
+                    return;
+                }
+                clearPendingCobwebMarker();
+            });
+        }
+        return affected;
+    }
+
+    private boolean isWarzoneCobweb(TemporaryBlock entry) {
+        if (entry.warzoneOwned()) return true;
+        org.bukkit.World world;
+        try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(entry.worldUuid())); }
+        catch (IllegalArgumentException ex) { return false; }
+        return world != null && region.containsResolved(new Location(world, entry.x(), entry.y(), entry.z()));
+    }
+
+    private void ensurePendingCobwebMarker() {
+        try {
+            Files.createDirectories(pendingCobwebClearMarker.getParent());
+            Files.writeString(pendingCobwebClearMarker, "pending\n", StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        } catch (IOException ex) {
+            plugin.getLogger().severe("Could not persist the pending warzone cobweb clear marker: " + ex.getMessage());
+        }
+    }
+
+    private void clearPendingCobwebMarker() {
+        try {
+            Files.deleteIfExists(pendingCobwebClearMarker);
+            pendingWarzoneCobwebClear = false;
+        } catch (IOException ex) {
+            plugin.getLogger().warning("Warzone cobwebs were cleared, but the pending marker could not be removed; "
+                    + "the clear will be checked again after restart: " + ex.getMessage());
+        }
     }
 
     public record CobwebDecision(boolean allowed, boolean rotationUnavailable, RestrictionDecision restriction) {
