@@ -117,7 +117,14 @@ public final class TemporaryBlockService implements Listener {
         while (iterator.hasNext()) {
             TemporaryBlock entry = iterator.next().getValue();
             World world = world(entry);
-            if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
+            if (world == null) {
+                if (!validWorldUuid(entry)) {
+                    iterator.remove();
+                    removed++;
+                }
+                continue;
+            }
+            if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
             if (block.getBlockData().getAsString(true).equals(entry.expectedBlockData())) continue;
             iterator.remove();
@@ -152,7 +159,14 @@ public final class TemporaryBlockService implements Listener {
             TemporaryBlock entry = iterator.next().getValue();
             if (!entry.pendingClear() && entry.expiresAt() > now) continue;
             World world = world(entry);
-            if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
+            if (world == null) {
+                if (!validWorldUuid(entry)) {
+                    iterator.remove();
+                    changed = true;
+                }
+                continue;
+            }
+            if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             RestoreOutcome outcome = restoreLoaded(world, entry);
             if (outcome == RestoreOutcome.RETRY) continue;
             iterator.remove();
