@@ -57,17 +57,38 @@ class LungeRestrictionTest {
         assertFalse(attack.startsCooldownAfterSuccess());
     }
 
-    @Test void targetContextExpiresAndAnewAttackReplacesIt() {
+    @Test void gateAcceptsImmediateThreeDimensionalForwardVelocity() {
         AtomicLong nanos = new AtomicLong();
-        LungeTargetTracker tracker = new LungeTargetTracker(nanos::get, Duration.ofMillis(450));
-        tracker.record(player, true);
-        assertTrue(tracker.targetInside(player));
-        tracker.record(player, false);
-        assertFalse(tracker.targetInside(player));
-        tracker.record(player, true);
-        nanos.addAndGet(Duration.ofMillis(451).toNanos());
-        assertFalse(tracker.targetInside(player));
-        assertEquals(0, tracker.size());
+        LungeVelocityGate gate = new LungeVelocityGate(nanos::get, Duration.ofMillis(250));
+        LungeVelocityGate.Vec3 look = new LungeVelocityGate.Vec3(0.6, 0.8, 0);
+        gate.record(player, "IRON_SPEAR", look, new LungeVelocityGate.Vec3(0, -0.2, 0),
+                false, true, RestrictionDecision.unrestricted());
+
+        var attempt = gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0.6, 0.6, 0));
+        assertTrue(attempt.isPresent());
+        assertTrue(attempt.orElseThrow().targetInside());
+        assertEquals("IRON_SPEAR", attempt.orElseThrow().materialName());
+    }
+
+    @Test void gateRejectsPerpendicularOrBackwardVelocity() {
+        LungeVelocityGate gate = new LungeVelocityGate(() -> 0L, Duration.ofMillis(250));
+        gate.record(player, "IRON_SPEAR", new LungeVelocityGate.Vec3(1, 0, 0),
+                new LungeVelocityGate.Vec3(0, 0, 0), true, false, RestrictionDecision.unrestricted());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0, 0, 1)).isEmpty());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(-1, 0, 0)).isEmpty());
+        assertEquals(1, gate.size());
+    }
+
+    @Test void gateContextExpiresAndAnewAttackReplacesIt() {
+        AtomicLong nanos = new AtomicLong();
+        LungeVelocityGate gate = new LungeVelocityGate(nanos::get, Duration.ofMillis(250));
+        gate.record(player, "IRON_SPEAR", new LungeVelocityGate.Vec3(1, 0, 0),
+                new LungeVelocityGate.Vec3(0, 0, 0), false, true, RestrictionDecision.unrestricted());
+        gate.record(player, "GOLDEN_SPEAR", new LungeVelocityGate.Vec3(0, 0, 1),
+                new LungeVelocityGate.Vec3(0, 0, 0), true, false, RestrictionDecision.unrestricted());
+        nanos.addAndGet(Duration.ofMillis(251).toNanos());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0, 0, 1)).isEmpty());
+        assertEquals(0, gate.size());
     }
 
     private RestrictionService service(RestrictionMode mode, Duration cooldown) {
