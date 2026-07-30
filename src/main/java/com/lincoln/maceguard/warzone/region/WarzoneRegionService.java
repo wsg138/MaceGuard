@@ -58,20 +58,20 @@ public final class WarzoneRegionService {
 
     /**
      * Fails closed in the configured loaded world while the region cannot be resolved.
-     * This prevents a transient WorldGuard lookup failure from silently disabling restrictions.
+     * This is for restrictive decisions only; positive region-scoped behavior must use containsResolved.
      */
     public boolean contains(Location location) {
-        if (!configuredWorld(location)) return false;
+        if (!inConfiguredWorld(location)) return false;
         return cachedRegion == null || cachedRegion.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
     }
 
-    /** Exact membership only; callers that mutate stored blocks must not broaden to the whole world. */
+    /** Exact membership only; positive or destructive behavior must never broaden to the whole world. */
     public boolean containsResolved(Location location) {
-        return configuredWorld(location) && cachedRegion != null
+        return inConfiguredWorld(location) && cachedRegion != null
                 && cachedRegion.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
     }
 
-    private boolean configuredWorld(Location location) {
+    public boolean inConfiguredWorld(Location location) {
         World locationWorld = location.getWorld();
         if (locationWorld == null) return false;
         if (cachedWorld != null) return locationWorld.getUID().equals(cachedWorld.getUID());
