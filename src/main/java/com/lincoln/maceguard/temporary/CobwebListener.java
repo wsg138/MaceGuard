@@ -52,6 +52,6 @@ public final class CobwebListener implements Listener {
         long expiresAt = Math.addExact(System.currentTimeMillis(),
                 warzone.cobwebLifetime(java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
                         event.getBlockPlaced().getLocation()).toMillis());
-        temporary.track(event.getBlockPlaced(), original, expiresAt);
+        temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneApplies);
     }
 }
