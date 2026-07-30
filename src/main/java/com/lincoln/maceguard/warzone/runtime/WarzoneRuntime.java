@@ -7,7 +7,7 @@ import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import com.lincoln.maceguard.warzone.restriction.CooldownService;
 import com.lincoln.maceguard.warzone.restriction.ItemRestrictionListener;
-import com.lincoln.maceguard.warzone.restriction.LungeTargetTracker;
+import com.lincoln.maceguard.warzone.restriction.LungeVelocityGate;
 import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
 import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionService;
@@ -53,7 +53,7 @@ public final class WarzoneRuntime {
         this.messages.bind(rotations);
         this.restrictions = new RestrictionService(rotations::active, cooldowns);
         this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns, region,
-                messages, new LungeTargetTracker(System::nanoTime, Duration.ofMillis(450)));
+                messages, new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         clearCobwebsAfterOfflineTransition();
     }
 
