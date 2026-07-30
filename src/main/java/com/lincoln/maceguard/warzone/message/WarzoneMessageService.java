@@ -75,7 +75,8 @@ public final class WarzoneMessageService {
     public void broadcast(String template, WarzoneConfig.Audience audience) {
         Component component = render(template, null, Duration.ZERO);
         Bukkit.getOnlinePlayers().stream()
-                .filter(player -> audience == WarzoneConfig.Audience.GLOBAL || region.contains(player.getLocation()))
+                .filter(player -> audience == WarzoneConfig.Audience.GLOBAL
+                        || region.containsResolved(player.getLocation()))
                 .forEach(player -> player.sendMessage(component));
         Bukkit.getConsoleSender().sendMessage(component);
     }
