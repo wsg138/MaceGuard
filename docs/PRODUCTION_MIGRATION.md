@@ -17,13 +17,15 @@ Assume every old coordinate, reset mode, timer, sparse baseline, and snapshot is
 - Do not recreate broad legacy fallback regions.
 - Add only the three documented MaceGuard flags, manually, after review.
 
-## First 3.0.0 start
+## First 4.0.0 start
 
 - Confirm the migration backup/report was created. It is advisory, not proof of migration.
 - Install a reviewed version-7 config with no coordinates.
 - Leave all reset profile intervals at `0` initially.
 - Confirm `/maceguard here` in the market, plot, warzone, war pit, duel arena, and outside all regions.
 - Confirm ordinary place/break behavior is identical with MaceGuard enabled and disabled.
+- Confirm `warzone.yml`, `warzone-messages.yml`, and `state/warzone-state.yml` were created or imported as expected.
+- Keep `plugins/WarzoneRotator` unchanged for rollback, but remove its JAR while testing the integrated runtime.
 
 ## Reset commissioning
 
@@ -41,7 +43,10 @@ Assume every old coordinate, reset mode, timer, sparse baseline, and snapshot is
 
 - Verify WorldGuard denial is never bypassed.
 - Verify missing custom flags produce no MaceGuard behavior.
-- Verify WarzoneRotator absence disables only TTL tracking, not unrelated building.
+- Verify no WarzoneRotator JAR is installed and the integrated `/warzone` aliases, rotation deadline, warnings, and placeholders remain available.
+- Verify `maceguard-cobwebs`, `warzonerotator-cobwebs`, normal WorldGuard build rules, active rotation policy, and exact item restrictions all participate in warzone cobweb placement.
+- Verify pearl cooldown rejection does not consume a pearl and reconnecting does not clear an active cooldown.
+- Verify disabled/cooldown Lunge suppresses only forward Lunge movement while normal spear attacks, throws, slot changes, and hand swaps remain functional.
 - Verify sword hits and item switching never trigger mace armor caps.
 - Verify quit, death, reload, and disable clear combat state.
 

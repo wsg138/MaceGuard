@@ -14,20 +14,27 @@ public final class MaceGuardFlags {
     public static final String COBWEBS_NAME = "maceguard-cobwebs";
     public static final String EXPLOSIVES_NAME = "maceguard-explosives";
     public static final String RESET_PROFILE_NAME = "maceguard-reset-profile";
+    public static final String WARZONE_COBWEBS_NAME = "warzonerotator-cobwebs";
     private StateFlag durability;
     private StateFlag cobwebs;
     private StateFlag explosives;
+    private StateFlag warzoneCobwebs;
     private StringFlag resetProfile;
 
     public void register(Logger logger) {
         durability = registerState(DURABILITY_NAME, logger);
         cobwebs = registerState(COBWEBS_NAME, logger);
         explosives = registerState(EXPLOSIVES_NAME, logger);
+        warzoneCobwebs = registerState(WARZONE_COBWEBS_NAME, true, logger);
         resetProfile = registerString(RESET_PROFILE_NAME, logger);
     }
 
     private StateFlag registerState(String name, Logger logger) {
-        StateFlag proposed = new StateFlag(name, false);
+        return registerState(name, false, logger);
+    }
+
+    private StateFlag registerState(String name, boolean defaultValue, Logger logger) {
+        StateFlag proposed = new StateFlag(name, defaultValue);
         try { WorldGuard.getInstance().getFlagRegistry().register(proposed); return proposed; }
         catch (FlagConflictException ex) {
             Flag<?> existing = WorldGuard.getInstance().getFlagRegistry().get(name);
@@ -51,5 +58,6 @@ public final class MaceGuardFlags {
     public StateFlag durability() { return durability; }
     public StateFlag cobwebs() { return cobwebs; }
     public StateFlag explosives() { return explosives; }
+    public StateFlag warzoneCobwebs() { return warzoneCobwebs; }
     public StringFlag resetProfile() { return resetProfile; }
 }

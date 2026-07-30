@@ -1,0 +1,16 @@
+item-disabled: |-
+  <red><item> is disabled during <white><meta><red>.
+  <gray>The meta changes in <white><time_left><gray>.
+item-cooldown: |-
+  <red><item> is on cooldown for <white><cooldown_remaining><red>.
+  <gray>The meta changes in <white><time_left><gray>.
+ability-disabled: |-
+  <red><ability> is disabled during <white><meta><red>.
+  <gray>The ordinary item remains usable.
+ability-cooldown: |-
+  <red><ability> is on cooldown for <white><cooldown_remaining><red>.
+  <gray>The ordinary item remains usable.
+cobweb-unavailable: |-
+  <red>Cobwebs are unavailable during <white><meta><red>.
+  <gray>The meta changes in <white><time_left><gray>.
+rotation-warning: "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>."

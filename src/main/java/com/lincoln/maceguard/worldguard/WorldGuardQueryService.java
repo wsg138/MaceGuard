@@ -19,6 +19,11 @@ public final class WorldGuardQueryService {
 
     public boolean durabilityAllowed(Location location, Player player) { return state(location, player, flags.durability()); }
     public boolean cobwebsAllowed(Location location, Player player) { return state(location, player, flags.cobwebs()); }
+    public boolean warzoneCobwebsAllowed(Location location) {
+        if (flags.warzoneCobwebs() == null || location.getWorld() == null) return false;
+        StateFlag.State value = query().queryState(BukkitAdapter.adapt(location), null, flags.warzoneCobwebs());
+        return value != StateFlag.State.DENY;
+    }
     public boolean explosivesDenied(Location location, Player player) {
         if (flags.explosives() == null || location.getWorld() == null) return false;
         StateFlag.State value = query().queryState(BukkitAdapter.adapt(location), player == null ? null : WorldGuardPlugin.inst().wrapPlayer(player), flags.explosives());

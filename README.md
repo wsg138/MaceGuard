@@ -3,31 +3,33 @@
 [![Build](https://github.com/wsg138/MaceGuard/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/wsg138/MaceGuard/actions/workflows/build.yml)
 [Download the latest automated JAR](https://github.com/wsg138/MaceGuard/releases/download/latest/MaceGuard.jar)
 
-MaceGuard adds a small set of opt-in behaviors to WorldGuard regions. WorldGuard is the sole authority for region geometry, membership, ownership, priorities, parents, and ordinary protection. MaceGuard contains no region coordinates and never acts as a general protection plugin.
+MaceGuard adds opt-in combat behavior, integrated warzone rotations, persistent temporary cobwebs, and safe reset tooling to WorldGuard regions. WorldGuard remains the sole authority for region geometry, membership, ownership, priorities, parents, and ordinary protection.
 
 ## Requirements and installation
 
 - Java 21
 - Paper 1.21.11-compatible server
 - WorldGuard 7.0.17 (and its required WorldEdit version)
-- Optional: WarzoneRotator with `isCobwebPlacementAllowed(Player, Location)`
+- Optional: PlaceholderAPI 2.11.6 or newer
 
-Install WorldEdit and WorldGuard first, then MaceGuard. `plugin.yml` declares WorldGuard as a hard dependency. MaceGuard registers its flags during `onLoad`, before WorldGuard locks the registry. A same-name flag with the expected type is reused; a wrong-type conflict disables that feature and logs a severe error.
+Install WorldEdit and WorldGuard first, then MaceGuard. WarzoneRotator is integrated into MaceGuard 4.0.0 and its separate JAR is not required. Keep the old WarzoneRotator directory during initial deployment so its configuration/state remains available for migration and rollback. MaceGuard registers its flags during `onLoad`, before WorldGuard locks the registry.
 
 ## WorldGuard flags
 
 | Flag | Type | Effect |
 | --- | --- | --- |
 | `maceguard-mace-durability` | state | `ALLOW` enables the configured armor durability cap at the victim. Missing/`DENY` does nothing. |
-| `maceguard-cobwebs` | state | `ALLOW` enables tracked cobweb TTL behavior only after WorldGuard allows the placement and WarzoneRotator allows it. |
+| `maceguard-cobwebs` | state | `ALLOW` enables tracked cobweb TTL behavior after all build and integrated rotation checks pass. |
 | `maceguard-explosives` | state | `DENY` blocks explosive placement/use and cancels explosions. Missing/`ALLOW` does nothing. |
 | `maceguard-reset-profile` | string | Directly associates an exact WorldGuard cuboid region with a named config profile. |
+| `warzonerotator-cobwebs` | state | Preserved compatibility flag. `DENY` blocks integrated warzone cobweb placement; missing/`ALLOW` permits the rotation check to continue. |
 
 Examples:
 
 ```text
 /rg flag warzone maceguard-mace-durability allow
 /rg flag warzone maceguard-cobwebs allow
+/rg flag warzone warzonerotator-cobwebs allow
 /rg flag war-pit maceguard-reset-profile war-pit
 /rg flag war-pit maceguard-explosives deny
 ```
@@ -71,6 +73,14 @@ reset-profiles:
 
 Missing/unknown modes, missing profiles, invalid limits, unresolved exclusions, and old config versions disable destructive behavior. There is no `AIR` mode.
 
+Warzone configuration is separate:
+
+- `warzone.yml` contains the target region, schedule, rotations, restriction policies, item/ability cooldowns, and cobweb rotation policy.
+- `warzone-messages.yml` contains MiniMessage templates.
+- `state/warzone-state.yml` contains the active/next rotation, timestamps, and emitted warning thresholds.
+
+Both YAML files reject duplicate keys and report path-specific validation errors. `/warzone reload` validates a complete replacement before changing the live runtime. `/maceguard reload` validates both the main and warzone configuration first. See [Integrated warzone configuration](docs/WARZONE.md).
+
 ## Full snapshot reset lifecycle
 
 1. Define and review the region in WorldGuard. Only exact cuboid regions are supported.
@@ -110,11 +120,21 @@ Rollback procedure:
 4. Restore the previous MaceGuard JAR/config only if its coordinate-based reset features are disabled.
 5. Start, validate WorldGuard behavior, capture a fresh baseline, preflight, and arm explicitly.
 
+## Integrated warzone rotations
+
+The integrated module preserves `/warzone`, `/warzonerotator`, `/wzr`, the `warzonerotator.*` permissions, and the `%warzone_*%` PlaceholderAPI identifiers. A rotation can disable a complete material, apply a server-authoritative per-player cooldown, disable all `*_SPEAR` materials through `SPEAR`, or restrict only the `SPEAR_LUNGE` effect.
+
+`SPEAR_LUNGE` never restricts holding, hotbar selection, hand swapping, normal spear damage, or throwing. A disabled/active-cooldown Lunge suppresses only a short, direction-correlated Lunge velocity after a spear swing. Cooldowns start at the successful projectile, damage, placement, or Lunge event monitor and are not created for actions cancelled by another plugin. They remain keyed by UUID after logout, expire in memory, clear on rotation changes/reload, and are never written on item use.
+
+Restrictions apply when the actor is inside the configured warzone or a restricted direct attack targets an entity inside it. `warzonerotator.bypass` bypasses both disabled and cooldown restrictions.
+
 ## Cobweb behavior
 
-MaceGuard only tracks a successful, WorldGuard-permitted cobweb placement when the effective custom flag is `ALLOW`, WarzoneRotator explicitly permits it, the replaced material is configured, and persistence is healthy. Expiry restores the recorded original block only if the block still exactly matches the tracked cobweb and remains in an enabled location. Missing integrations fail closed for custom TTL behavior without cancelling normal construction. Liquids are left to WorldGuard; MaceGuard does not drain them.
+MaceGuard is the only temporary-cobweb state owner. Inside the configured warzone, placement requires normal WorldGuard build permission, `maceguard-cobwebs ALLOW`, `warzonerotator-cobwebs` not `DENY`, the active rotation to allow cobwebs, and no applicable item restriction. Outside that target region, the existing MaceGuard temporary-block policy remains independent of the rotation.
 
-For a cobweb/warzone area: define the WorldGuard region, configure its membership and `block-break`/`block-place` policy, set `maceguard-cobwebs allow`, and then capture/validate/arm it only if that same region also needs reset behavior. Cobweb TTL alone does not require a snapshot. A resetting war pit additionally needs `maceguard-reset-profile war-pit`, followed by `capture`, `validate`, `plan`, and `arm`.
+Successful tracked placements preserve exact original block data and use MaceGuard's replacement-material allowlist, tracked-block limit, atomic persistent state, expiry, reset reconciliation, and shutdown behavior. A meta transition can clear only tracked cobwebs inside the target warzone. A completed reset discards every temporary-block record inside its restored cuboid so the reset remains authoritative.
+
+For a cobweb/warzone area: define the WorldGuard region, configure its membership and `block-break`/`block-place` policy, set `maceguard-cobwebs allow` and `warzonerotator-cobwebs allow`, and then capture/validate/arm it only if that same region also needs reset behavior. Cobweb TTL alone does not require a snapshot. A resetting war pit additionally needs `maceguard-reset-profile war-pit`, followed by `capture`, `validate`, `plan`, and `arm`.
 
 ## Explosive behavior
 
@@ -142,9 +162,20 @@ WarzoneDuels-specific cuboids, bundled duel footprints, and explosion filtering 
 
 Permissions are `maceguard.admin`, `maceguard.reset`, and `maceguard.reload` (operator by default).
 
+Warzone commands:
+
+- `/warzone info|items|next`
+- `/warzone skip|force|set <rotation-id>|extend <duration>`
+- `/warzone reload|validate|debug`
+- aliases: `/warzonerotator`, `/wzr`
+
+The existing `warzonerotator.command.*`, `warzonerotator.admin`, and `warzonerotator.bypass` nodes are unchanged. `info` and `items` separate disabled items, item cooldowns, effect-only abilities, and cobweb status. `debug` includes region resolution, active/next IDs, deadline, cooldown count, MaceGuard temporary-cobweb count, scheduler, PlaceholderAPI, and sender membership.
+
 ## Legacy migration
 
 MaceGuard does not rewrite an existing legacy config. On detection it creates `migration/legacy-config.yml.bak` and `migration/legacy-migration-report.txt` containing review-only flag suggestions. It never creates/changes WorldGuard regions, imports coordinates, applies flags, enables timers, selects modes, arms regions, or trusts old snapshots/sparse baselines.
+
+For the integrated module, when `plugins/MaceGuard/warzone.yml` is absent, MaceGuard checks `plugins/WarzoneRotator/config.yml`. A valid version-1/2 file is converted to version 3, with every legacy `disabled-items` entry becoming a `DISABLED` restriction and a matching global policy. The old messages and rotation state are imported only when their new targets do not exist. Legacy cobweb state is deliberately not imported because MaceGuard's persistent temporary-block service is the sole owner. Nothing in `plugins/WarzoneRotator` is deleted or rewritten, and all migration writes are idempotent.
 
 Use the [production migration checklist](docs/PRODUCTION_MIGRATION.md) before deploying.
 

@@ -1,0 +1,78 @@
+# Integrated WarzoneRotator configuration. Durations accept 30s, 15m, 2h, or 1h 30m.
+config-version: 3
+enabled: true
+
+region:
+  world: world
+  id: warzone
+
+rotation:
+  warning-times: [10m, 5m, 1m, 30s, 10s, 5s, 4s, 3s, 2s, 1s]
+
+messages:
+  blocked-message-cooldown: 2s
+  warning-audience: global
+  transition-audience: global
+
+cobwebs:
+  clear-after: 60s
+  clear-on-meta-change: true
+  clear-on-disable: true
+
+# A rotation may only use modes explicitly allowed here.
+restriction-targets:
+  MACE:
+    can-disable: true
+    can-cooldown: false
+  ENDER_PEARL:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  WIND_CHARGE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 30s
+  SPEAR:
+    can-disable: true
+    can-cooldown: false
+  SPEAR_LUNGE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+
+rotations:
+  no-mace:
+    display-name: "<red>No Maces"
+    description: "<gray>Maces cannot be used in the warzone."
+    duration: 2h
+    cobwebs-allowed: false
+    restrictions:
+      MACE:
+        mode: DISABLED
+    start-message: "<red>The warzone meta has changed to <white>No Maces<red>."
+
+  limited-mobility:
+    display-name: "<gold>Limited Mobility"
+    description: "<gray>Pearls and Lunge are available with longer cooldowns."
+    duration: 90m
+    cobwebs-allowed: false
+    restrictions:
+      ENDER_PEARL:
+        mode: COOLDOWN
+        cooldown: 15s
+      SPEAR_LUNGE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<gold>The warzone meta has changed to <white>Limited Mobility<gold>."
+
+  grounded:
+    display-name: "<yellow>Grounded"
+    description: "<gray>Spears and wind charges are unavailable."
+    duration: 90m
+    cobwebs-allowed: false
+    restrictions:
+      SPEAR:
+        mode: DISABLED
+      WIND_CHARGE:
+        mode: DISABLED
+    start-message: "<yellow>The warzone meta has changed to <white>Grounded<yellow>."

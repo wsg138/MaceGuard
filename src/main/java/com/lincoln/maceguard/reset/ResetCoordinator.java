@@ -53,6 +53,7 @@ public final class ResetCoordinator {
     private volatile boolean stateReady;
     private volatile String startupProblem;
     private volatile String resetLockReason;
+    private java.util.function.BiConsumer<World, String> successfulResetHook = (world, region) -> { };
 
     public ResetCoordinator(JavaPlugin plugin, MaceGuardConfig config, MaceGuardFlags flags, WorldGuardRegionService regions,
                             SnapshotRepository snapshots, ArmStateRepository arms, ResetJournalRepository journals, Executor io) {
@@ -71,6 +72,9 @@ public final class ResetCoordinator {
 
     public boolean hasActiveOperation() { return destructiveOperation.get(); }
     public String startupProblem() { return startupProblem; }
+    public void onSuccessfulReset(java.util.function.BiConsumer<World, String> hook) {
+        successfulResetHook = hook == null ? (world, region) -> { } : hook;
+    }
 
     public void recoveryStatus(Consumer<String> feedback) {
         io.execute(() -> {
@@ -299,7 +303,9 @@ public final class ResetCoordinator {
     }
 
     private void finishSuccessfulReset(World world, String regionId, ResetProfile profile, String message, Consumer<String> feedback) {
-        if (profile.mode() != ResetProfile.Mode.SPARSE_ORIGINALS) { endOperation(); touchArm(world, regionId); feedback.accept(message); return; }
+        if (profile.mode() != ResetProfile.Mode.SPARSE_ORIGINALS) {
+            notifySuccessfulReset(world, regionId); endOperation(); touchArm(world, regionId); feedback.accept(message); return;
+        }
         String key = sparseKey(world.getUID().toString(), regionId);
         SparseBaseline current = sparseCache.get(key);
         if (current == null) { endOperation(); disarm(world, regionId, ignored -> { }); feedback.accept(message + " Sparse baseline cache was unavailable; region was disarmed."); return; }
@@ -311,7 +317,7 @@ public final class ResetCoordinator {
                         sparseValidator.checksum(empty), empty);
                 sparseBaselines.save(cleared);
                 sparseCache.put(key, cleared);
-                main(() -> { endOperation(); touchArm(world, regionId); feedback.accept(message + " Sparse originals were cleared only after durable completion."); });
+                main(() -> { notifySuccessfulReset(world, regionId); endOperation(); touchArm(world, regionId); feedback.accept(message + " Sparse originals were cleared only after durable completion."); });
             } catch (IOException ex) { main(() -> { endOperation(); disarm(world, regionId, ignored -> { }); feedback.accept(message + " Baseline cleanup failed and the region was disarmed: " + ex.getMessage()); }); }
         });
     }
@@ -500,6 +506,12 @@ public final class ResetCoordinator {
     }
 
     private void main(Runnable action) { plugin.getServer().getScheduler().runTask(plugin, action); }
+    private void notifySuccessfulReset(World world, String regionId) {
+        try { successfulResetHook.accept(world, regionId); }
+        catch (RuntimeException ex) {
+            plugin.getLogger().severe("Reset completed, but post-reset temporary-block reconciliation failed: " + ex.getMessage());
+        }
+    }
     private boolean beginOperation(World world, String regionId) {
         if (!config.enabled() || resetLocked.get()) return false;
         if (!destructiveOperation.compareAndSet(false, true)) return false;
