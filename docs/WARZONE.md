@@ -35,6 +35,8 @@ Normal targets must be exact Bukkit material enum names such as `MACE`, `ENDER_P
 - `SPEAR_LUNGE` matches only the Lunge effect and never the spear item.
 - `DISABLED` needs `can-disable: true`.
 - `COOLDOWN` needs `can-cooldown: true`, a positive `cooldown`, and a positive `maximum-cooldown` policy.
+- `COOLDOWN` is accepted only for targets with a reliable success event: supported projectiles, direct-attack weapons, `SPEAR`, and `SPEAR_LUNGE`.
+- Arbitrary unsupported materials remain valid `DISABLED` targets but are rejected in `COOLDOWN` mode rather than starting cooldowns from ambiguous right-clicks.
 - Omitting a target from a rotation means unrestricted.
 
 Invalid requests are rejected. MaceGuard does not clamp a cooldown or silently change its mode.
@@ -91,9 +93,19 @@ Rotation IDs define the configured order. State restoration advances through eve
 
 The first allowed pearl/projectile use is decided once in `PlayerLaunchProjectileEvent`. A rejected launch is cancelled with item consumption disabled. An allowed cooldown action is committed only after an uncancelled `ProjectileLaunchEvent` monitor confirms that no later plugin cancelled the actual launch; that second event does not repeat the restriction decision.
 
-Other complete-item decisions begin a cooldown only after their corresponding uncancelled damage, shot, placement, or right-click event. The UUID/target cooldown service is authoritative, periodically removes expired records, and retains unexpired records through logout/reconnect. Because restrictions are region-scoped, MaceGuard does not apply Bukkit's global material cooldown overlay where it would incorrectly block use outside the warzone.
+Other supported complete-item cooldowns begin only after their corresponding uncancelled projectile or applied direct-damage event. A non-cancelled `PlayerInteractEvent` is never treated as proof that an item was used. The UUID/target cooldown service is authoritative, periodically removes expired records, and retains unexpired records through logout/reconnect.
 
-Lunge uses a 450 ms correlation window after an actual Lunge-enchanted spear swing/attack. Only a bounded horizontal velocity delta aligned with the horizontal view direction is treated as Lunge; backward knockback, vertical/perpendicular velocity, explosion-sized impulses, expired attempts, and swings with another item are ignored. `SPEAR_LUNGE: DISABLED` cancels only that velocity. `SPEAR_LUNGE: COOLDOWN` allows the first correlated movement, starts the cooldown at the uncancelled velocity monitor, and cancels only later correlated Lunge movement. Ordinary spear damage, throwing, holding, slot changes, and hand swaps are never cancelled by the effect-only target.
+Material targets such as `ENDER_PEARL` and `WIND_CHARGE` receive a Bukkit cooldown overlay while the player is inside the configured warzone. The overlay is removed when the player leaves, restored when they enter or reconnect inside, and never replaces the authoritative UUID cooldown. MaceGuard does not shorten a stronger cooldown installed by vanilla or another plugin and restores a pre-existing shorter cooldown when removing its own overlay. `SPEAR_LUNGE` is effect-only and never receives a material overlay.
+
+Paper/Leaf 1.21.11 does not expose a dedicated cancellable Lunge event. For this target version, MaceGuard uses a 250 ms compatibility gate armed only by a real `PrePlayerAttackEntityEvent` with a Lunge-enchanted spear. Generic arm swings do not arm it. Only one bounded horizontal velocity delta aligned with the horizontal view direction is treated as the vanilla Lunge propulsion; backward/perpendicular movement, unrelated velocity, oversized impulses, and expired attempts are ignored. Vertical fall velocity is ignored rather than used to reject a valid horizontal Lunge.
+
+`SPEAR_LUNGE: DISABLED` cancels only the correlated Lunge velocity. `SPEAR_LUNGE: COOLDOWN` allows the first correlated movement, starts the cooldown only if that velocity event remains uncancelled, and cancels only later correlated Lunge movement. Ordinary spear damage, throwing, holding, slot changes, and hand swaps are never cancelled by the effect-only target. Direct boundary attacks preserve both attacker and target region membership in the short-lived correlation record.
+
+## Region resolution and cobweb cleanup
+
+The configured WorldGuard world and region are re-resolved by ID every five seconds. This recovers from a late-loaded world or region manager and from a region that is deleted, recreated, or replaced. While the configured world is loaded but the region cannot be resolved, integrated restrictions fail closed in that world. Destructive cobweb selection always requires an exactly resolved region and is never broadened to the entire world. `/warzone debug` reports the current resolution status.
+
+A forced cobweb clear restores matching entries immediately when their chunks are loaded. Entries in unloaded chunks are persisted with `pendingClear: true` and restored when those chunks load, without force-loading them. If the expected temporary block was already changed, MaceGuard removes the stale record without overwriting the newer block. The pending state survives restart, and legacy records without that field load as not pending.
 
 ## Commands, permissions, and placeholders
 

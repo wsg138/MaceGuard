@@ -151,7 +151,7 @@ public final class WarzoneModule {
     }
 
     public boolean appliesAt(Location location) {
-        return runtime != null && runtime.config().enabled() && runtime.region().contains(location);
+        return runtime != null && runtime.config().enabled() && runtime.region().containsResolved(location);
     }
 
     public void successfulCobweb(Player player, RestrictionDecision decision) {

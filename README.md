@@ -122,17 +122,19 @@ Rollback procedure:
 
 ## Integrated warzone rotations
 
-The integrated module preserves `/warzone`, `/warzonerotator`, `/wzr`, the `warzonerotator.*` permissions, and the `%warzone_*%` PlaceholderAPI identifiers. A rotation can disable a complete material, apply a server-authoritative per-player cooldown, disable all `*_SPEAR` materials through `SPEAR`, or restrict only the `SPEAR_LUNGE` effect.
+The integrated module preserves `/warzone`, `/warzonerotator`, `/wzr`, the `warzonerotator.*` permissions, and the `%warzone_*%` PlaceholderAPI identifiers. A rotation can disable a complete material, apply a server-authoritative per-player cooldown to a supported action target, disable all `*_SPEAR` materials through `SPEAR`, or restrict only the `SPEAR_LUNGE` effect. Unsupported arbitrary materials remain available in `DISABLED` mode but are rejected for `COOLDOWN` rather than using ambiguous right-click events.
 
-`SPEAR_LUNGE` never restricts holding, hotbar selection, hand swapping, normal spear damage, or throwing. A disabled/active-cooldown Lunge suppresses only a short, direction-correlated Lunge velocity after a spear swing. Cooldowns start at the successful projectile, damage, placement, or Lunge event monitor and are not created for actions cancelled by another plugin. They remain keyed by UUID after logout, expire in memory, clear on rotation changes/reload, and are never written on item use.
+`SPEAR_LUNGE` never restricts holding, hotbar selection, hand swapping, normal spear damage, or throwing. Paper/Leaf 1.21.11 has no dedicated Lunge event, so MaceGuard arms a 250 ms compatibility gate only from a real `PrePlayerAttackEntityEvent` with a Lunge-enchanted spear and correlates one bounded horizontal velocity in the view direction. Generic arm swings, backward/perpendicular movement, unrelated velocity, and oversized impulses are ignored. Cooldowns start only after an uncancelled projectile launch, applied direct damage, or accepted correlated Lunge velocity. They remain keyed by UUID after logout, expire in memory, and clear on rotation changes/reload.
 
-Restrictions apply when the actor is inside the configured warzone or a restricted direct attack targets an entity inside it. `warzonerotator.bypass` bypasses both disabled and cooldown restrictions.
+Material cooldown overlays are displayed only while the player is inside the configured warzone. They are removed on exit, restored on entry or reconnect, preserve stronger vanilla/plugin cooldowns, and never replace the authoritative UUID cooldown. `SPEAR_LUNGE` remains effect-only and receives no material overlay.
+
+Restrictions apply when the actor is inside the configured warzone or a restricted direct attack targets an entity inside it. `warzonerotator.bypass` bypasses both disabled and cooldown restrictions. The configured WorldGuard region is re-resolved every five seconds and restrictions fail closed in the configured world while it is unresolved.
 
 ## Cobweb behavior
 
 MaceGuard is the only temporary-cobweb state owner. Inside the configured warzone, placement requires normal WorldGuard build permission, `maceguard-cobwebs ALLOW`, `warzonerotator-cobwebs` not `DENY`, the active rotation to allow cobwebs, and no applicable item restriction. Outside that target region, the existing MaceGuard temporary-block policy remains independent of the rotation.
 
-Successful tracked placements preserve exact original block data and use MaceGuard's replacement-material allowlist, tracked-block limit, atomic persistent state, expiry, reset reconciliation, and shutdown behavior. A meta transition can clear only tracked cobwebs inside the target warzone. A completed reset discards every temporary-block record inside its restored cuboid so the reset remains authoritative.
+Successful tracked placements preserve exact original block data and use MaceGuard's replacement-material allowlist, tracked-block limit, atomic persistent state, expiry, reset reconciliation, and shutdown behavior. A meta transition can clear only tracked cobwebs inside the exactly resolved target warzone. Loaded entries restore immediately; unloaded entries are persisted for restoration on `ChunkLoadEvent` without force-loading chunks. Changed blocks are treated as stale and are not overwritten. A completed reset discards every temporary-block record inside its restored cuboid so the reset remains authoritative.
 
 For a cobweb/warzone area: define the WorldGuard region, configure its membership and `block-break`/`block-place` policy, set `maceguard-cobwebs allow` and `warzonerotator-cobwebs allow`, and then capture/validate/arm it only if that same region also needs reset behavior. Cobweb TTL alone does not require a snapshot. A resetting war pit additionally needs `maceguard-reset-profile war-pit`, followed by `capture`, `validate`, `plan`, and `arm`.
 
@@ -169,7 +171,7 @@ Warzone commands:
 - `/warzone reload|validate|debug`
 - aliases: `/warzonerotator`, `/wzr`
 
-The existing `warzonerotator.command.*`, `warzonerotator.admin`, and `warzonerotator.bypass` nodes are unchanged. `info` and `items` separate disabled items, item cooldowns, effect-only abilities, and cobweb status. `debug` includes region resolution, active/next IDs, deadline, cooldown count, MaceGuard temporary-cobweb count, scheduler, PlaceholderAPI, and sender membership.
+The existing `warzonerotator.command.*`, `warzonerotator.admin`, and `warzonerotator.bypass` nodes are unchanged. `info` and `items` separate disabled items, item cooldowns, effect-only abilities, and cobweb status. `debug` includes region resolution status, active/next IDs, deadline, cooldown count, MaceGuard temporary-cobweb count, scheduler, PlaceholderAPI, and sender membership.
 
 ## Legacy migration
 

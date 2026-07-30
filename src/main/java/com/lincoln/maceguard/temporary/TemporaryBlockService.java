@@ -4,6 +4,10 @@ import com.lincoln.maceguard.storage.TemporaryBlockRepository;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -11,10 +15,11 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 
-public final class TemporaryBlockService {
+public final class TemporaryBlockService implements Listener {
     private final JavaPlugin plugin;
     private final TemporaryBlockRepository repository;
     private final Executor io;
@@ -34,46 +39,76 @@ public final class TemporaryBlockService {
     }
 
     public boolean track(Block block, String originalData, long expiresAt) {
+        return track(block, originalData, expiresAt, false);
+    }
+
+    public boolean track(Block block, String originalData, long expiresAt, boolean warzoneOwned) {
         if (!persistenceHealthy || tracked.size() >= maxTracked) return false;
-        TemporaryBlock entry = new TemporaryBlock(block.getWorld().getUID().toString(), block.getX(), block.getY(), block.getZ(), block.getBlockData().getAsString(true), originalData, expiresAt);
+        TemporaryBlock entry = new TemporaryBlock(block.getWorld().getUID().toString(), block.getX(), block.getY(),
+                block.getZ(), block.getBlockData().getAsString(true), originalData, expiresAt, false, warzoneOwned);
         tracked.put(key(entry), entry);
         persist();
         return true;
     }
 
     public int count() { return tracked.size(); }
+    public int countMatching(Predicate<TemporaryBlock> selected) {
+        int count = 0;
+        for (TemporaryBlock entry : tracked.values()) if (selected.test(entry)) count++;
+        return count;
+    }
+    public long pendingClearCount() { return tracked.values().stream().filter(TemporaryBlock::pendingClear).count(); }
     public boolean persistenceHealthy() { return persistenceHealthy; }
     public void shutdown() { if (ticker != null) ticker.cancel(); }
 
-    /** Restores every safely reachable tracked block and retains unloaded entries for startup recovery. */
-    public int clearAll() {
-        return clearMatching(ignored -> true);
-    }
+    public int clearAll() { return clearMatching(ignored -> true); }
 
+    /**
+     * Restores loaded matches immediately. Unloaded matches are persisted as pending and restored on chunk load.
+     * The return value is the number of selected records either restored, discarded as stale, or marked pending.
+     */
     public int clearMatching(Predicate<TemporaryBlock> selected) {
-        int removed = 0;
+        int affected = 0;
+        boolean changed = false;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            TemporaryBlock entry = trackedEntry.getValue();
             if (!selected.test(entry)) continue;
-            World world;
-            try { world = Bukkit.getWorld(UUID.fromString(entry.worldUuid())); }
-            catch (IllegalArgumentException ex) { iterator.remove(); removed++; continue; }
-            if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
-            Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
-            if (block.getBlockData().getAsString(true).equals(entry.expectedBlockData())) {
-                try { block.setBlockData(Bukkit.createBlockData(entry.originalBlockData()), false); }
-                catch (IllegalArgumentException ex) {
-                    plugin.getLogger().warning("Could not restore temporary block at " + block.getLocation() + ": " + ex.getMessage());
-                    continue;
+            affected++;
+            World world = world(entry);
+            if (world == null) {
+                if (!validWorldUuid(entry)) {
+                    iterator.remove();
+                    changed = true;
+                } else if (!entry.pendingClear()) {
+                    trackedEntry.setValue(entry.withPendingClear());
+                    changed = true;
                 }
+                continue;
             }
-            iterator.remove();
-            removed++;
+            if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) {
+                if (!entry.pendingClear()) {
+                    trackedEntry.setValue(entry.withPendingClear());
+                    changed = true;
+                }
+                continue;
+            }
+            RestoreOutcome outcome = restoreLoaded(world, entry);
+            if (outcome != RestoreOutcome.RETRY) {
+                iterator.remove();
+                changed = true;
+            } else if (!entry.pendingClear()) {
+                trackedEntry.setValue(entry.withPendingClear());
+                changed = true;
+            }
         }
-        if (removed > 0) persist();
-        return removed;
+        if (changed) persist();
+        return affected;
     }
+
+    /** Queues a durable snapshot after all earlier writes on the single storage executor. */
+    public CompletableFuture<Void> persistCurrentState() { return persist(); }
 
     /** Drops records whose blocks were changed by a reset or another authoritative system. */
     public int discardStale() {
@@ -81,10 +116,15 @@ public final class TemporaryBlockService {
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
             TemporaryBlock entry = iterator.next().getValue();
-            World world;
-            try { world = Bukkit.getWorld(UUID.fromString(entry.worldUuid())); }
-            catch (IllegalArgumentException ex) { iterator.remove(); removed++; continue; }
-            if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
+            World world = world(entry);
+            if (world == null) {
+                if (!validWorldUuid(entry)) {
+                    iterator.remove();
+                    removed++;
+                }
+                continue;
+            }
+            if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
             if (block.getBlockData().getAsString(true).equals(entry.expectedBlockData())) continue;
             iterator.remove();
@@ -102,7 +142,14 @@ public final class TemporaryBlockService {
         return removed;
     }
 
-    private void start() { if (ticker == null) ticker = plugin.getServer().getScheduler().runTaskTimer(plugin, this::expire, 20L, 20L); }
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onChunkLoad(ChunkLoadEvent event) {
+        processAvailable(event.getWorld(), event.getChunk().getX(), event.getChunk().getZ(), System.currentTimeMillis());
+    }
+
+    private void start() {
+        if (ticker == null) ticker = plugin.getServer().getScheduler().runTaskTimer(plugin, this::expire, 20L, 20L);
+    }
 
     private void expire() {
         long now = System.currentTimeMillis();
@@ -110,23 +157,81 @@ public final class TemporaryBlockService {
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
             TemporaryBlock entry = iterator.next().getValue();
-            if (entry.expiresAt() > now) continue;
-            World world = Bukkit.getWorld(UUID.fromString(entry.worldUuid()));
-            if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
-            Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
-            if (block.getBlockData().getAsString(true).equals(entry.expectedBlockData()))
-                block.setBlockData(Bukkit.createBlockData(entry.originalBlockData()), false);
+            if (!entry.pendingClear() && entry.expiresAt() > now) continue;
+            World world = world(entry);
+            if (world == null) {
+                if (!validWorldUuid(entry)) {
+                    iterator.remove();
+                    changed = true;
+                }
+                continue;
+            }
+            if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
+            RestoreOutcome outcome = restoreLoaded(world, entry);
+            if (outcome == RestoreOutcome.RETRY) continue;
             iterator.remove();
             changed = true;
         }
         if (changed) persist();
     }
 
-    private void persist() {
-        Map<String, TemporaryBlock> copy = Map.copyOf(tracked);
-        io.execute(() -> { try { repository.save(copy); }
-        catch (IOException ex) { persistenceHealthy = false; plugin.getLogger().severe("Temporary block state could not be committed; no further blocks will be tracked: " + ex.getMessage()); } });
+    private void processAvailable(World world, int chunkX, int chunkZ, long now) {
+        boolean changed = false;
+        var iterator = tracked.entrySet().iterator();
+        while (iterator.hasNext()) {
+            TemporaryBlock entry = iterator.next().getValue();
+            if (!entry.worldUuid().equals(world.getUID().toString()) || (entry.x() >> 4) != chunkX
+                    || (entry.z() >> 4) != chunkZ || (!entry.pendingClear() && entry.expiresAt() > now)) continue;
+            RestoreOutcome outcome = restoreLoaded(world, entry);
+            if (outcome == RestoreOutcome.RETRY) continue;
+            iterator.remove();
+            changed = true;
+        }
+        if (changed) persist();
     }
 
-    private String key(TemporaryBlock entry) { return entry.worldUuid() + ":" + entry.x() + ":" + entry.y() + ":" + entry.z(); }
+    private RestoreOutcome restoreLoaded(World world, TemporaryBlock entry) {
+        Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
+        if (!block.getBlockData().getAsString(true).equals(entry.expectedBlockData())) return RestoreOutcome.STALE;
+        try {
+            block.setBlockData(Bukkit.createBlockData(entry.originalBlockData()), false);
+            return RestoreOutcome.RESTORED;
+        } catch (IllegalArgumentException ex) {
+            plugin.getLogger().warning("Could not restore temporary block at " + block.getLocation() + ": " + ex.getMessage());
+            return RestoreOutcome.RETRY;
+        }
+    }
+
+    private World world(TemporaryBlock entry) {
+        try { return Bukkit.getWorld(UUID.fromString(entry.worldUuid())); }
+        catch (IllegalArgumentException ex) { return null; }
+    }
+
+    private boolean validWorldUuid(TemporaryBlock entry) {
+        try { UUID.fromString(entry.worldUuid()); return true; }
+        catch (IllegalArgumentException ex) { return false; }
+    }
+
+    private CompletableFuture<Void> persist() {
+        Map<String, TemporaryBlock> copy = Map.copyOf(tracked);
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        io.execute(() -> {
+            try {
+                repository.save(copy);
+                result.complete(null);
+            } catch (IOException ex) {
+                persistenceHealthy = false;
+                plugin.getLogger().severe("Temporary block state could not be committed; no further blocks will be tracked: "
+                        + ex.getMessage());
+                result.completeExceptionally(ex);
+            }
+        });
+        return result;
+    }
+
+    private String key(TemporaryBlock entry) {
+        return entry.worldUuid() + ":" + entry.x() + ":" + entry.y() + ":" + entry.z();
+    }
+
+    private enum RestoreOutcome { RESTORED, STALE, RETRY }
 }

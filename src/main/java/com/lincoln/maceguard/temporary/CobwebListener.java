@@ -25,9 +25,11 @@ public final class CobwebListener implements Listener {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
         var location = event.getBlockPlaced().getLocation();
-        if (!warzone.appliesAt(location)) return;
+        boolean exactWarzone = warzone.appliesAt(location);
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
-        boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
+        if (!exactWarzone && decision.allowed()) return;
+        boolean allowed = exactWarzone
+                && worldGuard.buildAllowed(location, event.getPlayer())
                 && worldGuard.cobwebsAllowed(location, event.getPlayer())
                 && worldGuard.warzoneCobwebsAllowed(location)
                 && decision.allowed();
@@ -52,6 +54,6 @@ public final class CobwebListener implements Listener {
         long expiresAt = Math.addExact(System.currentTimeMillis(),
                 warzone.cobwebLifetime(java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
                         event.getBlockPlaced().getLocation()).toMillis());
-        temporary.track(event.getBlockPlaced(), original, expiresAt);
+        temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneApplies);
     }
 }

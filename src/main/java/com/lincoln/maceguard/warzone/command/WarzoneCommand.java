@@ -152,6 +152,7 @@ public final class WarzoneCommand implements TabExecutor {
                 "<yellow>World/region: <white>" + runtime.region().worldName() + " / " + runtime.region().regionId(),
                 "<yellow>World loaded: <white>" + runtime.region().worldLoaded(),
                 "<yellow>Region resolved: <white>" + runtime.region().regionResolved(),
+                "<yellow>Resolution status: <white>" + runtime.region().resolutionStatus(),
                 "<yellow>Active/next: <white>" + state.activeRotationId() + " / " + state.nextRotationId(),
                 "<yellow>Deadline: <white>" + state.endsAtMillis() + " (" + runtime.messages().formatInstant(state.endsAtMillis()) + ")",
                 "<yellow>Active cooldown records: <white>" + runtime.cooldowns().size(),

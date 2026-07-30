@@ -5,7 +5,6 @@ import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,6 +33,13 @@ class LungeRestrictionTest {
         assertTrue(cooldowns.active(player, RestrictionTarget.SPEAR_LUNGE));
     }
 
+    @Test void cancelledLungeDecisionDoesNotStartCooldownWithoutSuccessCallback() {
+        RestrictionService service = service(RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
+        RestrictionDecision accepted = service.lunge(player, false, true, false);
+        assertTrue(accepted.startsCooldownAfterSuccess());
+        assertFalse(cooldowns.active(player, RestrictionTarget.SPEAR_LUNGE));
+    }
+
     @Test void activeLungeCooldownSuppressesOnlyTheLungeDecision() {
         RestrictionService service = service(RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
         service.success(player, service.lunge(player, false, true, false));
@@ -51,16 +57,38 @@ class LungeRestrictionTest {
         assertFalse(attack.startsCooldownAfterSuccess());
     }
 
-    @Test void trackerAcceptsForwardLungeAndRejectsKnockbackOrPluginVelocity() {
+    @Test void gateAcceptsHorizontalLungeWhileVerticalVelocityChanges() {
         AtomicLong nanos = new AtomicLong();
-        LungeAttemptTracker tracker = new LungeAttemptTracker(nanos::get, Duration.ofMillis(450));
-        var forward = new LungeAttemptTracker.Vec3(1, 0, 0);
-        var still = new LungeAttemptTracker.Vec3(0, 0, 0);
-        tracker.record(player, forward, still, false);
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(-1, 0, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(0, 1, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(5, 0, 0)).isEmpty());
-        assertTrue(tracker.consumeIfLunge(player, new LungeAttemptTracker.Vec3(1.2, 0, 0)).isPresent());
+        LungeVelocityGate gate = new LungeVelocityGate(nanos::get, Duration.ofMillis(250));
+        LungeVelocityGate.Vec3 look = new LungeVelocityGate.Vec3(0.6, 0.8, 0);
+        gate.record(player, "IRON_SPEAR", look, new LungeVelocityGate.Vec3(0, -0.2, 0),
+                false, true, RestrictionDecision.unrestricted());
+
+        var attempt = gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0.6, 0.6, 0));
+        assertTrue(attempt.isPresent());
+        assertTrue(attempt.orElseThrow().targetInside());
+        assertEquals("IRON_SPEAR", attempt.orElseThrow().materialName());
+    }
+
+    @Test void gateRejectsPerpendicularOrBackwardVelocity() {
+        LungeVelocityGate gate = new LungeVelocityGate(() -> 0L, Duration.ofMillis(250));
+        gate.record(player, "IRON_SPEAR", new LungeVelocityGate.Vec3(1, 0, 0),
+                new LungeVelocityGate.Vec3(0, 0, 0), true, false, RestrictionDecision.unrestricted());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0, 0, 1)).isEmpty());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(-1, 0, 0)).isEmpty());
+        assertEquals(1, gate.size());
+    }
+
+    @Test void gateContextExpiresAndAnewAttackReplacesIt() {
+        AtomicLong nanos = new AtomicLong();
+        LungeVelocityGate gate = new LungeVelocityGate(nanos::get, Duration.ofMillis(250));
+        gate.record(player, "IRON_SPEAR", new LungeVelocityGate.Vec3(1, 0, 0),
+                new LungeVelocityGate.Vec3(0, 0, 0), false, true, RestrictionDecision.unrestricted());
+        gate.record(player, "GOLDEN_SPEAR", new LungeVelocityGate.Vec3(0, 0, 1),
+                new LungeVelocityGate.Vec3(0, 0, 0), true, false, RestrictionDecision.unrestricted());
+        nanos.addAndGet(Duration.ofMillis(251).toNanos());
+        assertTrue(gate.consumeIfLunge(player, new LungeVelocityGate.Vec3(0, 0, 1)).isEmpty());
+        assertEquals(0, gate.size());
     }
 
     private RestrictionService service(RestrictionMode mode, Duration cooldown) {

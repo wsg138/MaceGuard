@@ -87,6 +87,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
         durabilityListener = new MaceDurabilityListener(this, settings, queries);
         getServer().getPluginManager().registerEvents(durabilityListener, this);
+        getServer().getPluginManager().registerEvents(temporary, this);
         getServer().getPluginManager().registerEvents(new CobwebListener(queries, warzone, temporary, settings), this);
         getServer().getPluginManager().registerEvents(new SparseOriginalListener(resets), this);
         getServer().getPluginManager().registerEvents(new EndRestrictionListener(this), this);
@@ -126,5 +127,4 @@ public final class MaceGuardPlugin extends JavaPlugin {
     }
 
     private record Validation(boolean valid, java.util.List<String> errors) { }
-
 }
