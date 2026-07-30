@@ -57,7 +57,7 @@ class LungeRestrictionTest {
         assertFalse(attack.startsCooldownAfterSuccess());
     }
 
-    @Test void gateAcceptsImmediateThreeDimensionalForwardVelocity() {
+    @Test void gateAcceptsHorizontalLungeWhileVerticalVelocityChanges() {
         AtomicLong nanos = new AtomicLong();
         LungeVelocityGate gate = new LungeVelocityGate(nanos::get, Duration.ofMillis(250));
         LungeVelocityGate.Vec3 look = new LungeVelocityGate.Vec3(0.6, 0.8, 0);
