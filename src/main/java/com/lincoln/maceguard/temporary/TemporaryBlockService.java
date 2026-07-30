@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 
@@ -51,6 +52,11 @@ public final class TemporaryBlockService implements Listener {
     }
 
     public int count() { return tracked.size(); }
+    public int countMatching(Predicate<TemporaryBlock> selected) {
+        int count = 0;
+        for (TemporaryBlock entry : tracked.values()) if (selected.test(entry)) count++;
+        return count;
+    }
     public long pendingClearCount() { return tracked.values().stream().filter(TemporaryBlock::pendingClear).count(); }
     public boolean persistenceHealthy() { return persistenceHealthy; }
     public void shutdown() { if (ticker != null) ticker.cancel(); }
@@ -100,6 +106,9 @@ public final class TemporaryBlockService implements Listener {
         if (changed) persist();
         return affected;
     }
+
+    /** Queues a durable snapshot after all earlier writes on the single storage executor. */
+    public CompletableFuture<Void> persistCurrentState() { return persist(); }
 
     /** Drops records whose blocks were changed by a reset or another authoritative system. */
     public int discardStale() {
@@ -189,16 +198,21 @@ public final class TemporaryBlockService implements Listener {
         catch (IllegalArgumentException ex) { return false; }
     }
 
-    private void persist() {
+    private CompletableFuture<Void> persist() {
         Map<String, TemporaryBlock> copy = Map.copyOf(tracked);
+        CompletableFuture<Void> result = new CompletableFuture<>();
         io.execute(() -> {
-            try { repository.save(copy); }
-            catch (IOException ex) {
+            try {
+                repository.save(copy);
+                result.complete(null);
+            } catch (IOException ex) {
                 persistenceHealthy = false;
                 plugin.getLogger().severe("Temporary block state could not be committed; no further blocks will be tracked: "
                         + ex.getMessage());
+                result.completeExceptionally(ex);
             }
         });
+        return result;
     }
 
     private String key(TemporaryBlock entry) {
