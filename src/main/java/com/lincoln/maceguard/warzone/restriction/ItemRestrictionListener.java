@@ -4,6 +4,7 @@ import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
 import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
@@ -17,6 +18,7 @@ import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
@@ -35,6 +37,7 @@ public final class ItemRestrictionListener implements Listener {
     private final LungeVelocityGate lungeGate;
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
     private final Map<UUID, PendingProjectile> pendingProjectiles = new HashMap<>();
+    private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
     public ItemRestrictionListener(RestrictionService restrictions, CooldownService cooldowns,
                                    VisualCooldownService visualCooldowns, WarzoneRegionService region,
@@ -202,9 +205,16 @@ public final class ItemRestrictionListener implements Listener {
             completeSuccess(event.getPlayer().getUniqueId(), event.getPlayer(), decision);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        visualCooldowns.reapply(event.getPlayer(), cooldowns.activeFor(event.getPlayer().getUniqueId()));
+        visualInsideState.remove(event.getPlayer().getUniqueId());
+        reconcileVisualCooldowns(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMove(PlayerMoveEvent event) {
+        if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) return;
+        reconcileVisualCooldowns(event.getPlayer());
     }
 
     @EventHandler
@@ -212,13 +222,31 @@ public final class ItemRestrictionListener implements Listener {
         UUID playerId = event.getPlayer().getUniqueId();
         lungeGate.remove(playerId);
         acceptedLunges.remove(playerId);
-        visualCooldowns.forget(playerId);
+        visualCooldowns.clearOwned(event.getPlayer());
+        visualInsideState.remove(playerId);
+    }
+
+    /** Rechecks online players after a WorldGuard region refresh or replacement. */
+    public void reconcileVisualCooldowns(Iterable<? extends Player> players) {
+        for (Player player : players) reconcileVisualCooldowns(player);
+    }
+
+    private void reconcileVisualCooldowns(Player player) {
+        UUID playerId = player.getUniqueId();
+        boolean inside = region.contains(player.getLocation());
+        Boolean previous = visualInsideState.put(playerId, inside);
+        if (inside && !Boolean.TRUE.equals(previous)) {
+            visualCooldowns.reapply(player, cooldowns.activeFor(playerId));
+        } else if (!inside && !Boolean.FALSE.equals(previous)) {
+            visualCooldowns.clearOwned(player);
+        }
     }
 
     public void clearTransientState() {
         lungeGate.clear();
         acceptedLunges.clear();
         pendingProjectiles.clear();
+        visualInsideState.clear();
     }
 
     public void clear() { clearTransientState(); }
@@ -232,7 +260,7 @@ public final class ItemRestrictionListener implements Listener {
 
     private void completeSuccess(UUID playerId, Player player, RestrictionDecision decision) {
         restrictions.success(playerId, decision);
-        if (player != null) visualCooldowns.apply(player, decision);
+        if (player != null && region.contains(player.getLocation())) visualCooldowns.apply(player, decision);
     }
 
     private RestrictionDecision materialDecision(Player player, Material material, boolean targetInside) {
@@ -252,6 +280,12 @@ public final class ItemRestrictionListener implements Listener {
     }
     private LungeVelocityGate.Vec3 vec(Vector vector) {
         return new LungeVelocityGate.Vec3(vector.getX(), vector.getY(), vector.getZ());
+    }
+    private boolean sameBlock(Location from, Location to) {
+        return from.getWorld() != null && to.getWorld() != null
+                && from.getWorld().getUID().equals(to.getWorld().getUID())
+                && from.getBlockX() == to.getBlockX() && from.getBlockY() == to.getBlockY()
+                && from.getBlockZ() == to.getBlockZ();
     }
 
     private record PendingProjectile(UUID playerId, RestrictionDecision decision, long deadlineNanos) { }
