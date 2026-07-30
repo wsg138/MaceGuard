@@ -60,6 +60,7 @@ public final class WarzoneRuntime {
     public void start() {
         if (!config.enabled()) return;
         plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
+        restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
         clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             rotations.tick();
             cooldowns.discardExpired();
@@ -68,7 +69,9 @@ public final class WarzoneRuntime {
             if (pendingWarzoneCobwebClear && region.regionResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
-            if (region.refresh() && pendingWarzoneCobwebClear) clearTrackedCobwebs();
+            boolean resolved = region.refresh();
+            restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
+            if (resolved && pendingWarzoneCobwebClear) clearTrackedCobwebs();
         }, 20L, 100L);
     }
 
