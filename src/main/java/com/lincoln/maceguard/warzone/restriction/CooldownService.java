@@ -3,6 +3,7 @@ package com.lincoln.maceguard.warzone.restriction;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +30,16 @@ public final class CooldownService {
             return Duration.ZERO;
         }
         return Duration.ofMillis(remaining);
+    }
+
+    public Map<RestrictionTarget, Duration> activeFor(UUID playerId) {
+        Map<RestrictionTarget, Duration> result = new LinkedHashMap<>();
+        for (Key key : Set.copyOf(expiresAt.keySet())) {
+            if (!key.playerId().equals(playerId)) continue;
+            Duration remaining = remaining(playerId, key.target());
+            if (!remaining.isZero()) result.put(key.target(), remaining);
+        }
+        return Map.copyOf(result);
     }
 
     public boolean active(UUID playerId, RestrictionTarget target) {
