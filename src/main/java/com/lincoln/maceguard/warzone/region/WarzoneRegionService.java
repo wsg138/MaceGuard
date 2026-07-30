@@ -72,8 +72,10 @@ public final class WarzoneRegionService {
     }
 
     private boolean configuredWorld(Location location) {
-        return cachedWorld != null && location.getWorld() != null
-                && location.getWorld().getUID().equals(cachedWorld.getUID());
+        World locationWorld = location.getWorld();
+        if (locationWorld == null) return false;
+        if (cachedWorld != null) return locationWorld.getUID().equals(cachedWorld.getUID());
+        return locationWorld.getName().equals(settings.world());
     }
 
     private void reportStatusChange(String nextStatus) {
