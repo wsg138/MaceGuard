@@ -6,7 +6,6 @@ import org.bukkit.entity.Player;
 
 import java.time.Duration;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.LongSupplier;
@@ -17,12 +16,14 @@ import java.util.function.LongSupplier;
  */
 public final class VisualCooldownService {
     private final Server server;
-    private final LongSupplier clock;
+    private final LongSupplier wallClock;
+    private final LongSupplier tickClock;
     private final Map<Key, OwnedOverlay> owned = new HashMap<>();
 
-    public VisualCooldownService(Server server, LongSupplier clock) {
+    public VisualCooldownService(Server server, LongSupplier wallClock, LongSupplier tickClock) {
         this.server = server;
-        this.clock = clock;
+        this.wallClock = wallClock;
+        this.tickClock = tickClock;
     }
 
     public void apply(Player player, RestrictionDecision decision) {
@@ -40,20 +41,21 @@ public final class VisualCooldownService {
     }
 
     private void apply(Player player, Material material, Duration duration) {
-        int ticks = toTicks(duration);
-        if (ticks <= 0) return;
-        int existing = player.getCooldown(material);
-        if (!shouldApply(existing, ticks)) return;
+        int requestedTicks = toTicks(duration);
+        if (requestedTicks <= 0) return;
+        int existingTicks = player.getCooldown(material);
+        if (!shouldApply(existingTicks, requestedTicks)) return;
 
-        long now = clock.getAsLong();
+        long nowTick = tickClock.getAsLong();
         Key key = new Key(player.getUniqueId(), material);
         OwnedOverlay prior = owned.get(key);
-        long previousExpiresAt = prior == null
-                ? safeAdd(now, ticksToMillis(existing))
-                : prior.previousExpiresAtMillis();
+        int previousTicks = prior == null
+                ? existingTicks
+                : remainingTicks(prior.previousTicks(), nowTick - prior.appliedAtTick());
 
-        player.setCooldown(material, ticks);
-        owned.put(key, new OwnedOverlay(previousExpiresAt, safeAdd(now, duration.toMillis())));
+        player.setCooldown(material, requestedTicks);
+        owned.put(key, new OwnedOverlay(previousTicks, requestedTicks, nowTick,
+                safeAdd(wallClock.getAsLong(), duration.toMillis())));
     }
 
     /** Reconciles every overlay owned by this service. */
@@ -77,11 +79,10 @@ public final class VisualCooldownService {
         OwnedOverlay overlay = owned.remove(key);
         if (overlay == null) return;
 
-        long now = clock.getAsLong();
-        int current = player.getCooldown(material);
-        int expected = toTicks(Duration.ofMillis(Math.max(0L, overlay.expiresAtMillis() - now)));
-        int previous = toTicks(Duration.ofMillis(Math.max(0L, overlay.previousExpiresAtMillis() - now)));
-        int replacement = reconciledTicks(current, expected, previous);
+        long elapsedTicks = Math.max(0L, tickClock.getAsLong() - overlay.appliedAtTick());
+        int expectedTicks = remainingTicks(overlay.appliedTicks(), elapsedTicks);
+        int previousTicks = remainingTicks(overlay.previousTicks(), elapsedTicks);
+        int replacement = reconciledTicks(player.getCooldown(material), expectedTicks, previousTicks);
         if (replacement >= 0) player.setCooldown(material, replacement);
     }
 
@@ -89,13 +90,19 @@ public final class VisualCooldownService {
         owned.keySet().removeIf(key -> key.playerId().equals(playerId));
     }
 
+    /**
+     * Authoritative cooldowns expire on wall time. Clear recognizable owned overlays at that
+     * deadline even if a lagging server has advanced fewer cooldown ticks.
+     */
     public int cleanup() {
-        long now = clock.getAsLong();
+        long now = wallClock.getAsLong();
         int removed = 0;
-        Iterator<OwnedOverlay> iterator = owned.values().iterator();
-        while (iterator.hasNext()) {
-            if (iterator.next().expiresAtMillis() > now) continue;
-            iterator.remove();
+        for (Key key : java.util.Set.copyOf(owned.keySet())) {
+            OwnedOverlay overlay = owned.get(key);
+            if (overlay == null || overlay.expiresAtMillis() > now) continue;
+            Player player = server.getPlayer(key.playerId());
+            if (player == null) owned.remove(key);
+            else clearOwned(player, key.material());
             removed++;
         }
         return removed;
@@ -112,16 +119,17 @@ public final class VisualCooldownService {
         return Math.max(0, previousTicks);
     }
 
+    static int remainingTicks(int initialTicks, long elapsedTicks) {
+        if (initialTicks <= 0 || elapsedTicks >= initialTicks) return 0;
+        return (int) Math.max(0L, initialTicks - Math.max(0L, elapsedTicks));
+    }
+
     public static int toTicks(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return 0;
         long millis = duration.toMillis();
         long rounded = millis > Long.MAX_VALUE - 49L ? Long.MAX_VALUE : millis + 49L;
         long ticks = Math.max(1L, rounded / 50L);
         return ticks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) ticks;
-    }
-
-    private static long ticksToMillis(int ticks) {
-        return ticks <= 0 ? 0L : Math.min(Long.MAX_VALUE, (long) ticks * 50L);
     }
 
     private static long safeAdd(long left, long right) {
@@ -131,5 +139,5 @@ public final class VisualCooldownService {
     }
 
     private record Key(UUID playerId, Material material) { }
-    private record OwnedOverlay(long previousExpiresAtMillis, long expiresAtMillis) { }
+    private record OwnedOverlay(int previousTicks, int appliedTicks, long appliedAtTick, long expiresAtMillis) { }
 }
