@@ -12,13 +12,13 @@ import java.util.function.LongSupplier;
  * Compatibility gate for Minecraft/Paper 1.21.11, which has no dedicated Lunge event.
  *
  * <p>The gate is armed only by a real, attackable entity hit with a Lunge-enchanted spear.
- * It then accepts one immediate forward velocity delta. It does not arm from animation or
- * generic interaction events, and it compares the complete three-dimensional look vector so
- * legitimate upward/downward Lunges are not discarded.</p>
+ * It then accepts one immediate horizontal velocity delta aligned with the player's view.
+ * Generic arm animations never arm it, and vertical velocity is deliberately ignored because
+ * vanilla Lunge propulsion is horizontal and may occur while the player is already falling.</p>
  */
 public final class LungeVelocityGate {
-    private static final double MIN_DELTA = 0.20D;
-    private static final double MAX_DELTA = 4.50D;
+    private static final double MIN_HORIZONTAL_DELTA = 0.20D;
+    private static final double MAX_HORIZONTAL_DELTA = 4.50D;
     private static final double MIN_ALIGNMENT = 0.82D;
 
     private final LongSupplier nanoClock;
@@ -32,10 +32,10 @@ public final class LungeVelocityGate {
 
     public void record(UUID playerId, String materialName, Vec3 lookDirection, Vec3 initialVelocity,
                        boolean actorInside, boolean targetInside, RestrictionDecision itemDecision) {
-        Vec3 normalized = lookDirection.normalized();
-        if (normalized.lengthSquared() == 0) return;
+        Vec3 horizontalLook = new Vec3(lookDirection.x(), 0, lookDirection.z()).normalized();
+        if (horizontalLook.lengthSquared() == 0) return;
         attempts.put(playerId, new Attempt(Math.addExact(nanoClock.getAsLong(), windowNanos),
-                materialName, normalized, initialVelocity, actorInside, targetInside, itemDecision));
+                materialName, horizontalLook, initialVelocity, actorInside, targetInside, itemDecision));
     }
 
     public Optional<Attempt> consumeIfLunge(UUID playerId, Vec3 resultingVelocity) {
@@ -47,11 +47,12 @@ public final class LungeVelocityGate {
         }
 
         Vec3 delta = resultingVelocity.subtract(attempt.initialVelocity());
-        double length = Math.sqrt(delta.lengthSquared());
-        if (length < MIN_DELTA || length > MAX_DELTA) return Optional.empty();
-        double forward = delta.dot(attempt.lookDirection());
+        Vec3 horizontal = new Vec3(delta.x(), 0, delta.z());
+        double length = Math.sqrt(horizontal.lengthSquared());
+        if (length < MIN_HORIZONTAL_DELTA || length > MAX_HORIZONTAL_DELTA) return Optional.empty();
+        double forward = horizontal.dot(attempt.lookDirection());
         double alignment = forward / length;
-        if (forward < MIN_DELTA || alignment < MIN_ALIGNMENT) return Optional.empty();
+        if (forward < MIN_HORIZONTAL_DELTA || alignment < MIN_ALIGNMENT) return Optional.empty();
 
         attempts.remove(playerId);
         return Optional.of(attempt);
