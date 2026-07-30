@@ -166,7 +166,8 @@ public final class WarzoneRuntime {
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 
     public int clearTrackedCobwebs() {
-        ensurePendingCobwebMarker();
+        if (!pendingWarzoneCobwebClear || !Files.exists(pendingCobwebClearMarker))
+            ensurePendingCobwebMarker();
         pendingWarzoneCobwebClear = true;
 
         if (!region.regionResolved()) {
