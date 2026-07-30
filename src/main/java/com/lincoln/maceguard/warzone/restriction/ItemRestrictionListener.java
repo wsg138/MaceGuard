@@ -3,7 +3,6 @@ package com.lincoln.maceguard.warzone.restriction;
 import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
 import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
-import io.papermc.paper.event.entity.EntityLungeEvent;
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
@@ -19,7 +18,9 @@ import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,19 +32,19 @@ public final class ItemRestrictionListener implements Listener {
     private final VisualCooldownService visualCooldowns;
     private final WarzoneRegionService region;
     private final WarzoneMessageService messages;
-    private final LungeTargetTracker lungeTargets;
+    private final LungeVelocityGate lungeGate;
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
     private final Map<UUID, PendingProjectile> pendingProjectiles = new HashMap<>();
 
     public ItemRestrictionListener(RestrictionService restrictions, CooldownService cooldowns,
                                    VisualCooldownService visualCooldowns, WarzoneRegionService region,
-                                   WarzoneMessageService messages, LungeTargetTracker lungeTargets) {
+                                   WarzoneMessageService messages, LungeVelocityGate lungeGate) {
         this.restrictions = restrictions;
         this.cooldowns = cooldowns;
         this.visualCooldowns = visualCooldowns;
         this.region = region;
         this.messages = messages;
-        this.lungeTargets = lungeTargets;
+        this.lungeGate = lungeGate;
     }
 
     /** Blocks disabled non-projectile item use. Cooldowns never start from this event. */
@@ -143,29 +144,47 @@ public final class ItemRestrictionListener implements Listener {
             completeSuccess(event.getPlayer().getUniqueId(), event.getPlayer(), decision);
     }
 
-    /** Records only direct target context that EntityLungeEvent itself does not expose. */
+    /**
+     * Paper 1.21.11 has no dedicated Lunge event. Arm the compatibility gate only for a real
+     * attackable target and preserve both sides of the warzone boundary decision.
+     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPreAttack(PrePlayerAttackEntityEvent event) {
-        if (!event.willAttack() || !isLungeSpear(event.getPlayer().getInventory().getItemInMainHand())) return;
-        lungeTargets.record(event.getPlayer().getUniqueId(), region.contains(event.getAttacked().getLocation()));
+        Player player = event.getPlayer();
+        ItemStack item = player.getInventory().getItemInMainHand();
+        if (!event.willAttack() || !isLungeSpear(item)) return;
+
+        boolean actorInside = region.contains(player.getLocation());
+        boolean targetInside = region.contains(event.getAttacked().getLocation());
+        RestrictionDecision itemDecision = restrictions.material(player.getUniqueId(), item.getType(),
+                bypass(player), actorInside, targetInside);
+        Vector look = player.getLocation().getDirection();
+        Vector velocity = player.getVelocity();
+        lungeGate.record(player.getUniqueId(), item.getType().name(), vec(look), vec(velocity),
+                actorInside, targetInside, itemDecision);
     }
 
-    /** Cancels only Paper's actual Lunge effect, never ordinary spear attacks or item handling. */
+    /**
+     * Suppresses only the immediate, forward Lunge velocity associated with the recorded spear hit.
+     * Ordinary attacks, damage, holding, swapping, throwing, knockback, and unrelated velocity are untouched.
+     */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onLunge(EntityLungeEvent event) {
-        if (!(event.getEntity() instanceof Player player)) return;
-        ItemStack item = player.getInventory().getItemInMainHand();
-        if (!isLungeSpear(item)) return;
-        boolean targetInside = lungeTargets.targetInside(player.getUniqueId());
-        RestrictionDecision itemDecision = materialDecision(player, item.getType(), targetInside);
+    public void onLungeVelocity(PlayerVelocityEvent event) {
+        Player player = event.getPlayer();
+        var attempt = lungeGate.consumeIfLunge(player.getUniqueId(), vec(event.getVelocity()));
+        if (attempt.isEmpty()) return;
+
+        RestrictionDecision itemDecision = attempt.get().itemDecision();
         if (itemDecision.denied()) {
             event.setCancelled(true);
             acceptedLunges.remove(player.getUniqueId());
             messages.denial(player, itemDecision);
             return;
         }
+
+        boolean actorInside = attempt.get().actorInside() || region.contains(player.getLocation());
         RestrictionDecision decision = restrictions.lunge(player.getUniqueId(), bypass(player),
-                region.contains(player.getLocation()), targetInside);
+                actorInside, attempt.get().targetInside());
         if (decision.denied()) {
             event.setCancelled(true);
             acceptedLunges.remove(player.getUniqueId());
@@ -175,13 +194,12 @@ public final class ItemRestrictionListener implements Listener {
         }
     }
 
-    /** Starts the Lunge cooldown only if the exact Lunge event remained uncancelled. */
+    /** Starts the effect-only cooldown only if the correlated velocity event remained uncancelled. */
     @EventHandler(priority = EventPriority.MONITOR)
-    public void onLungeFinalized(EntityLungeEvent event) {
-        if (!(event.getEntity() instanceof Player player)) return;
-        lungeTargets.remove(player.getUniqueId());
-        RestrictionDecision decision = acceptedLunges.remove(player.getUniqueId());
-        if (decision != null && !event.isCancelled()) completeSuccess(player.getUniqueId(), player, decision);
+    public void onLungeVelocityFinalized(PlayerVelocityEvent event) {
+        RestrictionDecision decision = acceptedLunges.remove(event.getPlayer().getUniqueId());
+        if (decision != null && !event.isCancelled())
+            completeSuccess(event.getPlayer().getUniqueId(), event.getPlayer(), decision);
     }
 
     @EventHandler
@@ -192,13 +210,13 @@ public final class ItemRestrictionListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
-        lungeTargets.remove(playerId);
+        lungeGate.remove(playerId);
         acceptedLunges.remove(playerId);
         visualCooldowns.forget(playerId);
     }
 
     public void clearTransientState() {
-        lungeTargets.clear();
+        lungeGate.clear();
         acceptedLunges.clear();
         pendingProjectiles.clear();
     }
@@ -208,7 +226,7 @@ public final class ItemRestrictionListener implements Listener {
     public void cleanup() {
         long now = System.nanoTime();
         pendingProjectiles.values().removeIf(pending -> pending.deadlineNanos() <= now);
-        lungeTargets.cleanup();
+        lungeGate.cleanup();
         visualCooldowns.cleanup();
     }
 
@@ -231,6 +249,9 @@ public final class ItemRestrictionListener implements Listener {
     }
     private boolean isLungeSpear(ItemStack item) {
         return RestrictionTarget.isSpear(item.getType()) && item.containsEnchantment(Enchantment.LUNGE);
+    }
+    private LungeVelocityGate.Vec3 vec(Vector vector) {
+        return new LungeVelocityGate.Vec3(vector.getX(), vector.getY(), vector.getZ());
     }
 
     private record PendingProjectile(UUID playerId, RestrictionDecision decision, long deadlineNanos) { }
