@@ -13,7 +13,7 @@ import java.util.function.LongSupplier;
 
 /**
  * Adds client-visible material cooldowns without making them authoritative.
- * Only overlays this service actually lengthened are tracked and eligible for clearing.
+ * Only overlays this service actually lengthened are tracked and eligible for reconciliation.
  */
 public final class VisualCooldownService {
     private final Server server;
@@ -44,23 +44,50 @@ public final class VisualCooldownService {
         if (ticks <= 0) return;
         int existing = player.getCooldown(material);
         if (existing >= ticks) return;
+
+        long now = clock.getAsLong();
+        Key key = new Key(player.getUniqueId(), material);
+        OwnedOverlay prior = owned.get(key);
+        long previousExpiresAt = prior == null
+                ? safeAdd(now, ticksToMillis(existing))
+                : prior.previousExpiresAtMillis();
+
         player.setCooldown(material, ticks);
-        owned.put(new Key(player.getUniqueId(), material),
-                new OwnedOverlay(Math.addExact(clock.getAsLong(), duration.toMillis())));
+        owned.put(key, new OwnedOverlay(previousExpiresAt, safeAdd(now, duration.toMillis())));
     }
 
+    /** Reconciles every overlay owned by this service. */
     public void clearOwned() {
-        long now = clock.getAsLong();
-        for (Map.Entry<Key, OwnedOverlay> entry : owned.entrySet()) {
-            Player player = server.getPlayer(entry.getKey().playerId());
-            if (player == null) continue;
-            int current = player.getCooldown(entry.getKey().material());
-            int expectedRemaining = toTicks(Duration.ofMillis(Math.max(0L,
-                    entry.getValue().expiresAtMillis() - now)));
-            if (current > 0 && current <= expectedRemaining + 2)
-                player.setCooldown(entry.getKey().material(), 0);
+        for (Key key : java.util.Set.copyOf(owned.keySet())) {
+            Player player = server.getPlayer(key.playerId());
+            if (player != null) clearOwned(player, key.material());
+            else owned.remove(key);
         }
-        owned.clear();
+    }
+
+    /** Reconciles only this player's overlays, used when they leave the configured region. */
+    public void clearOwned(Player player) {
+        for (Key key : java.util.Set.copyOf(owned.keySet())) {
+            if (key.playerId().equals(player.getUniqueId())) clearOwned(player, key.material());
+        }
+    }
+
+    private void clearOwned(Player player, Material material) {
+        Key key = new Key(player.getUniqueId(), material);
+        OwnedOverlay overlay = owned.remove(key);
+        if (overlay == null) return;
+
+        long now = clock.getAsLong();
+        int current = player.getCooldown(material);
+        int expected = toTicks(Duration.ofMillis(Math.max(0L, overlay.expiresAtMillis() - now)));
+
+        // A larger cooldown was installed after ours; leave it untouched.
+        if (current > expected + 2) return;
+        // A smaller/cleared cooldown was changed independently; do not resurrect or override it.
+        if (current + 2 < expected) return;
+
+        int previous = toTicks(Duration.ofMillis(Math.max(0L, overlay.previousExpiresAtMillis() - now)));
+        player.setCooldown(material, previous);
     }
 
     public void forget(UUID playerId) {
@@ -82,10 +109,21 @@ public final class VisualCooldownService {
     public static int toTicks(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return 0;
         long millis = duration.toMillis();
-        long ticks = Math.max(1L, Math.floorDiv(Math.addExact(millis, 49L), 50L));
+        long rounded = millis > Long.MAX_VALUE - 49L ? Long.MAX_VALUE : millis + 49L;
+        long ticks = Math.max(1L, rounded / 50L);
         return ticks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) ticks;
     }
 
+    private static long ticksToMillis(int ticks) {
+        return ticks <= 0 ? 0L : Math.min(Long.MAX_VALUE, (long) ticks * 50L);
+    }
+
+    private static long safeAdd(long left, long right) {
+        if (right > 0 && left > Long.MAX_VALUE - right) return Long.MAX_VALUE;
+        if (right < 0 && left < Long.MIN_VALUE - right) return Long.MIN_VALUE;
+        return left + right;
+    }
+
     private record Key(UUID playerId, Material material) { }
-    private record OwnedOverlay(long expiresAtMillis) { }
+    private record OwnedOverlay(long previousExpiresAtMillis, long expiresAtMillis) { }
 }
