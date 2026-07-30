@@ -19,14 +19,12 @@ commands:
 permissions:
   maceguard.admin:
     default: op
-    children:
-      maceguard.reset: true
-      maceguard.reload: true
-  maceguard.reset:
-    default: op
   maceguard.reload:
     default: op
+  maceguard.reset:
+    default: op
   warzonerotator.admin:
+    description: Grants all integrated warzone administrative permissions.
     default: op
     children:
       warzonerotator.command.info: true
@@ -40,25 +38,14 @@ permissions:
       warzonerotator.command.validate: true
       warzonerotator.command.debug: true
       warzonerotator.bypass: true
-  warzonerotator.command.info:
-    default: true
-  warzonerotator.command.items:
-    default: true
-  warzonerotator.command.next:
-    default: true
-  warzonerotator.command.skip:
-    default: op
-  warzonerotator.command.force:
-    default: op
-  warzonerotator.command.set:
-    default: op
-  warzonerotator.command.extend:
-    default: op
-  warzonerotator.command.reload:
-    default: op
-  warzonerotator.command.validate:
-    default: op
-  warzonerotator.command.debug:
-    default: op
-  warzonerotator.bypass:
-    default: op
+  warzonerotator.command.info: { default: true }
+  warzonerotator.command.items: { default: true }
+  warzonerotator.command.next: { default: true }
+  warzonerotator.command.skip: { default: op }
+  warzonerotator.command.force: { default: op }
+  warzonerotator.command.set: { default: op }
+  warzonerotator.command.extend: { default: op }
+  warzonerotator.command.reload: { default: op }
+  warzonerotator.command.validate: { default: op }
+  warzonerotator.command.debug: { default: op }
+  warzonerotator.bypass: { default: false }
