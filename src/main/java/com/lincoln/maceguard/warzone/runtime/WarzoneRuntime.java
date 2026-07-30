@@ -48,7 +48,8 @@ public final class WarzoneRuntime {
         this.region = new WarzoneRegionService(config.region(), plugin.getLogger());
         this.messages = new WarzoneMessageService(clock, region, config, templates);
         this.cooldowns = new CooldownService(clock::millis);
-        this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis);
+        this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis,
+                () -> plugin.getServer().getCurrentTick());
         this.rotations = new RotationManager(config, store, clock, this::transition, this::warning);
         this.messages.bind(rotations);
         this.restrictions = new RestrictionService(rotations::active, cooldowns);
