@@ -7,9 +7,11 @@ import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import com.lincoln.maceguard.warzone.restriction.CooldownService;
 import com.lincoln.maceguard.warzone.restriction.ItemRestrictionListener;
-import com.lincoln.maceguard.warzone.restriction.LungeAttemptTracker;
+import com.lincoln.maceguard.warzone.restriction.LungeTargetTracker;
 import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
+import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionService;
+import com.lincoln.maceguard.warzone.restriction.VisualCooldownService;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
 import org.bukkit.Location;
@@ -29,24 +31,29 @@ public final class WarzoneRuntime {
     private final WarzoneRegionService region;
     private final WarzoneMessageService messages;
     private final CooldownService cooldowns;
+    private final VisualCooldownService visualCooldowns;
     private final RestrictionService restrictions;
     private final RotationManager rotations;
     private final ItemRestrictionListener restrictionListener;
     private BukkitTask clockTask;
+    private BukkitTask regionRefreshTask;
+    private boolean pendingWarzoneCobwebClear;
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
+        validateCooldownTargets(config);
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
         this.config = config;
-        this.region = new WarzoneRegionService(config.region());
+        this.region = new WarzoneRegionService(config.region(), plugin.getLogger());
         this.messages = new WarzoneMessageService(clock, region, config, templates);
         this.cooldowns = new CooldownService(clock::millis);
+        this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis);
         this.rotations = new RotationManager(config, store, clock, this::transition, this::warning);
         this.messages.bind(rotations);
         this.restrictions = new RestrictionService(rotations::active, cooldowns);
-        this.restrictionListener = new ItemRestrictionListener(restrictions, region, messages,
-                new LungeAttemptTracker(System::nanoTime, Duration.ofMillis(450)));
+        this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns, region,
+                messages, new LungeTargetTracker(System::nanoTime, Duration.ofMillis(450)));
         clearCobwebsAfterOfflineTransition();
     }
 
@@ -58,14 +65,21 @@ public final class WarzoneRuntime {
             cooldowns.discardExpired();
             messages.cleanup();
             restrictionListener.cleanup();
+            if (pendingWarzoneCobwebClear && region.regionResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
+        regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (region.refresh() && pendingWarzoneCobwebClear) clearTrackedCobwebs();
+        }, 20L, 100L);
     }
 
     public void shutdown(boolean pluginDisable) {
         if (clockTask != null) clockTask.cancel();
+        if (regionRefreshTask != null) regionRefreshTask.cancel();
         clockTask = null;
+        regionRefreshTask = null;
         HandlerList.unregisterAll(restrictionListener);
         restrictionListener.clear();
+        visualCooldowns.clearOwned();
         cooldowns.clear();
         if (pluginDisable && config.cobwebs().clearOnDisable()) clearTrackedCobwebs();
     }
@@ -82,6 +96,7 @@ public final class WarzoneRuntime {
 
     public void successfulCobweb(Player player, RestrictionDecision decision) {
         restrictions.success(player.getUniqueId(), decision);
+        visualCooldowns.apply(player, decision);
     }
 
     public void sendCobwebDenial(Player player, CobwebDecision decision) {
@@ -90,6 +105,8 @@ public final class WarzoneRuntime {
     }
 
     private void transition(WarzoneConfig.Rotation previous, WarzoneConfig.Rotation current, boolean announce) {
+        restrictionListener.clearTransientState();
+        visualCooldowns.clearOwned();
         cooldowns.clear();
         if (previous.cobwebsAllowed() && !current.cobwebsAllowed() && config.cobwebs().clearOnMetaChange())
             clearTrackedCobwebs();
@@ -111,6 +128,21 @@ public final class WarzoneRuntime {
             clearTrackedCobwebs();
     }
 
+    private void validateCooldownTargets(WarzoneConfig config) {
+        config.targetPolicies().forEach((target, policy) -> {
+            if (policy.canCooldown() && !target.supportsCooldown())
+                throw new IllegalArgumentException("restriction-targets." + target.id()
+                        + " enables cooldowns but has no reliable success event");
+        });
+        for (WarzoneConfig.Rotation rotation : config.rotations()) {
+            rotation.restrictions().forEach((target, restriction) -> {
+                if (restriction.mode() == RestrictionMode.COOLDOWN && !target.supportsCooldown())
+                    throw new IllegalArgumentException("rotations." + rotation.id() + ".restrictions."
+                            + target.id() + " uses COOLDOWN without a reliable success event");
+            });
+        }
+    }
+
     public WarzoneConfig config() { return config; }
     public WarzoneRegionService region() { return region; }
     public WarzoneMessageService messages() { return messages; }
@@ -119,11 +151,16 @@ public final class WarzoneRuntime {
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 
     public int clearTrackedCobwebs() {
+        if (!region.regionResolved()) {
+            pendingWarzoneCobwebClear = true;
+            return 0;
+        }
+        pendingWarzoneCobwebClear = false;
         return temporaryBlocks.clearMatching(entry -> {
             org.bukkit.World world;
             try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(entry.worldUuid())); }
             catch (IllegalArgumentException ex) { return false; }
-            return world != null && region.contains(new Location(world, entry.x(), entry.y(), entry.z()));
+            return world != null && region.containsResolved(new Location(world, entry.x(), entry.y(), entry.z()));
         });
     }
 
