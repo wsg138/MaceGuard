@@ -123,24 +123,14 @@ public final class BlockPolicyListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPistonExtend(BlockPistonExtendEvent event) {
-        for (Block moved : event.getBlocks()) {
-            if (blocksAutomation(moved.getLocation())
-                    || blocksAutomation(moved.getRelative(event.getDirection()).getLocation())) {
-                event.setCancelled(true);
-                return;
-            }
-        }
+        if (pistonTouchesPolicy(event.getBlock(), event.getDirection(), event.getBlocks()))
+            event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPistonRetract(BlockPistonRetractEvent event) {
-        for (Block moved : event.getBlocks()) {
-            if (blocksAutomation(moved.getLocation())
-                    || blocksAutomation(moved.getRelative(event.getDirection()).getLocation())) {
-                event.setCancelled(true);
-                return;
-            }
-        }
+        if (pistonTouchesPolicy(event.getBlock(), event.getDirection(), event.getBlocks()))
+            event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -162,6 +152,19 @@ public final class BlockPolicyListener implements Listener {
         if (name == null || name.isBlank()) return Resolution.none();
         String normalized = name.trim().toLowerCase(Locale.ROOT);
         return new Resolution(normalized, config.blockPolicies().get(normalized), true);
+    }
+
+    private boolean pistonTouchesPolicy(Block piston, BlockFace direction,
+                                         Iterable<? extends Block> movedBlocks) {
+        if (blocksAutomation(piston.getLocation())
+                || blocksAutomation(piston.getRelative(direction).getLocation())) return true;
+        BlockFace opposite = direction.getOppositeFace();
+        for (Block moved : movedBlocks) {
+            if (blocksAutomation(moved.getLocation())
+                    || blocksAutomation(moved.getRelative(direction).getLocation())
+                    || blocksAutomation(moved.getRelative(opposite).getLocation())) return true;
+        }
+        return false;
     }
 
     private boolean blocksAutomation(Location location) {
