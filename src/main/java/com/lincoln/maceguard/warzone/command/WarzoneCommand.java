@@ -52,16 +52,19 @@ public final class WarzoneCommand implements TabExecutor {
         if (runtime == null) return;
         module.send(sender, "<gold>Weekly Warzone Modifiers: <meta>");
         module.send(sender, runtime.rotations().active().description());
-        module.send(sender, "<yellow>Active IDs: <white><modifiers>");
+        module.send(sender, "<yellow>Selected IDs: <white><modifiers>");
+        if (!runtime.gameplayScopeActive())
+            module.send(sender, "<red>The modifier set is selected, but gameplay scope is inactive. "
+                    + "No restrictions or positive effects are being applied.");
         module.send(sender, "<yellow>Next random transition: <white><changes_at>");
         module.send(sender, "<yellow>Time remaining: <white><time_left>");
-        restrictionLines(sender, runtime.rotations().active());
+        restrictionLines(sender, runtime.rotations().active(), runtime.gameplayScopeActive());
     }
 
     private void modifiers(CommandSender sender) {
         WarzoneRuntime runtime = requireRuntime(sender);
         if (runtime == null) return;
-        module.send(sender, "<gold>Active modifiers:");
+        module.send(sender, "<gold>Selected modifiers:");
         for (String id : runtime.rotations().active().modifierIds()) {
             WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(id);
             module.send(sender, "<yellow>" + id + "<gray>: " + modifier.description());
@@ -70,10 +73,16 @@ public final class WarzoneCommand implements TabExecutor {
 
     private void restrictions(CommandSender sender) {
         WarzoneRuntime runtime = requireRuntime(sender);
-        if (runtime != null) restrictionLines(sender, runtime.rotations().active());
+        if (runtime != null)
+            restrictionLines(sender, runtime.rotations().active(), runtime.gameplayScopeActive());
     }
 
-    private void restrictionLines(CommandSender sender, WarzoneConfig.ActiveSet active) {
+    private void restrictionLines(CommandSender sender, WarzoneConfig.ActiveSet active,
+                                  boolean scopeActive) {
+        if (!scopeActive) {
+            module.send(sender, "<yellow>Effective gameplay restrictions: <red>inactive");
+            return;
+        }
         module.send(sender, "<yellow>Disabled: <red>" + join(active, RestrictionMode.DISABLED, false));
         module.send(sender, "<yellow>Cooldowns: <gold>" + join(active, RestrictionMode.COOLDOWN, false));
         module.send(sender, "<yellow>Abilities: <gold>" + abilities(active));
@@ -120,8 +129,8 @@ public final class WarzoneCommand implements TabExecutor {
         if (runtime == null) return;
         boolean changed = force ? runtime.rotations().force() : runtime.rotations().skip();
         module.send(sender, changed
-                ? "<green>Activated a new modifier set without moving the weekly boundary: <meta>"
-                : "<yellow>The only valid combination remained active; the weekly boundary was unchanged.");
+                ? "<green>Selected a new modifier set without moving the weekly boundary: <meta>"
+                : "<yellow>The only valid combination remained selected; the weekly boundary was unchanged.");
     }
 
     private void set(CommandSender sender, String[] args) {
@@ -136,10 +145,10 @@ public final class WarzoneCommand implements TabExecutor {
                 .map(value -> value.trim().toLowerCase(Locale.ROOT))
                 .filter(value -> !value.isEmpty()).distinct().toList();
         if (!runtime.rotations().set(ids, true)) {
-            module.send(sender, "<red>That modifier set is unknown, conflicts, violates selection limits, or is already active.");
+            module.send(sender, "<red>That modifier set is unknown, conflicts, violates selection limits, or is already selected.");
             return;
         }
-        module.send(sender, "<green>Activated <meta><green>; the next weekly boundary was preserved.");
+        module.send(sender, "<green>Selected <meta><green>; the next weekly boundary was preserved.");
     }
 
     private void extend(CommandSender sender, String raw) {
@@ -163,7 +172,7 @@ public final class WarzoneCommand implements TabExecutor {
     private void debug(CommandSender sender) {
         WarzoneRuntime runtime = module.runtime();
         module.send(sender, "<gold>MaceGuard weekly warzone debug");
-        module.send(sender, "<yellow>Module enabled: <white>" + module.enabled());
+        module.send(sender, "<yellow>Configured enabled: <white>" + module.enabled());
         if (runtime == null) {
             module.send(sender, "<yellow>Runtime: <red>inactive due to invalid or missing configuration");
             module.send(sender, "<yellow>MaceGuard temporary cobwebs: <white>"
@@ -173,7 +182,7 @@ public final class WarzoneCommand implements TabExecutor {
         }
         var state = runtime.rotations().state();
         Object playerInside = sender instanceof Player player
-                ? runtime.region().contains(player.getLocation()) : "not a player";
+                ? runtime.appliesAt(player.getLocation()) : "not a player";
         List<String> lines = new ArrayList<>();
         lines.add("<yellow>Outer world/region: <white>" + runtime.region().worldName()
                 + " / " + runtime.region().regionId());
@@ -181,8 +190,10 @@ public final class WarzoneCommand implements TabExecutor {
         runtime.region().exclusionResolutionStatuses().forEach((id, status) ->
                 lines.add("<yellow>Exclusion " + id + ": <white>" + status));
         lines.add("<yellow>Effective scope resolution: <white>" + runtime.region().resolutionStatus());
+        lines.add("<yellow>Gameplay scope active: <white>" + runtime.gameplayScopeActive());
+        lines.add("<yellow>Whole-world fallback: <white>false");
         lines.add("<yellow>You are inside effective scope: <white>" + playerInside);
-        lines.add("<yellow>Active modifiers: <white>" + state.activeModifierIds());
+        lines.add("<yellow>Selected modifiers: <white>" + state.activeModifierIds());
         lines.add("<yellow>Activated: <white>"
                 + runtime.messages().formatInstant(state.activatedAtMillis()));
         lines.add("<yellow>Calendar boundary: <white>"
@@ -200,6 +211,22 @@ public final class WarzoneCommand implements TabExecutor {
         lines.add("<yellow>Scheduler active: <white>" + runtime.schedulerActive());
         lines.add("<yellow>PlaceholderAPI: <white>" + module.placeholderActive());
         lines.forEach(line -> module.send(sender, line));
+
+        if (sender instanceof Player player && module.blockPolicies() != null) {
+            var policy = module.blockPolicies().resolve(player.getLocation());
+            module.send(sender, "<yellow>Effective block policy: <white>"
+                    + (policy.referenced() ? policy.name() : "none"));
+            module.send(sender, "<yellow>Policy source: <white>region="
+                    + (policy.scopeId().isBlank() ? "none" : policy.scopeId())
+                    + ", kind=" + policy.sourceKind()
+                    + ", global=" + policy.globalSource());
+            module.send(sender, "<yellow>Named policy exists: <white>"
+                    + policy.namedPolicyExists());
+            module.send(sender, "<yellow>Schema permits enforcement: <white>"
+                    + policy.schemaAllowsEnforcement());
+            module.send(sender, "<yellow>Final policy result: <white>"
+                    + policy.finalResult());
+        }
     }
 
     private WarzoneRuntime requireRuntime(CommandSender sender) {
