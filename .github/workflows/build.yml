@@ -24,8 +24,13 @@ jobs:
           test "$(sha256sum .maceguard-repair/008-2 | awk '{print $1}')" = "f224dc3c1e19615f6611138e2b34c5e4c4badbb1c60630895395bc72af1315b9"
           test "$(sha256sum .maceguard-repair/010-0 | awk '{print $1}')" = "55179e8b21e6270165d642ab2d4a723bc59e7059df6b1f5c4996244ae47b2759"
           test "$(sha256sum .maceguard-repair/010-1 | awk '{print $1}')" = "4713a12e92560e4de90544cb447a1624c382a653b864d56eb7744809d3daa9db"
-          head -c 2660 .maceguard-repair/010-2 > /tmp/010-2
-          test "$(sha256sum /tmp/010-2 | awk '{print $1}')" = "5b4ea1bc7358f4e3e873f38956216891387d6a6602ad5a891b6a00618e274649"
+          test "$(sha256sum .maceguard-repair/010-2-00 | awk '{print $1}')" = "c8c9f70f7c5133fd3e86088d240d7c9ed043deda273bed7e220e2fe04a30b2ed"
+          test "$(sha256sum .maceguard-repair/010-2-01 | awk '{print $1}')" = "74d32921877956afd46333d0caea0fa7e035c1f4b2d004441f2f353d66590af0"
+          test "$(sha256sum .maceguard-repair/010-2-02 | awk '{print $1}')" = "49b3633c06956418273bbc22fd2839a4449370c91008900c2da84caddcfedf52"
+          test "$(sha256sum .maceguard-repair/010-2-03 | awk '{print $1}')" = "8312582ee0df83e90718c2a25f28030524594c722bcaa5fa2fc952d65eb64e72"
+          test "$(sha256sum .maceguard-repair/010-2-04 | awk '{print $1}')" = "23889bb02e1c3bd1863c6ab6284525db2352869b6701bed0a7674abb0180bea3"
+          test "$(sha256sum .maceguard-repair/010-2-05 | awk '{print $1}')" = "6775ecdcb38dfcc913a50a0a8099fcbb01be45b29c5b58dd355a4a68640afa0e"
+          test "$(sha256sum .maceguard-repair/010-2-06 | awk '{print $1}')" = "67d7c7004943c7c49d16d14c8ea74c33c56a0c4bd4a26b815e625737b3d07c17"
           {
             cat .maceguard-bundle/part-000
             cat .maceguard-bundle/part-001
@@ -37,7 +42,8 @@ jobs:
             cat .maceguard-bundle/part-007
             cat .maceguard-repair/008-0 .maceguard-repair/008-1 .maceguard-repair/008-2
             cat .maceguard-bundle/part-009
-            cat .maceguard-repair/010-0 .maceguard-repair/010-1 /tmp/010-2
+            cat .maceguard-repair/010-0 .maceguard-repair/010-1
+            cat .maceguard-repair/010-2-00 .maceguard-repair/010-2-01 .maceguard-repair/010-2-02 .maceguard-repair/010-2-03 .maceguard-repair/010-2-04 .maceguard-repair/010-2-05 .maceguard-repair/010-2-06
           } > /tmp/maceguard-patch.b64
           test "$(wc -c < /tmp/maceguard-patch.b64)" = "77660"
           test "$(sha256sum /tmp/maceguard-patch.b64 | awk '{print $1}')" = "30711be9057d07d91173c2104c3c200fdc8ccd5e4295782881944fadb817e599"
