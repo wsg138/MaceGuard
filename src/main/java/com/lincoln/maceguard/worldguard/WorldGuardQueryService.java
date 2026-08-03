@@ -52,8 +52,32 @@ public final class WorldGuardQueryService {
     }
 
     public String effectiveBlockPolicy(Location location) {
+        BlockPolicyReference reference = effectiveBlockPolicyReference(location);
+        return reference == null ? null : reference.policyName();
+    }
+
+    /**
+     * Returns both the effective string value and the region/parent that supplied it. Liquid
+     * confinement uses the source region ID so two distinct boxes with the same named policy do
+     * not become one shared liquid scope.
+     */
+    public BlockPolicyReference effectiveBlockPolicyReference(Location location) {
         if (flags.blockPolicy() == null || location.getWorld() == null) return null;
-        return query().queryValue(BukkitAdapter.adapt(location), null, flags.blockPolicy());
+        String effective = query().queryValue(BukkitAdapter.adapt(location), null, flags.blockPolicy());
+        if (effective == null || effective.isBlank()) return null;
+
+        for (ProtectedRegion region : applicableRegions(location)) {
+            for (ProtectedRegion source = region; source != null; source = source.getParent()) {
+                String direct = source.getFlag(flags.blockPolicy());
+                if (effective.equals(direct))
+                    return new BlockPolicyReference(source.getId(), effective);
+            }
+        }
+
+        // QueryState remains authoritative. This fallback is deliberately location-specific and
+        // avoids treating an unresolved source as globally shared with another region.
+        return new BlockPolicyReference("effective@" + location.getBlockX() + ":"
+                + location.getBlockY() + ":" + location.getBlockZ(), effective);
     }
 
     public List<ProtectedRegion> applicableRegions(Location location) {
@@ -73,4 +97,6 @@ public final class WorldGuardQueryService {
     private RegionQuery query() {
         return WorldGuard.getInstance().getPlatform().getRegionContainer().createQuery();
     }
+
+    public record BlockPolicyReference(String regionId, String policyName) { }
 }
