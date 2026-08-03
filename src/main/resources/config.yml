@@ -135,6 +135,8 @@ reset-profiles:
       group: WATER_FRAGILE
     restore-when-current:
       - AIR
+      - CAVE_AIR
+      - VOID_AIR
       - WATER
       - LAVA
       - WATER_FRAGILE
