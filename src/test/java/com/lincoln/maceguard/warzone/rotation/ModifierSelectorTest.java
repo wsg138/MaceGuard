@@ -9,6 +9,7 @@ import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,10 +52,42 @@ class ModifierSelectorTest {
                 selector.compose(config, List.of("mace-disabled", "mace-cooldown")));
     }
 
+    @Test void manualCompositionEnforcesConfiguredMinimumAndMaximum() {
+        ModifierSelector selector = new ModifierSelector(new java.util.Random(1L));
+        assertThrows(IllegalArgumentException.class, () ->
+                selector.compose(config(2, 3), List.of("cobwebs")));
+        assertThrows(IllegalArgumentException.class, () ->
+                selector.compose(config(1, 2),
+                        List.of("cobwebs", "no-lunge", "mace-disabled")));
+        assertDoesNotThrow(() -> selector.compose(config(2, 3),
+                List.of("cobwebs", "no-lunge")));
+        assertDoesNotThrow(() -> selector.compose(config(1, 2),
+                List.of("cobwebs", "no-lunge")));
+    }
+
+    @Test void excessiveConfiguredModifierCountFailsBeforeEnumeration() {
+        WarzoneConfig base = config(1, 3);
+        Map<String, WarzoneConfig.Modifier> modifiers = new LinkedHashMap<>();
+        for (int index = 0; index <= ModifierSelector.MAX_CONFIGURED_MODIFIERS; index++) {
+            String id = "modifier-" + index;
+            modifiers.put(id, modifier(id,
+                    Set.of(WarzoneConfig.Effect.COBWEBS), Map.of()));
+        }
+        WarzoneConfig excessive = new WarzoneConfig(base.version(), base.enabled(),
+                base.region(), base.schedule(), base.selection(), base.warningTimes(),
+                base.messages(), base.cobwebs(), base.targetPolicies(), modifiers, Map.of());
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ModifierSelector(new java.util.Random(1L))
+                        .validCombinations(excessive));
+        assertTrue(failure.getMessage().contains("at most"));
+    }
+
     static WarzoneConfig config(int minimum, int maximum) {
         RestrictionTarget mace = RestrictionTarget.parse("MACE").orElseThrow();
         Map<String, WarzoneConfig.Modifier> modifiers = Map.of(
-                "cobwebs", modifier("cobwebs", Set.of(WarzoneConfig.Effect.COBWEBS), Map.of()),
+                "cobwebs", modifier("cobwebs",
+                        Set.of(WarzoneConfig.Effect.COBWEBS), Map.of()),
                 "no-lunge", modifier("no-lunge", Set.of(), Map.of(
                         RestrictionTarget.SPEAR_LUNGE,
                         new WarzoneConfig.Restriction(RestrictionTarget.SPEAR_LUNGE,
@@ -84,9 +117,9 @@ class ModifierSelectorTest {
                 Map.of("mace-mode", Set.of("mace-disabled", "mace-cooldown")));
     }
 
-    private static WarzoneConfig.Modifier modifier(String id,
-                                                    Set<WarzoneConfig.Effect> effects,
-                                                    Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions) {
+    private static WarzoneConfig.Modifier modifier(
+            String id, Set<WarzoneConfig.Effect> effects,
+            Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions) {
         return new WarzoneConfig.Modifier(id, id, id, effects, restrictions,
                 "", "", "");
     }
