@@ -23,9 +23,17 @@ final class AutomatedProjectileLaunchTracker {
     long record(UUID worldId, int blockX, int blockY, int blockZ,
                 long serverTick, Vec3 finalDispenseVelocity,
                 long deadlineNanos) {
+        return record(worldId, blockX, blockY, blockZ, serverTick, false,
+                finalDispenseVelocity, deadlineNanos);
+    }
+
+    long record(UUID worldId, int blockX, int blockY, int blockZ,
+                long serverTick, boolean sourceInside,
+                Vec3 finalDispenseVelocity, long deadlineNanos) {
         long id = ++nextSequence;
         pending.put(id, new Pending(id, worldId, blockX, blockY, blockZ,
-                serverTick, normalize(finalDispenseVelocity), deadlineNanos));
+                serverTick, sourceInside, normalize(finalDispenseVelocity),
+                deadlineNanos));
         return id;
     }
 
@@ -116,7 +124,7 @@ final class AutomatedProjectileLaunchTracker {
     }
 
     record Match(long attemptId, UUID worldId, int blockX, int blockY,
-                 int blockZ, long serverTick) { }
+                 int blockZ, long serverTick, boolean sourceInside) { }
 
     record Vec3(double x, double y, double z) {
         static final Vec3 ZERO = new Vec3(0.0, 0.0, 0.0);
@@ -139,14 +147,15 @@ final class AutomatedProjectileLaunchTracker {
     }
 
     private record Pending(long id, UUID worldId, int blockX, int blockY,
-                           int blockZ, long serverTick, Vec3 direction,
-                           long deadlineNanos) {
+                           int blockZ, long serverTick, boolean sourceInside,
+                           Vec3 direction, long deadlineNanos) {
         Vec3 sourceCenter() {
             return new Vec3(blockX + 0.5, blockY + 0.5, blockZ + 0.5);
         }
 
         Match match() {
-            return new Match(id, worldId, blockX, blockY, blockZ, serverTick);
+            return new Match(id, worldId, blockX, blockY, blockZ, serverTick,
+                    sourceInside);
         }
     }
 }
