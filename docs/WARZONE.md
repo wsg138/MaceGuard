@@ -35,7 +35,9 @@ restriction-targets:
     can-cooldown: false
 ```
 
-A cooldown starts only after a real successful action. Pearl and Wind Charge decisions are made during `PlayerLaunchProjectileEvent`, then committed only after an uncancelled final projectile launch. Cancelled launches, failed actions, and actions cancelled by another plugin do not start cooldowns. Mace cooldowns start only after uncancelled applied damage.
+A cooldown starts only after a real successful player action. Pearl and Wind Charge decisions are made during `PlayerLaunchProjectileEvent`, then committed only after an uncancelled final projectile launch. Cancelled launches, failed spawn attempts, and actions cancelled by another plugin do not start cooldowns. Mace cooldowns start only after uncancelled applied damage.
+
+The `wind-charge-disabled` outcome also cancels a dispenser firing a Wind Charge when the dispenser source or projected launch point is inside the exact effective scope. Automated sources have no player cooldown owner, so Wind Charge cooldown outcomes intentionally allow dispensers.
 
 ## Enabled outcomes and weights
 
@@ -91,13 +93,14 @@ rotation:
 
 Selection performs bounded work:
 
-1. Roll among feasible configured modifier counts using `count-weights`.
-2. Select enabled modifiers without replacement using their relative weights.
-3. Keep only choices that can still complete a valid combination.
-4. Enforce conflict groups and conditional rules.
-5. Avoid the exact previous combination when an alternative exists.
+1. Validate every probability branch that can be rolled.
+2. Roll among feasible configured modifier counts using `count-weights`.
+3. Select enabled modifiers without replacement using their relative weights.
+4. Keep only choices that can still complete a valid combination.
+5. Enforce conflict groups and conditional rules.
+6. Avoid the exact previous combination when an alternative exists.
 
-If one weighted count cannot be filled because of conflicts, another feasible weighted count is used. Configuration validation fails when no valid combination can satisfy the minimum.
+A combination is feasible only when its modifier count has a positive configured count weight. Configuration validation rejects any enabled probability branch that has no feasible combination; startup, reload, force, restore, and natural transition never rely on a silent fallback.
 
 ## Conflict groups
 
@@ -120,6 +123,8 @@ No week or manual set can contain multiple modes for the same item.
 
 ## Elytra rarity
 
+`rotation.special-rules` currently supports only the `elytra-no-rockets` entry:
+
 ```yaml
 rotation:
   special-rules:
@@ -128,15 +133,19 @@ rotation:
       unrestricted-mace-chance-percent: 90
 ```
 
-The inclusion chance controls whether Elytra is considered for that week. When selected, gliding is allowed and firework boosting is blocked. The default unrestricted-Mace roll excludes both Mace restrictions 90% of the time; the remaining rolls apply no extra Mace exclusion.
+The inclusion chance controls whether Elytra is selected for that week. When selected, gliding is allowed and firework boosting is blocked. The default unrestricted-Mace roll selects only Elytra combinations without any modifier that restricts the `MACE` target 90% of the time; the remaining rolls apply no extra Mace exclusion.
 
 Values must be from 0 through 100:
 
-- inclusion `0`: Elytra is never selected;
-- inclusion `100`: Elytra is selected whenever a valid combination exists;
-- modifier `enabled: false`: overrides any inclusion percentage;
-- unrestricted-Mace `100`: Elytra is incompatible with both Mace restrictions;
+- inclusion `0`: at least one feasible non-Elytra combination must exist;
+- inclusion `100`: at least one feasible Elytra combination must exist;
+- inclusion `1` through `99`: both a feasible Elytra branch and a feasible non-Elytra branch must exist;
+- modifier `enabled: false`: overrides any inclusion percentage and requires a feasible non-Elytra branch;
+- unrestricted-Mace greater than `0`: at least one feasible Elytra combination without a `MACE` restriction must exist;
+- unrestricted-Mace `100`: every selected Elytra combination is Mace-unrestricted;
 - unrestricted-Mace `0`: no additional Mace preference.
+
+A custom modifier that restricts the `MACE` target counts as a Mace restriction even when its ID is not one of the bundled Mace IDs. Invalid branches are rejected by configuration validation rather than renormalized or silently ignored.
 
 All rolls use the injected random source, including tests.
 
@@ -146,7 +155,7 @@ All rolls use the injected random source, including tests.
 
 `/warzone modifiers` and `/warzone debug` display configured enabled states, weights, conflict groups, count weights, Elytra percentages, current selected IDs, and effective gameplay state.
 
-`/warzone validate` reports invalid modifier weights, all outcomes disabled, impossible minimums, invalid count weights, invalid percentages, unknown rule or conflict references, and unsupported cooldown modes.
+`/warzone validate` reports invalid modifier weights, all outcomes disabled, impossible probability branches, invalid count weights, invalid percentages, unsupported special-rule IDs, unknown conflict references, and unsupported cooldown modes.
 
 ## Placeholders
 
@@ -190,6 +199,8 @@ With the default Elytra rule, most Elytra weeks leave Maces fully unrestricted.
 
 ## Schema-4 migration
 
-Before rewriting a schema-4 file, MaceGuard creates a timestamped backup. It then preserves the explicit enabled value, scope IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, compatible modifier text/restrictions, and weekly state. New fields and outcomes receive bundled defaults.
+Before rewriting a schema-4 file, MaceGuard creates a timestamped backup. It then preserves the explicit enabled value, scope IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, built-in modifier settings, valid custom modifier definitions, conflict groups, and weekly state. New bundled fields and outcomes receive defaults.
+
+A custom schema-4 modifier receives `enabled: true` and `weight: 10` only when those fields were absent. If a custom definition or conflict group makes the migrated schema invalid, migration stops before replacing the original `warzone.yml`; the backup and validation error remain available for manual correction.
 
 If a persisted active ID is disabled or invalid after migration, a valid replacement is selected without moving its stored weekly transition boundary. Migration never creates WorldGuard regions, enables the module automatically, captures or arms reset profiles, or changes reset schedules.
