@@ -18,6 +18,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
@@ -46,6 +47,8 @@ public final class ItemRestrictionListener implements Listener {
     private final LungeVelocityGate lungeGate;
     private final ProjectileLaunchTracker projectileLaunches =
             new ProjectileLaunchTracker();
+    private final AutomatedProjectileLaunchTracker automatedLaunches =
+            new AutomatedProjectileLaunchTracker();
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
     private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
@@ -94,26 +97,55 @@ public final class ItemRestrictionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onWindChargeDispense(BlockDispenseEvent event) {
-        if (event.getItem().getType() != Material.WIND_CHARGE) return;
+        if (event.getItem().getType() != Material.WIND_CHARGE
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
         Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
-        Location launch = source.clone();
-        Vector velocity = event.getVelocity();
-        if (velocity.lengthSquared() > 1.0E-9)
-            launch.add(velocity.clone().normalize().multiply(0.75));
-        if (!AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
-                region.contains(source), region.contains(launch))) return;
-        event.setCancelled(true);
+        if (region.contains(source)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWindChargeDispenseFinalized(BlockDispenseEvent event) {
+        if (event.isCancelled() || event.getItem().getType() != Material.WIND_CHARGE
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+        automatedLaunches.record(event.getBlock().getWorld().getUID(),
+                event.getBlock().getX(), event.getBlock().getY(), event.getBlock().getZ(),
+                event.getBlock().getWorld().getServer().getCurrentTick(),
+                automatedVec(event.getVelocity()),
+                System.nanoTime() + 250_000_000L);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onAutomatedWindChargeLaunch(ProjectileLaunchEvent event) {
         Projectile projectile = event.getEntity();
         if (projectile.getType() != EntityType.WIND_CHARGE
-                || !(projectile.getShooter() instanceof BlockProjectileSource source)) return;
-        Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
-        if (!AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
-                region.contains(sourceLocation), region.contains(projectile.getLocation()))) return;
-        event.setCancelled(true);
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+
+        Location launch = projectile.getLocation();
+        if (launch.getWorld() == null) return;
+        long tick = projectile.getServer().getCurrentTick();
+        long now = System.nanoTime();
+        Object shooter = projectile.getShooter();
+
+        if (shooter instanceof BlockProjectileSource source) {
+            automatedLaunches.consumeExactSource(source.getBlock().getWorld().getUID(),
+                    source.getBlock().getX(), source.getBlock().getY(), source.getBlock().getZ(),
+                    tick, now);
+            Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
+            if (AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
+                    region.contains(sourceLocation), region.contains(launch)))
+                event.setCancelled(true);
+            return;
+        }
+
+        boolean defaultSpawnReason = projectile.getEntitySpawnReason()
+                == CreatureSpawnEvent.SpawnReason.DEFAULT;
+        if (!AutomatedProjectileRestriction.canCorrelatePending(
+                shooter == null, defaultSpawnReason)) return;
+        var match = automatedLaunches.match(launch.getWorld().getUID(), tick,
+                automatedVec(launch), automatedVec(projectile.getVelocity()), now);
+        if (match.isPresent() && AutomatedProjectileRestriction.blocksWindCharge(
+                activeSet.get(), false, region.contains(launch)))
+            event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -294,13 +326,16 @@ public final class ItemRestrictionListener implements Listener {
         lungeGate.clear();
         acceptedLunges.clear();
         projectileLaunches.clear();
+        automatedLaunches.clear();
         visualInsideState.clear();
     }
 
     public void clear() { clearTransientState(); }
 
     public void cleanup() {
-        projectileLaunches.cleanup(System.nanoTime());
+        long now = System.nanoTime();
+        projectileLaunches.cleanup(now);
+        automatedLaunches.cleanup(org.bukkit.Bukkit.getCurrentTick(), now);
         lungeGate.cleanup();
         visualCooldowns.cleanup();
     }
@@ -333,6 +368,16 @@ public final class ItemRestrictionListener implements Listener {
 
     private LungeVelocityGate.Vec3 vec(Vector vector) {
         return new LungeVelocityGate.Vec3(vector.getX(), vector.getY(), vector.getZ());
+    }
+
+    private AutomatedProjectileLaunchTracker.Vec3 automatedVec(Vector vector) {
+        return new AutomatedProjectileLaunchTracker.Vec3(
+                vector.getX(), vector.getY(), vector.getZ());
+    }
+
+    private AutomatedProjectileLaunchTracker.Vec3 automatedVec(Location location) {
+        return new AutomatedProjectileLaunchTracker.Vec3(
+                location.getX(), location.getY(), location.getZ());
     }
 
     private boolean sameBlock(Location from, Location to) {
