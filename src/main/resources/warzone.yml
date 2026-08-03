@@ -45,9 +45,6 @@ restriction-targets:
   SPEAR_LUNGE:
     can-disable: true
     can-cooldown: false
-  COBWEB:
-    can-disable: false
-    can-cooldown: false
 
 conflict-groups:
   mace-mode:
@@ -98,4 +95,4 @@ modifiers:
     effects:
       - ELYTRA_NO_ROCKETS
     restrictions: {}
-    start-message: "<aqua>Elytra gliding is active in the warzone this week; rocket boosting is disabled."
+    start-message: "<aqua>Elytra gliding is active in the warzone this week; firework boosting is disabled."
