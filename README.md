@@ -26,12 +26,12 @@ Bundled outcomes and default weights:
 | `ender-pearl-disabled` | 3 | Disables Ender Pearls. |
 | `ender-pearl-cooldown-5` | 9 | Five-second cooldown after a successful Pearl launch. |
 | `ender-pearl-cooldown-10` | 6 | Ten-second cooldown after a successful Pearl launch. |
-| `wind-charge-disabled` | 3 | Disables Wind Charges. |
-| `wind-charge-cooldown-5` | 9 | Five-second cooldown after a successful Wind Charge launch. |
-| `wind-charge-cooldown-10` | 6 | Ten-second cooldown after a successful Wind Charge launch. |
+| `wind-charge-disabled` | 3 | Disables player and dispenser Wind Charges in scope. |
+| `wind-charge-cooldown-5` | 9 | Five-second cooldown after a successful player Wind Charge launch. |
+| `wind-charge-cooldown-10` | 6 | Ten-second cooldown after a successful player Wind Charge launch. |
 | `elytra-no-rockets` | 1 | Allows gliding while blocking firework boosts. |
 
-Only one Mace, Pearl, or Wind Charge mode may be active at once. Leaving every outcome for one item disabled leaves that item unrestricted every week.
+Only one Mace, Pearl, or Wind Charge mode may be active at once. Leaving every outcome for one item disabled leaves that item unrestricted every week. Automated Wind Charge sources have no player cooldown owner, so cooldown outcomes allow dispensers while the disabled outcome cancels them in the exact effective scope.
 
 To disable one outcome:
 
@@ -43,7 +43,7 @@ modifiers:
 
 To disable an entire item category, set every outcome for that item to `enabled: false`. Do not delete sections.
 
-Elytra has an explicit default 8% weekly inclusion chance. When selected, a second deterministic rule has a 90% chance to exclude both Mace restriction modifiers, leaving Maces fully unrestricted. Both values are configurable from 0 through 100; `enabled: false` overrides the inclusion chance.
+Elytra has an explicit default 8% weekly inclusion chance. When selected, a second deterministic rule has a 90% chance to require a combination without any modifier that restricts the `MACE` target. Configuration validation proves every branch that can be rolled has a feasible count-weighted combination. Inclusion values from 1 through 99 therefore require both Elytra and non-Elytra branches, and any positive unrestricted-Mace chance requires an Elytra branch with Maces unrestricted. Invalid branches are rejected rather than silently ignored or renormalized.
 
 Example valid weeks include:
 
@@ -119,7 +119,7 @@ MaceGuard supports `FULL_SNAPSHOT` for bounded areas and `FILTERED_SNAPSHOT` for
 
 ## Migration
 
-Main configuration schema remains version 8; warzone configuration schema is version 5. Schema-4 `warzone.yml` files are backed up and migrated while preserving the explicit module enabled value, world and region IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, compatible modifier text/restrictions, and persisted weekly state. New outcome toggles, weights, count weights, Pearl/Wind definitions, conflict groups, and Elytra rules receive defaults.
+Main configuration schema remains version 8; warzone configuration schema is version 5. Schema-4 `warzone.yml` files are backed up and migrated while preserving the explicit module enabled value, world and region IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, built-in settings, valid custom modifier definitions, custom conflict groups, and persisted weekly state. Custom modifiers receive `enabled: true` and `weight: 10` only when absent. The complete migrated file is validated before replacement; an invalid custom migration leaves the original file unchanged.
 
 The migration never creates or changes WorldGuard regions, enables the module automatically, captures snapshots, arms profiles, or enables reset schedules. The standalone `plugins/WarzoneRotator` directory remains untouched for rollback.
 
