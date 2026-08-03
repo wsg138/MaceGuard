@@ -1,5 +1,7 @@
 package com.lincoln.maceguard.warzone.runtime;
 
+import com.lincoln.maceguard.warzone.config.ValidationResult;
+import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneConfigLoader;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -89,7 +91,7 @@ public final class WarzoneMigrationService {
             mergeSections(old, migrated, "restriction-targets");
             mergeSections(old, migrated, "conflict-groups");
             preserveModifierDefinitions(old, migrated);
-            saveAtomically(migrated, config);
+            saveValidatedAtomically(migrated, config);
             report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
             report.add("Migrated to schema-" + WarzoneConfigLoader.VERSION
                     + " while preserving enabled state, scope IDs, schedule, messages, cobweb settings, "
@@ -123,27 +125,50 @@ public final class WarzoneMigrationService {
             if (!migrated.contains(base)) continue;
             migrated.set(base + ".enabled", old.getBoolean(base + ".enabled", true));
             if (old.contains(base + ".weight"))
-                migrated.set(base + ".weight", old.get(base + ".weight"));
+                copyPath(old, migrated, base + ".weight");
             for (String field : SAFE_MODIFIER_FIELDS)
                 copyPath(old, migrated, base + "." + field);
         }
     }
 
-    private void mergeSections(YamlConfiguration old, YamlConfiguration migrated, String path) {
-        ConfigurationSection section = old.getConfigurationSection(path);
+    private void mergeSections(YamlConfiguration source, YamlConfiguration target, String path) {
+        ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) return;
         for (String key : section.getKeys(false))
-            migrated.set(path + "." + key, section.get(key));
+            copyPath(source, target, path + "." + key);
     }
 
     private void copyPath(YamlConfiguration source, YamlConfiguration target, String path) {
-        if (source.contains(path)) target.set(path, source.get(path));
+        if (!source.contains(path)) return;
+        ConfigurationSection section = source.getConfigurationSection(path);
+        if (section == null) {
+            target.set(path, source.get(path));
+            return;
+        }
+        target.set(path, null);
+        copySection(section, target, path);
     }
 
-    private void saveAtomically(YamlConfiguration yaml, Path target) throws IOException {
+    private void copySection(ConfigurationSection source, YamlConfiguration target,
+                             String targetPath) {
+        for (String key : source.getKeys(false)) {
+            String childPath = targetPath + "." + key;
+            ConfigurationSection child = source.getConfigurationSection(key);
+            if (child != null) copySection(child, target, childPath);
+            else target.set(childPath, source.get(key));
+        }
+    }
+
+    private void saveValidatedAtomically(YamlConfiguration yaml, Path target) throws IOException {
         Files.createDirectories(target.getParent());
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(temporary, yaml.saveToString(), StandardCharsets.UTF_8);
+        ValidationResult<WarzoneConfig> validation = new WarzoneConfigLoader().load(temporary);
+        if (!validation.valid()) {
+            Files.deleteIfExists(temporary);
+            throw new IOException("Migrated warzone.yml did not validate: "
+                    + String.join("; ", validation.errors()));
+        }
         try {
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
