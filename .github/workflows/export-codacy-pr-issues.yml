@@ -1,0 +1,27 @@
+name: Export Codacy PR Issues
+
+on:
+  push:
+    branches:
+      - agent/expanded-warzone-rotations
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Codacy PR issue details
+        run: >-
+          curl --fail --silent --show-error --location
+          --header 'Accept: application/json'
+          'https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues?limit=1000&onlyPotential=false&status=new'
+          --output codacy-pr-issues.json
+      - name: Upload issue details
+        uses: actions/upload-artifact@v4
+        with:
+          name: codacy-pr-issues
+          path: codacy-pr-issues.json
+          if-no-files-found: error
+          retention-days: 1
