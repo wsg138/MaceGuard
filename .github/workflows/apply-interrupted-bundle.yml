@@ -1,18 +1,13 @@
 name: Apply interrupted implementation bundle
 
 on:
-  push:
-    branches: [agent/weekly-warzone-modifiers]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: read
 
 jobs:
   apply:
-    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[bundle-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,54 +18,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .maceguard-bundle/part-* > /tmp/maceguard.bundle.b64
-          base64 --decode /tmp/maceguard.bundle.b64 > /tmp/maceguard.bundle.gz
-          gzip -t /tmp/maceguard.bundle.gz
+          cat .maceguard-complete/part-* > /tmp/maceguard.bundle.b64
+          test "$(sha256sum /tmp/maceguard.bundle.b64 | awk '{print $1}')" = "30711be9057d07d91173c2104c3c200fdc8ccd5e4295782881944fadb817e599"
+          base64 --decode /tmp/maceguard.bundle.b64 > /tmp/maceguard.bundle.tar.gz
+          gzip -t /tmp/maceguard.bundle.tar.gz
           mkdir -p /tmp/maceguard-unpacked
-
-          if tar -tzf /tmp/maceguard.bundle.gz >/tmp/bundle-list.txt 2>/dev/null; then
-            tar -xzf /tmp/maceguard.bundle.gz -C /tmp/maceguard-unpacked
-            patch_file="$(find /tmp/maceguard-unpacked -type f \( -name '*.patch' -o -name '*.diff' \) -print -quit)"
-            if [ -n "$patch_file" ]; then
-              git apply --index "$patch_file"
-            else
-              source_root=/tmp/maceguard-unpacked
-              top_count="$(find "$source_root" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
-              if [ "$top_count" = 1 ]; then
-                only_entry="$(find "$source_root" -mindepth 1 -maxdepth 1 -print -quit)"
-                if [ -d "$only_entry" ]; then source_root="$only_entry"; fi
-              fi
-              if [ -f "$source_root/pom.xml" ] && [ -d "$source_root/src" ]; then
-                rsync -a --delete \
-                  --exclude '.git' \
-                  --exclude '.maceguard-bundle' \
-                  --exclude '.github/workflows/apply-interrupted-bundle.yml' \
-                  "$source_root/" ./
-              else
-                rsync -a --exclude '.git' "$source_root/" ./
-              fi
-            fi
-          else
-            gzip -dc /tmp/maceguard.bundle.gz > /tmp/maceguard.payload
-            if tar -tf /tmp/maceguard.payload >/tmp/bundle-list.txt 2>/dev/null; then
-              tar -xf /tmp/maceguard.payload -C /tmp/maceguard-unpacked
-              rsync -a --exclude '.git' /tmp/maceguard-unpacked/ ./
-            elif grep -qE '^(diff --git|--- )' /tmp/maceguard.payload; then
-              git apply --index /tmp/maceguard.payload
-            else
-              echo 'Unsupported interrupted bundle format.' >&2
-              file /tmp/maceguard.payload >&2
-              head -c 200 /tmp/maceguard.payload | xxd >&2
-              exit 1
-            fi
-          fi
-
-          rm -rf .maceguard-bundle .github/workflows/apply-interrupted-bundle.yml
+          tar -xzf /tmp/maceguard.bundle.tar.gz -C /tmp/maceguard-unpacked
+          rsync -a --exclude '.git' /tmp/maceguard-unpacked/ ./
+          rm -rf .maceguard-bundle .maceguard-complete .github/workflows/apply-interrupted-bundle.yml
           git add -A
-          if git diff --cached --quiet; then
-            echo 'Bundle contained no source changes.' >&2
-            exit 1
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Implement weekly warzone modifiers [bundle-applied]'
