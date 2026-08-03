@@ -64,7 +64,8 @@ public final class WarzoneRuntime {
         this.pendingCobwebClearMarker = plugin.getDataFolder().toPath().resolve("state")
                 .resolve("warzone-cobweb-clear.pending");
         this.pendingWarzoneCobwebClear = Files.exists(pendingCobwebClearMarker);
-        this.region = new WarzoneRegionService(config.region(), plugin.getLogger());
+        this.region = new WarzoneRegionService(config.region(),
+                config.enabled() ? plugin.getLogger() : null);
         this.messages = new WarzoneMessageService(clock, region, config, templates);
         this.cooldowns = new CooldownService(clock::millis);
         this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis,
@@ -109,10 +110,17 @@ public final class WarzoneRuntime {
         if (pluginDisable && config.cobwebs().clearOnDisable()) clearTrackedCobwebs();
     }
 
+    public boolean gameplayScopeActive() {
+        return config.enabled() && region.fullyResolved();
+    }
+
+    public boolean appliesAt(Location location) {
+        return gameplayScopeActive() && region.contains(location);
+    }
+
     public CobwebDecision cobwebDecision(Player player, Location location) {
-        if (!config.enabled() || player.hasPermission("warzonerotator.bypass"))
+        if (!appliesAt(location) || player.hasPermission("warzonerotator.bypass"))
             return CobwebDecision.permit();
-        if (!region.contains(location)) return CobwebDecision.permit();
         if (!rotations.active().cobwebsAllowed()) return CobwebDecision.unavailable();
         RestrictionDecision restriction = restrictions.material(player.getUniqueId(), Material.COBWEB,
                 false, true, false);
@@ -121,6 +129,7 @@ public final class WarzoneRuntime {
     }
 
     public void successfulCobweb(Player player, RestrictionDecision decision) {
+        if (!gameplayScopeActive()) return;
         restrictions.success(player.getUniqueId(), decision);
         visualCooldowns.apply(player, decision);
     }
@@ -130,13 +139,14 @@ public final class WarzoneRuntime {
         else if (decision.restriction() != null) messages.denial(player, decision.restriction());
     }
 
-    private void transition(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current, boolean announce) {
+    private void transition(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current,
+                            boolean announce) {
         restrictionListener.clearTransientState();
         visualCooldowns.clearOwned();
         cooldowns.clear();
         if (previous.cobwebsAllowed() && !current.cobwebsAllowed()
                 && config.cobwebs().clearOnMetaChange()) clearTrackedCobwebs();
-        if (!announce) return;
+        if (!announce || !gameplayScopeActive()) return;
 
         Set<String> removed = new LinkedHashSet<>(previous.modifierIds());
         removed.removeAll(current.modifierIds());
@@ -159,6 +169,7 @@ public final class WarzoneRuntime {
     }
 
     private void warning(WarzoneConfig.ActiveSet active, Duration remaining) {
+        if (!gameplayScopeActive()) return;
         String template = active.modifierIds().stream().map(config.modifiers()::get)
                 .filter(java.util.Objects::nonNull).map(WarzoneConfig.Modifier::warningMessage)
                 .filter(value -> value != null && !value.isBlank()).findFirst()
