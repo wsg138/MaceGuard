@@ -277,38 +277,36 @@ public final class WarzoneConfigLoader {
         Map<String, WarzoneConfig.Modifier> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : raw.entrySet()) {
             String id = entry.getKey();
-            String path = "modifiers." + id;
-            if (!ID.matcher(id).matches()) errors.add(path + " has an invalid ID.");
-            Map<String, Object> section = map(entry.getValue(), path, errors);
-            keys(section, path, Set.of("enabled", "weight", "display-name", "description", "effects",
-                    "restrictions", "start-message", "end-message", "warning-message"), errors);
-            boolean enabled = bool(section.getOrDefault("enabled", Boolean.TRUE),
-                    path + ".enabled", errors, true);
-            int weight = integer(section.getOrDefault("weight", 10), path + ".weight", errors, 10);
-            if (enabled && weight <= 0) errors.add(path + ".weight must be a positive integer while enabled.");
-            String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
-            String description = nonBlank(section.get("description"), path + ".description", errors);
-            Set<WarzoneConfig.Effect> effects = effectSet(section.getOrDefault("effects", List.of()),
-                    path + ".effects", errors);
-            Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions = parseRestrictions(
-                    map(section.getOrDefault("restrictions", Map.of()), path + ".restrictions", errors),
-                    path + ".restrictions", policies, errors);
-            String start = optionalString(section.get("start-message"), path + ".start-message", errors);
-            String end = optionalString(section.get("end-message"), path + ".end-message", errors);
-            String warning = optionalString(section.get("warning-message"), path + ".warning-message", errors);
-            if (effects.isEmpty() && restrictions.isEmpty())
-                errors.add(path + " must define at least one effect or restriction.");
-            result.put(id, modifier(id, enabled, weight, display, description,
-                    effects, restrictions, start, end, warning));
+            result.put(id, parseModifier(id, entry.getValue(), policies, errors));
         }
         return Map.copyOf(result);
     }
 
-    private WarzoneConfig.Modifier modifier(
-            String id, boolean enabled, int weight, String display,
-            String description, Set<WarzoneConfig.Effect> effects,
-            Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions,
-            String start, String end, String warning) {
+    private WarzoneConfig.Modifier parseModifier(
+            String id, Object raw,
+            Map<RestrictionTarget, WarzoneConfig.TargetPolicy> policies,
+            List<String> errors) {
+        String path = "modifiers." + id;
+        if (!ID.matcher(id).matches()) errors.add(path + " has an invalid ID.");
+        Map<String, Object> section = map(raw, path, errors);
+        keys(section, path, Set.of("enabled", "weight", "display-name", "description", "effects",
+                "restrictions", "start-message", "end-message", "warning-message"), errors);
+        boolean enabled = bool(section.getOrDefault("enabled", Boolean.TRUE),
+                path + ".enabled", errors, true);
+        int weight = integer(section.getOrDefault("weight", 10), path + ".weight", errors, 10);
+        if (enabled && weight <= 0) errors.add(path + ".weight must be a positive integer while enabled.");
+        String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
+        String description = nonBlank(section.get("description"), path + ".description", errors);
+        Set<WarzoneConfig.Effect> effects = effectSet(section.getOrDefault("effects", List.of()),
+                path + ".effects", errors);
+        Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions = parseRestrictions(
+                map(section.getOrDefault("restrictions", Map.of()), path + ".restrictions", errors),
+                path + ".restrictions", policies, errors);
+        String start = optionalString(section.get("start-message"), path + ".start-message", errors);
+        String end = optionalString(section.get("end-message"), path + ".end-message", errors);
+        String warning = optionalString(section.get("warning-message"), path + ".warning-message", errors);
+        if (effects.isEmpty() && restrictions.isEmpty())
+            errors.add(path + " must define at least one effect or restriction.");
         return new WarzoneConfig.Modifier(id, enabled, weight, display,
                 description, effects, restrictions, start, end, warning);
     }

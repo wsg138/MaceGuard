@@ -18,6 +18,7 @@ class WarzoneStatusValuesTest {
     private static final String DISABLED = "Disabled";
     private static final String FALSE = "false";
     private static final String TRUE = "true";
+    private static final String MACE_STATUS = "mace_status";
     private static final String PEARL_STATUS = "ender_pearl_status";
     private static final String WIND_STATUS = "wind_charge_status";
     private static final RestrictionTarget MACE = target("MACE");
@@ -26,7 +27,7 @@ class WarzoneStatusValuesTest {
 
     @Test void allowedStateCoversEveryHumanAndMachinePlaceholder() {
         WarzoneConfig.ActiveSet active = active(Set.of(), Map.of());
-        assertEquals(ALLOWED, value("mace_status", true, active));
+        assertEquals(ALLOWED, value(MACE_STATUS, true, active));
         assertEquals(ALLOWED, value(PEARL_STATUS, true, active));
         assertEquals(ALLOWED, value(WIND_STATUS, true, active));
         assertEquals(ALLOWED, value("spear_lunge_status", true, active));
@@ -51,7 +52,7 @@ class WarzoneStatusValuesTest {
                 RestrictionTarget.SPEAR_LUNGE,
                 restriction(RestrictionTarget.SPEAR_LUNGE,
                         RestrictionMode.DISABLED, null)));
-        assertEquals(DISABLED, value("mace_status", true, active));
+        assertEquals(DISABLED, value(MACE_STATUS, true, active));
         assertEquals(DISABLED, value(PEARL_STATUS, true, active));
         assertEquals(DISABLED, value(WIND_STATUS, true, active));
         assertEquals(DISABLED, value("spear_lunge_status", true, active));
@@ -69,7 +70,7 @@ class WarzoneStatusValuesTest {
                         Duration.ofSeconds(5)),
                 WIND, restriction(WIND, RestrictionMode.COOLDOWN,
                         Duration.ofSeconds(10))));
-        assertEquals("10s cooldown", value("mace_status", true, active));
+        assertEquals("10s cooldown", value(MACE_STATUS, true, active));
         assertEquals("5s cooldown", value(PEARL_STATUS, true, active));
         assertEquals("10s cooldown", value(WIND_STATUS, true, active));
         assertEquals("10", value("mace_cooldown_seconds", true, active));

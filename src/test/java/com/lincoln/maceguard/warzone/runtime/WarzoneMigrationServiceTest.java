@@ -131,13 +131,13 @@ class WarzoneMigrationServiceTest {
     }
 
     private YamlConfiguration bundledDefaults() {
-        InputStream stream = WarzoneMigrationServiceTest.class
-                .getResourceAsStream("/warzone.yml");
-        assertNotNull(stream, "Bundled warzone.yml must be available to tests.");
-        try (stream;
-             InputStreamReader reader = new InputStreamReader(
-                     stream, StandardCharsets.UTF_8)) {
-            return YamlConfiguration.loadConfiguration(reader);
+        try (InputStream stream = WarzoneMigrationServiceTest.class
+                .getResourceAsStream("/warzone.yml")) {
+            assertNotNull(stream, "Bundled warzone.yml must be available to tests.");
+            try (InputStreamReader reader = new InputStreamReader(
+                    stream, StandardCharsets.UTF_8)) {
+                return YamlConfiguration.loadConfiguration(reader);
+            }
         } catch (IOException ex) {
             throw new AssertionError(ex);
         }

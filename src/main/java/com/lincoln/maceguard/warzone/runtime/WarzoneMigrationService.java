@@ -117,12 +117,12 @@ public final class WarzoneMigrationService {
     }
 
     private YamlConfiguration bundledDefaults() throws IOException {
-        InputStream stream = plugin.getResource("warzone.yml");
-        if (stream == null) throw new IOException("Bundled warzone.yml is missing.");
-        try (stream;
-             InputStreamReader reader = new InputStreamReader(
-                     stream, StandardCharsets.UTF_8)) {
-            return YamlConfiguration.loadConfiguration(reader);
+        try (InputStream stream = plugin.getResource("warzone.yml")) {
+            if (stream == null) throw new IOException("Bundled warzone.yml is missing.");
+            try (InputStreamReader reader = new InputStreamReader(
+                    stream, StandardCharsets.UTF_8)) {
+                return YamlConfiguration.loadConfiguration(reader);
+            }
         }
     }
 
