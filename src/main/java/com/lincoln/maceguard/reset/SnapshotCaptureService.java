@@ -8,8 +8,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
+import java.util.logging.Level;
 
 public final class SnapshotCaptureService {
     private final JavaPlugin plugin;
@@ -26,7 +27,8 @@ public final class SnapshotCaptureService {
     public void capture(World world, RegionDescriptor region, ResetProfile profile,
                         CoordinateExclusion excluded, Consumer<CaptureResult> callback) {
         if (region.volume() > profile.maxCoordinates()) {
-            callback.accept(CaptureResult.failure("region scan volume exceeds profile safety limit"));
+            callback.accept(CaptureResult.failure(
+                    "region scan volume exceeds profile safety limit"));
             return;
         }
         long started = System.currentTimeMillis();
@@ -55,12 +57,19 @@ public final class SnapshotCaptureService {
                             } else if (profile.mode() == ResetProfile.Mode.FILTERED_SNAPSHOT
                                     && profile.captureMaterials().contains(block.getType())) {
                                 SnapshotBlock captured = codec.capture(block);
-                                blocks.add(new SnapshotBlock(captured.x(), captured.y(), captured.z(),
-                                        captured.blockData(), null));
+                                if (captured.blockEntity() != null) {
+                                    cancel();
+                                    callback.accept(CaptureResult.failure(
+                                            "filtered capture refused block entity at "
+                                                    + captured.x() + "," + captured.y() + ","
+                                                    + captured.z()));
+                                    return;
+                                }
+                                blocks.add(captured);
                                 if (blocks.size() > profile.maxCapturedCoordinates()) {
                                     cancel();
-                                    callback.accept(CaptureResult.failure("filtered capture exceeded "
-                                            + "max-captured-coordinates"));
+                                    callback.accept(CaptureResult.failure(
+                                            "filtered capture exceeded max-captured-coordinates"));
                                     return;
                                 }
                             }
@@ -72,21 +81,12 @@ public final class SnapshotCaptureService {
                         List<SnapshotBlock> completeBlocks = List.copyOf(blocks);
                         long completed = System.currentTimeMillis();
                         long scanCount = scanned;
-                        io.execute(() -> {
-                            String checksum = SnapshotChecksum.calculate(completeBlocks);
-                            Snapshot snapshot = new Snapshot(Snapshot.FORMAT_VERSION, pluginVersion,
-                                    region.id(), region.worldName(), region.worldUuid().toString(),
-                                    region.type(), region, region.geometryHash(), profile.name(),
-                                    profile.mode().name(), started, completed, true, scanCount,
-                                    completeBlocks.size(), completeBlocks.size(), checksum,
-                                    completeBlocks);
-                            plugin.getServer().getScheduler().runTask(plugin,
-                                    () -> callback.accept(CaptureResult.success(snapshot)));
-                        });
+                        io.execute(() -> finalizeCapture(region, profile, pluginVersion,
+                                started, completed, scanCount, completeBlocks, callback));
                     }
                 } catch (RuntimeException ex) {
                     cancel();
-                    callback.accept(CaptureResult.failure(ex.getMessage()));
+                    callback.accept(CaptureResult.failure(message(ex)));
                 }
             }
 
@@ -100,6 +100,45 @@ public final class SnapshotCaptureService {
                 }
             }
         }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    private void finalizeCapture(RegionDescriptor region, ResetProfile profile,
+                                 String pluginVersion, long started, long completed,
+                                 long scanCount, List<SnapshotBlock> completeBlocks,
+                                 Consumer<CaptureResult> callback) {
+        CaptureResult result;
+        try {
+            String checksum = SnapshotChecksum.calculate(completeBlocks);
+            result = CaptureResult.success(new Snapshot(Snapshot.FORMAT_VERSION,
+                    pluginVersion, region.id(), region.worldName(),
+                    region.worldUuid().toString(), region.type(), region,
+                    region.geometryHash(), profile.name(), profile.mode().name(),
+                    started, completed, true, scanCount, completeBlocks.size(),
+                    completeBlocks.size(), checksum, completeBlocks));
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.SEVERE,
+                    "Snapshot assembly failed for region " + region.id(), ex);
+            result = CaptureResult.failure("snapshot assembly failed: " + message(ex));
+        }
+        deliver(callback, result);
+    }
+
+    private void deliver(Consumer<CaptureResult> callback, CaptureResult result) {
+        try {
+            plugin.getServer().getScheduler().runTask(plugin,
+                    () -> callback.accept(result));
+        } catch (RuntimeException ex) {
+            plugin.getLogger().log(Level.SEVERE,
+                    "Could not schedule snapshot completion callback; releasing capture directly",
+                    ex);
+            callback.accept(CaptureResult.failure(
+                    "snapshot completion dispatch failed: " + message(ex)));
+        }
+    }
+
+    private String message(RuntimeException ex) {
+        return ex.getMessage() == null || ex.getMessage().isBlank()
+                ? ex.getClass().getSimpleName() : ex.getMessage();
     }
 
     @FunctionalInterface
