@@ -22,12 +22,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '5846ec32d556b269cfdf4dff71c7f57bb0a074c1e7df34d6725b2ca93bd004a1  .github/final-codacy-fixes.part00' | sha256sum --check --strict
-          echo 'be404215522e6a020828c6b06fa6e4c00387b3c23b1bebb6b7622fc8087b1a7c  .github/final-codacy-fixes.part01' | sha256sum --check --strict
-          cat .github/final-codacy-fixes.part00 .github/final-codacy-fixes.part01 | base64 --decode > /tmp/final-codacy-fixes.tar.gz
+          cat <<'CHECKSUMS' | sha256sum --check --strict
+          e1fb4be5d42cde10f449856f9f949bf32da347984e01836628e66d8aea435d1c  .github/final-codacy.chunk00
+          8c273da9b8426ed9746bb57ef56ebc68de794cb6e1bbb8dde62fcc6fe6fe269d  .github/final-codacy.chunk01
+          d2f0859e4855905350a345a53920925675009b1ba77faae68a8cc4395d939de2  .github/final-codacy.chunk02
+          329e6e14286c51c5d0767c3c65c39c51643701c9ce7491f5ab23ee94311ecf8f  .github/final-codacy.chunk03
+          be404215522e6a020828c6b06fa6e4c00387b3c23b1bebb6b7622fc8087b1a7c  .github/final-codacy.chunk04
+          CHECKSUMS
+          cat .github/final-codacy.chunk00 .github/final-codacy.chunk01 .github/final-codacy.chunk02 .github/final-codacy.chunk03 .github/final-codacy.chunk04 | base64 --decode > /tmp/final-codacy-fixes.tar.gz
           echo '51fc7410931bce7a562e0319cce7fcb3a7b80f0de0ade8c0c1b0941a2257db31  /tmp/final-codacy-fixes.tar.gz' | sha256sum --check --strict
           tar -xzf /tmp/final-codacy-fixes.tar.gz -C .
           rm .github/final-codacy-fixes.part00 .github/final-codacy-fixes.part01
+          rm .github/final-codacy.chunk00 .github/final-codacy.chunk01 .github/final-codacy.chunk02 .github/final-codacy.chunk03 .github/final-codacy.chunk04
           rm .github/workflows/export-codacy-pr-issues.yml
 
           git config user.name 'github-actions[bot]'
