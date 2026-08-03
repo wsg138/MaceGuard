@@ -13,8 +13,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockDispenseEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
@@ -85,6 +86,19 @@ public final class ItemRestrictionListener implements Listener {
             pendingProjectiles.put(event.getProjectile().getUniqueId(),
                     new PendingProjectile(event.getPlayer().getUniqueId(), decision,
                             System.nanoTime() + 5_000_000_000L));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onWindChargeDispense(BlockDispenseEvent event) {
+        if (event.getItem().getType() != Material.WIND_CHARGE) return;
+        Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        Location launch = source.clone();
+        Vector velocity = event.getVelocity();
+        if (velocity.lengthSquared() > 1.0E-9)
+            launch.add(velocity.clone().normalize().multiply(0.75));
+        if (!AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
+                region.contains(source), region.contains(launch))) return;
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
