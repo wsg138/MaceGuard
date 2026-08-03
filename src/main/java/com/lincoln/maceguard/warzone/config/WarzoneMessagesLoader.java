@@ -6,8 +6,10 @@ import java.util.Map;
 import java.util.Set;
 
 public final class WarzoneMessagesLoader {
-    private static final Set<String> KEYS = Set.of("item-disabled", "item-cooldown", "ability-disabled",
-            "ability-cooldown", "cobweb-unavailable", "rotation-warning");
+    private static final Set<String> KEYS = Set.of(
+            "item-disabled", "item-cooldown", "ability-disabled",
+            "ability-cooldown", "cobweb-unavailable", "elytra-unavailable",
+            "firework-unavailable", "rotation-warning");
 
     public ValidationResult<WarzoneMessages> load(Path file) {
         ValidationResult<Map<String, Object>> parsed = StrictYaml.load(file);
@@ -25,14 +27,21 @@ public final class WarzoneMessagesLoader {
                 "<red><ability> is on cooldown for <white><cooldown_remaining><red>.", errors);
         String cobweb = text(parsed.value(), "cobweb-unavailable",
                 "<red>Cobwebs are unavailable during <white><meta><red>.", errors);
+        String elytra = text(parsed.value(), "elytra-unavailable",
+                "<red>Elytra gliding is not active in the warzone this week.", errors);
+        String firework = text(parsed.value(), "firework-unavailable",
+                "<red>Firework boosting is disabled in the warzone this week.", errors);
         String warning = text(parsed.value(), "rotation-warning",
-                "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>.", errors);
+                "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>.",
+                errors);
         if (!errors.isEmpty()) return ValidationResult.invalid(errors);
-        return new ValidationResult<>(new WarzoneMessages(disabled, cooldown, abilityDisabled,
-                abilityCooldown, cobweb, warning), java.util.List.of(), java.util.List.of());
+        return new ValidationResult<>(new WarzoneMessages(disabled, cooldown,
+                abilityDisabled, abilityCooldown, cobweb, elytra, firework, warning),
+                java.util.List.of(), java.util.List.of());
     }
 
-    private String text(Map<String, Object> root, String key, String fallback, java.util.List<String> errors) {
+    private String text(Map<String, Object> root, String key, String fallback,
+                        java.util.List<String> errors) {
         Object value = root.get(key);
         if (value == null) return fallback;
         if (value instanceof String text && !text.isBlank()) return text;
