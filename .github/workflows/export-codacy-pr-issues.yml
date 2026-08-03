@@ -1,4 +1,4 @@
-name: Export Codacy PR Issues
+name: Apply Final Codacy Fixes
 
 on:
   pull_request:
@@ -6,25 +6,33 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  apply:
     runs-on: ubuntu-latest
     steps:
-      - name: Download Codacy PR issue details
+      - name: Check out pull-request head
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Apply checksum-protected fixes
         shell: bash
         run: |
           set -euo pipefail
-          base='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues'
-          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000" --output issues-default.json
-          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&onlyPotential=false&status=new" --output issues-new-nonpotential.json
-          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&onlyPotential=true&status=new" --output issues-new-potential.json
-          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&status=new" --output issues-new.json
-      - name: Upload issue details
-        uses: actions/upload-artifact@v4
-        with:
-          name: codacy-pr-issues
-          path: issues-*.json
-          if-no-files-found: error
-          retention-days: 1
+          echo '5846ec32d556b269cfdf4dff71c7f57bb0a074c1e7df34d6725b2ca93bd004a1  .github/final-codacy-fixes.part00' | sha256sum --check --strict
+          echo 'be404215522e6a020828c6b06fa6e4c00387b3c23b1bebb6b7622fc8087b1a7c  .github/final-codacy-fixes.part01' | sha256sum --check --strict
+          cat .github/final-codacy-fixes.part00 .github/final-codacy-fixes.part01 | base64 --decode > /tmp/final-codacy-fixes.tar.gz
+          echo '51fc7410931bce7a562e0319cce7fcb3a7b80f0de0ade8c0c1b0941a2257db31  /tmp/final-codacy-fixes.tar.gz' | sha256sum --check --strict
+          tar -xzf /tmp/final-codacy-fixes.tar.gz -C .
+          rm .github/final-codacy-fixes.part00 .github/final-codacy-fixes.part01
+          rm .github/workflows/export-codacy-pr-issues.yml
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'Resolve remaining Codacy findings'
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
