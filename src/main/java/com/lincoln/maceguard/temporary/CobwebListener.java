@@ -36,6 +36,7 @@ public final class CobwebListener implements Listener {
         PolicyDecision policy = policy(location);
         if (policy.referenced()) {
             boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
+                    && worldGuard.cobwebsAllowed(location, event.getPlayer())
                     && policy.policy() != null
                     && policy.policy().place().allows(Material.COBWEB);
             if (!allowed) event.setCancelled(true);
@@ -66,7 +67,9 @@ public final class CobwebListener implements Listener {
         boolean warzoneApplies = warzone.appliesAt(location);
 
         if (policy.referenced()) {
-            if (!policyOverride || !worldGuard.buildAllowed(location, event.getPlayer())) return;
+            if (!policyOverride
+                    || !worldGuard.buildAllowed(location, event.getPlayer())
+                    || !worldGuard.cobwebsAllowed(location, event.getPlayer())) return;
         } else {
             var decision = warzone.cobwebDecision(event.getPlayer(), location);
             if (!warzoneApplies
