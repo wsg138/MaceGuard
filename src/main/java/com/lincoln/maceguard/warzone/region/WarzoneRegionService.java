@@ -75,20 +75,21 @@ public final class WarzoneRegionService {
         boolean fullyResolved = "resolved".equals(outerStatus)
                 && exclusionStatuses.values().stream().allMatch("resolved"::equals);
         String resolutionStatus = fullyResolved
-                ? "resolved" : "unresolved; effective scope disabled";
+                ? "resolved; effective scope active"
+                : "unresolved; effective scope inactive";
         return new ResolvedState(settings, world, outer, Map.copyOf(exclusions),
                 Map.copyOf(exclusionStatuses), outerStatus, resolutionStatus,
                 fullyResolved);
     }
 
     private void publish(ResolvedState next, String previousStatus) {
-        reportStatusChange(previousStatus, next.resolutionStatus());
+        reportStatusChange(previousStatus, next);
         state = next;
     }
 
     /**
      * Returns true only for the exact configured WorldGuard scope. Missing outer or exclusion
-     * regions disable the scope rather than broadening restrictions to the world.
+     * regions make the effective scope inactive rather than broadening restrictions to the world.
      */
     public boolean contains(Location location) {
         return containsResolved(location);
@@ -96,15 +97,12 @@ public final class WarzoneRegionService {
 
     public boolean containsResolved(Location location) {
         ResolvedState live = state;
-        boolean configuredWorld = inConfiguredWorld(location, live);
+        if (!live.fullyResolved() || !inConfiguredWorld(location, live)) return false;
         int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
-        boolean outerResolved = live.outer() != null;
-        boolean exclusionsResolved = live.fullyResolved() && outerResolved;
-        boolean insideOuter = outerResolved && live.outer().contains(x, y, z);
+        boolean insideOuter = live.outer().contains(x, y, z);
         boolean insideExcluded = live.exclusions().values().stream()
                 .anyMatch(excluded -> excluded.contains(x, y, z));
-        return EffectiveScopeDecision.contains(configuredWorld, outerResolved,
-                exclusionsResolved, insideOuter, insideExcluded);
+        return EffectiveScopeDecision.contains(true, true, true, insideOuter, insideExcluded);
     }
 
     public boolean insideOuterResolved(Location location) {
@@ -116,7 +114,7 @@ public final class WarzoneRegionService {
 
     public String exclusionAt(Location location) {
         ResolvedState live = state;
-        if (!inConfiguredWorld(location, live)) return null;
+        if (!live.fullyResolved() || !inConfiguredWorld(location, live)) return null;
         for (Map.Entry<String, ProtectedRegion> entry : live.exclusions().entrySet()) {
             if (entry.getValue().contains(location.getBlockX(), location.getBlockY(),
                     location.getBlockZ())) return entry.getKey();
@@ -136,15 +134,24 @@ public final class WarzoneRegionService {
         return locationWorld.getName().equals(live.settings().world());
     }
 
-    private void reportStatusChange(String previousStatus, String nextStatus) {
-        if (logger == null || Objects.equals(nextStatus, previousStatus)) return;
-        if ("resolved".equals(nextStatus)) {
+    private void reportStatusChange(String previousStatus, ResolvedState next) {
+        if (logger == null || Objects.equals(next.resolutionStatus(), previousStatus)) return;
+        if (next.fullyResolved()) {
             if (!"not checked".equals(previousStatus))
-                logger.info("Warzone effective scope is resolved again.");
-        } else {
-            logger.warning("Warzone effective scope is unresolved; restrictions and positive "
-                    + "behavior are disabled rather than broadened beyond WorldGuard geometry.");
+                logger.info("Warzone effective scope resolved again. Exact WorldGuard gameplay "
+                        + "scope is active.");
+            return;
         }
+        String unresolvedExclusions = next.exclusionStatuses().entrySet().stream()
+                .filter(entry -> !"resolved".equals(entry.getValue()))
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(java.util.stream.Collectors.joining(", "));
+        logger.warning("Warzone effective scope is inactive: world='"
+                + next.settings().world() + "', outer='" + next.settings().id() + "'="
+                + next.outerStatus() + (unresolvedExclusions.isEmpty() ? ""
+                : ", exclusions={" + unresolvedExclusions + "}")
+                + ". No restrictions or positive warzone effects are active, and no world-wide "
+                + "fallback is being applied.");
     }
 
     public boolean worldLoaded() { return state.world() != null; }
