@@ -1,6 +1,7 @@
 package com.lincoln.maceguard.warzone.rotation;
 
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
+import com.lincoln.maceguard.warzone.restriction.RestrictionTarget;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,7 +16,8 @@ public final class ModifierSelector {
     public static final int MAX_CONFIGURED_MODIFIERS = 24;
     public static final int MAX_VALID_COMBINATIONS = 100_000;
     private static final String ELYTRA = "elytra-no-rockets";
-    private static final Set<String> MACE_MODES = Set.of("mace-disabled", "mace-cooldown");
+    private static final RestrictionTarget MACE =
+            RestrictionTarget.parse("MACE").orElseThrow();
 
     private final RandomGenerator random;
 
@@ -39,11 +41,11 @@ public final class ModifierSelector {
         if (includeElytra && elytraRule.unrestrictedMaceChancePercent() > 0
                 && percent(elytraRule.unrestrictedMaceChancePercent())) {
             List<List<String>> unrestricted = eligible.stream()
-                    .filter(candidate -> candidate.stream().noneMatch(MACE_MODES::contains))
+                    .filter(candidate -> !restrictsMace(config, candidate))
                     .toList();
-            if (!unrestricted.isEmpty()) eligible = unrestricted;
-            else if (elytraRule.unrestrictedMaceChancePercent() == 100)
-                throw new IllegalStateException("Elytra requires unrestricted Maces, but no valid combination exists.");
+            if (unrestricted.isEmpty())
+                throw new IllegalStateException("Elytra requires an unrestricted-Mace branch, but no valid combination exists.");
+            eligible = unrestricted;
         }
 
         if (config.selection().preventIdenticalRepeat() && eligible.size() > 1) {
@@ -75,7 +77,7 @@ public final class ModifierSelector {
             throw new IllegalArgumentException("Selected modifier count must be between "
                     + minimum + " and " + maximum + ".");
         }
-        Map<com.lincoln.maceguard.warzone.restriction.RestrictionTarget, WarzoneConfig.Restriction> restrictions =
+        Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions =
                 new LinkedHashMap<>();
         Set<WarzoneConfig.Effect> effects = new LinkedHashSet<>();
         List<String> displays = new ArrayList<>();
@@ -118,39 +120,51 @@ public final class ModifierSelector {
     }
 
     public List<List<String>> selectableCombinations(WarzoneConfig config) {
+        validateSpecialRuleSurface(config);
         List<List<String>> combinations = validCombinations(config);
         WarzoneConfig.SpecialRule rule = config.specialRules().get(ELYTRA);
         WarzoneConfig.Modifier modifier = config.modifiers().get(ELYTRA);
-        if (modifier == null || !modifier.enabled() || rule == null
-                || rule.weeklyInclusionChancePercent() == 0) {
-            combinations = combinations.stream().filter(value -> !value.contains(ELYTRA)).toList();
-        } else if (rule.weeklyInclusionChancePercent() == 100) {
-            combinations = combinations.stream().filter(value -> value.contains(ELYTRA)).toList();
+        boolean enabled = modifier != null && modifier.enabled();
+        int inclusion = enabled && rule != null
+                ? rule.weeklyInclusionChancePercent() : 0;
+
+        List<List<String>> withElytra = combinations.stream()
+                .filter(value -> value.contains(ELYTRA)).toList();
+        List<List<String>> withoutElytra = combinations.stream()
+                .filter(value -> !value.contains(ELYTRA)).toList();
+
+        if (inclusion == 0) {
+            requireFeasibleBranch(config, withoutElytra,
+                    "No selectable non-Elytra combination exists while Elytra inclusion is disabled.");
+            return withoutElytra;
         }
-        if (rule != null && rule.unrestrictedMaceChancePercent() == 100) {
-            combinations = combinations.stream()
-                    .filter(value -> !value.contains(ELYTRA)
-                            || value.stream().noneMatch(MACE_MODES::contains))
-                    .toList();
+
+        requireFeasibleBranch(config, withElytra,
+                "No selectable Elytra combination exists for the configured inclusion chance.");
+        if (inclusion < 100) {
+            requireFeasibleBranch(config, withoutElytra,
+                    "No selectable non-Elytra combination exists for the configured inclusion chance.");
         }
-        return combinations;
+
+        List<List<String>> unrestrictedElytra = withElytra;
+        if (rule.unrestrictedMaceChancePercent() > 0) {
+            unrestrictedElytra = withElytra.stream()
+                    .filter(value -> !restrictsMace(config, value)).toList();
+            requireFeasibleBranch(config, unrestrictedElytra,
+                    "No selectable Elytra combination leaves Maces unrestricted for the configured chance.");
+        }
+        if (rule.unrestrictedMaceChancePercent() == 100)
+            withElytra = unrestrictedElytra;
+
+        if (inclusion == 100) return withElytra;
+        List<List<String>> selectable = new ArrayList<>(withoutElytra.size() + withElytra.size());
+        selectable.addAll(withoutElytra);
+        selectable.addAll(withElytra);
+        return List.copyOf(selectable);
     }
 
     private List<List<String>> randomEligibleCombinations(WarzoneConfig config) {
-        List<List<String>> combinations = validCombinations(config);
-        WarzoneConfig.SpecialRule rule = config.specialRules().get(ELYTRA);
-        WarzoneConfig.Modifier modifier = config.modifiers().get(ELYTRA);
-        if (modifier == null || !modifier.enabled() || rule == null
-                || rule.weeklyInclusionChancePercent() == 0) {
-            return combinations.stream().filter(value -> !value.contains(ELYTRA)).toList();
-        }
-        if (rule.unrestrictedMaceChancePercent() == 100) {
-            return combinations.stream()
-                    .filter(value -> !value.contains(ELYTRA)
-                            || value.stream().noneMatch(MACE_MODES::contains))
-                    .toList();
-        }
-        return combinations;
+        return selectableCombinations(config);
     }
 
     private List<List<String>> filterElytra(List<List<String>> combinations, boolean include) {
@@ -158,12 +172,31 @@ public final class ModifierSelector {
                 .filter(candidate -> candidate.contains(ELYTRA) == include)
                 .toList();
         if (!filtered.isEmpty()) return filtered;
-        if (include) {
-            List<List<String>> fallback = combinations.stream()
-                    .filter(candidate -> !candidate.contains(ELYTRA)).toList();
-            if (!fallback.isEmpty()) return fallback;
-        }
         throw new IllegalStateException("No valid combination satisfies the Elytra inclusion rule.");
+    }
+
+    private void validateSpecialRuleSurface(WarzoneConfig config) {
+        for (String id : config.specialRules().keySet()) {
+            if (!ELYTRA.equals(id)) {
+                throw new IllegalStateException("rotation.special-rules supports only '"
+                        + ELYTRA + "'; unsupported entry '" + id + "'.");
+            }
+        }
+    }
+
+    private void requireFeasibleBranch(WarzoneConfig config, List<List<String>> branch,
+                                       String message) {
+        boolean feasible = branch.stream()
+                .anyMatch(value -> config.selection().countWeights().containsKey(value.size()));
+        if (!feasible) throw new IllegalStateException(message);
+    }
+
+    private boolean restrictsMace(WarzoneConfig config, List<String> ids) {
+        for (String id : ids) {
+            WarzoneConfig.Modifier modifier = config.modifiers().get(id);
+            if (modifier != null && modifier.restrictions().containsKey(MACE)) return true;
+        }
+        return false;
     }
 
     private int weightedCount(Map<Integer, Integer> weights, Set<Integer> feasible) {
@@ -244,14 +277,13 @@ public final class ModifierSelector {
         if (selected.contains(ELYTRA)) {
             if (elytraRule != null && elytraRule.weeklyInclusionChancePercent() == 0) return false;
             if (elytraRule != null && elytraRule.unrestrictedMaceChancePercent() == 100
-                    && selected.stream().anyMatch(MACE_MODES::contains)) return false;
+                    && restrictsMace(config, ids)) return false;
         }
-        Map<com.lincoln.maceguard.warzone.restriction.RestrictionTarget, WarzoneConfig.Restriction> seen =
-                new LinkedHashMap<>();
+        Map<RestrictionTarget, WarzoneConfig.Restriction> seen = new LinkedHashMap<>();
         for (String id : ids) {
             WarzoneConfig.Modifier modifier = config.modifiers().get(id);
             if (modifier == null || !modifier.enabled()) return false;
-            for (Map.Entry<com.lincoln.maceguard.warzone.restriction.RestrictionTarget, WarzoneConfig.Restriction> entry
+            for (Map.Entry<RestrictionTarget, WarzoneConfig.Restriction> entry
                     : modifier.restrictions().entrySet()) {
                 WarzoneConfig.Restriction previous = seen.putIfAbsent(entry.getKey(), entry.getValue());
                 if (previous != null && !previous.equals(entry.getValue())) return false;
