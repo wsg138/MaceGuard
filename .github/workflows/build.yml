@@ -14,30 +14,35 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
           fetch-depth: 0
-      - name: Apply staged implementation bundle
+      - name: Apply verified implementation bundle
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/weekly-warzone-modifiers'
         shell: bash
         run: |
           set -euxo pipefail
-          ls -l .maceguard-bundle/part-*
-          cat .maceguard-bundle/part-* > /tmp/maceguard-patch.b64
-          wc -c /tmp/maceguard-patch.b64
-          sha256sum /tmp/maceguard-patch.b64
+          {
+            cat .maceguard-bundle/part-000
+            cat .maceguard-bundle/part-001
+            cat .maceguard-bundle/part-002
+            cat .maceguard-bundle/part-003
+            cat .maceguard-bundle/part-004
+            cat .maceguard-bundle/part-005
+            cat .maceguard-bundle/part-006
+            cat .maceguard-bundle/part-007
+            cat .maceguard-repair/008-0 .maceguard-repair/008-1 .maceguard-repair/008-2
+            cat .maceguard-bundle/part-009
+            cat .maceguard-repair/010-0 .maceguard-repair/010-1 .maceguard-repair/010-2
+          } > /tmp/maceguard-patch.b64
+          test "$(wc -c < /tmp/maceguard-patch.b64)" = "77660"
+          test "$(sha256sum /tmp/maceguard-patch.b64 | awk '{print $1}')" = "30711be9057d07d91173c2104c3c200fdc8ccd5e4295782881944fadb817e599"
           base64 --decode /tmp/maceguard-patch.b64 > /tmp/maceguard-patch.tar.gz
           gzip -t /tmp/maceguard-patch.tar.gz
-          tar -tzf /tmp/maceguard-patch.tar.gz | sed -n '1,20p'
+          tar -tzf /tmp/maceguard-patch.tar.gz | sed -n '1,30p'
           tar -xzf /tmp/maceguard-patch.tar.gz -C .
-          rm -rf .maceguard-bundle .maceguard-complete
+          rm -rf .maceguard-bundle .maceguard-repair .maceguard-complete
           rm -f .github/workflows/apply-maceguard-bundle.yml .github/workflows/apply-interrupted-bundle.yml
           git show origin/main:.github/workflows/build.yml > /tmp/build.yml
           mv /tmp/build.yml .github/workflows/build.yml
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Verify and package
-        run: ./mvnw -B clean verify
-      - name: Publish source tree to pull-request branch
+      - name: Publish normal source tree
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/weekly-warzone-modifiers'
         shell: bash
         run: |
@@ -45,10 +50,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "Implement weekly warzone modifiers and safe restoration"
-            git push origin HEAD:agent/weekly-warzone-modifiers
-          fi
+          git commit -m "Implement weekly warzone modifiers and safe restoration"
+          git push origin HEAD:agent/weekly-warzone-modifiers
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify and package
+        run: ./mvnw -B clean verify
       - uses: actions/upload-artifact@v4
         with:
           name: MaceGuard
