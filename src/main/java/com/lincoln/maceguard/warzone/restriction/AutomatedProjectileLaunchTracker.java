@@ -41,14 +41,17 @@ final class AutomatedProjectileLaunchTracker {
             long tickDelta = serverTick - candidate.serverTick();
             if (tickDelta < 0 || tickDelta > 1) continue;
 
-            Vec3 sourceCenter = candidate.sourceCenter();
-            Vec3 displacement = launchLocation.subtract(sourceCenter);
-            if (displacement.lengthSquared() > MAX_SOURCE_DISTANCE_SQUARED) continue;
-            if (!directionCompatible(candidate.direction(), displacement,
+            Vec3 displacement = launchLocation.subtract(candidate.sourceCenter());
+            double sourceDistanceSquared = displacement.lengthSquared();
+            if (sourceDistanceSquared > MAX_SOURCE_DISTANCE_SQUARED) continue;
+            if (!directionCompatible(candidate.direction(),
                     normalizedProjectileVelocity)) continue;
 
-            Vec3 expectedSpawn = sourceCenter.add(candidate.direction().multiply(0.75));
-            double score = launchLocation.subtract(expectedSpawn).lengthSquared();
+            // Paper fixes the spawn position from the dispenser facing before
+            // BlockDispenseEvent, but uses the event's final velocity for the
+            // projectile. Score by source proximity and verify direction only
+            // against the actual projectile velocity.
+            double score = sourceDistanceSquared;
             if (best == null || score < bestScore - EPSILON
                     || (Math.abs(score - bestScore) <= EPSILON
                     && candidate.id() < best.id())) {
@@ -100,15 +103,10 @@ final class AutomatedProjectileLaunchTracker {
     }
 
     private boolean directionCompatible(Vec3 expectedDirection,
-                                        Vec3 displacement,
                                         Vec3 projectileDirection) {
-        if (expectedDirection.lengthSquared() <= EPSILON) return true;
-        Vec3 displacementDirection = normalize(displacement);
-        if (displacementDirection.lengthSquared() > EPSILON
-                && expectedDirection.dot(displacementDirection) < MIN_DIRECTION_DOT)
-            return false;
-        return projectileDirection.lengthSquared() <= EPSILON
-                || expectedDirection.dot(projectileDirection) >= MIN_DIRECTION_DOT;
+        if (expectedDirection.lengthSquared() <= EPSILON
+                || projectileDirection.lengthSquared() <= EPSILON) return true;
+        return expectedDirection.dot(projectileDirection) >= MIN_DIRECTION_DOT;
     }
 
     private Vec3 normalize(Vec3 value) {
@@ -122,10 +120,6 @@ final class AutomatedProjectileLaunchTracker {
 
     record Vec3(double x, double y, double z) {
         static final Vec3 ZERO = new Vec3(0.0, 0.0, 0.0);
-
-        Vec3 add(Vec3 other) {
-            return new Vec3(x + other.x, y + other.y, z + other.z);
-        }
 
         Vec3 subtract(Vec3 other) {
             return new Vec3(x - other.x, y - other.y, z - other.z);
