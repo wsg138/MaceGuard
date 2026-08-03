@@ -16,30 +16,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Verify and package
-        shell: bash
-        run: |
-          set +e
-          ./mvnw -B clean verify > /tmp/maven.log 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo '--- Maven failure summary ---'
-            grep -E '^\[ERROR\]|^Caused by:|COMPILATION ERROR|Tests run:|Failures:|Errors:' /tmp/maven.log | tail -n 250 || true
-            echo '--- Maven log tail ---'
-            tail -n 180 /tmp/maven.log
-          else
-            tail -n 80 /tmp/maven.log
-          fi
-          exit "$status"
-      - name: Upload Maven diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: maven-diagnostics
-          path: |
-            /tmp/maven.log
-            target/surefire-reports
-          if-no-files-found: warn
-          retention-days: 7
+        run: ./mvnw -B clean verify
       - uses: actions/upload-artifact@v4
         with:
           name: MaceGuard
