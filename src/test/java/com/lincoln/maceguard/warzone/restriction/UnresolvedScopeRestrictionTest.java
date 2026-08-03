@@ -18,13 +18,14 @@ class UnresolvedScopeRestrictionTest {
         UUID player = UUID.randomUUID();
         AtomicLong now = new AtomicLong(1_000L);
         CooldownService cooldowns = new CooldownService(now::get);
+        RestrictionTarget maceTarget = RestrictionTarget.parse("MACE").orElseThrow();
         WarzoneConfig.Restriction mace = new WarzoneConfig.Restriction(
-                RestrictionTarget.MACE, RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
+                maceTarget, RestrictionMode.COOLDOWN, Duration.ofSeconds(10));
         WarzoneConfig.Restriction lunge = new WarzoneConfig.Restriction(
                 RestrictionTarget.SPEAR_LUNGE, RestrictionMode.DISABLED, null);
         WarzoneConfig.ActiveSet active = new WarzoneConfig.ActiveSet(List.of("incident-test"),
                 "Incident Test", "Incident Test", Set.of(),
-                Map.of(RestrictionTarget.MACE, mace, RestrictionTarget.SPEAR_LUNGE, lunge));
+                Map.of(maceTarget, mace, RestrictionTarget.SPEAR_LUNGE, lunge));
         RestrictionService service = new RestrictionService(() -> active, cooldowns);
 
         // Right click, placeable material, direct attack, projectile-style material, and mace use
@@ -41,7 +42,7 @@ class UnresolvedScopeRestrictionTest {
         RestrictionDecision lungeDecision = service.lunge(player, false, false, false);
         assertFalse(lungeDecision.denied());
         assertFalse(lungeDecision.startsCooldownAfterSuccess());
-        assertFalse(cooldowns.active(player, RestrictionTarget.MACE));
+        assertFalse(cooldowns.active(player, maceTarget));
         assertFalse(cooldowns.active(player, RestrictionTarget.SPEAR_LUNGE));
     }
 }
