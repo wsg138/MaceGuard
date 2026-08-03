@@ -13,7 +13,8 @@ import java.util.random.RandomGenerator;
 
 public final class RotationManager {
     @FunctionalInterface public interface Transition {
-        void accept(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current, boolean announce);
+        void accept(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current,
+                    boolean announce);
     }
     @FunctionalInterface public interface Warning {
         void accept(WarzoneConfig.ActiveSet active, Duration remaining);
@@ -35,8 +36,8 @@ public final class RotationManager {
         this(config, store, clock, RandomGenerator.getDefault(), transition, warning);
     }
 
-    public RotationManager(WarzoneConfig config, WarzoneStateStore store, Clock clock, RandomGenerator random,
-                           Transition transition, Warning warning) {
+    public RotationManager(WarzoneConfig config, WarzoneStateStore store, Clock clock,
+                           RandomGenerator random, Transition transition, Warning warning) {
         this.config = config;
         this.store = store;
         this.clock = clock;
@@ -59,11 +60,13 @@ public final class RotationManager {
         Duration threshold = config.warningTimes().stream()
                 .filter(value -> value.toMillis() >= remainingMillis)
                 .min(Duration::compareTo).orElse(null);
-        if (threshold == null || state.emittedWarningsSeconds().contains(threshold.getSeconds())) return;
+        if (threshold == null
+                || state.emittedWarningsSeconds().contains(threshold.getSeconds())) return;
         Set<Long> emitted = new LinkedHashSet<>(state.emittedWarningsSeconds());
         emitted.add(threshold.getSeconds());
         state = new RotationState(state.activeModifierIds(), state.activatedAtMillis(),
-                state.weeklyBoundaryMillis(), state.transitionAtMillis(), emitted, state.selectionSequence());
+                state.weeklyBoundaryMillis(), state.transitionAtMillis(), emitted,
+                state.selectionSequence());
         store.update(state);
         warning.accept(active, threshold);
     }
@@ -72,10 +75,13 @@ public final class RotationManager {
 
     public boolean force() {
         WarzoneConfig.ActiveSet previous = active;
-        ModifierSelector.SelectionResult selected = selector.select(config, Set.copyOf(state.activeModifierIds()));
+        ModifierSelector.SelectionResult selected = selector.select(
+                config, Set.copyOf(state.activeModifierIds()));
+        if (previous != null
+                && previous.modifierIds().equals(selected.activeSet().modifierIds())) return false;
         activate(selected.activeSet(), clock.millis(), state.weeklyBoundaryMillis(),
                 state.transitionAtMillis(), state.selectionSequence() + 1, true);
-        return !previous.modifierIds().equals(active.modifierIds());
+        return true;
     }
 
     public boolean set(List<String> modifierIds, boolean announce) {
@@ -111,16 +117,19 @@ public final class RotationManager {
         long currentBoundary = proposedSchedule.previousBoundaryAtOrBefore(now).toEpochMilli();
         long proposedNextBoundary = proposedSchedule.nextBoundaryAfter(now).toEpochMilli();
         boolean usedNaturalTransition = state.transitionAtMillis()
-                == new WeeklySchedule(previousConfig.schedule()).nextBoundaryAfter(now).toEpochMilli();
+                == new WeeklySchedule(previousConfig.schedule())
+                .nextBoundaryAfter(now).toEpochMilli();
         boolean replaced;
         try {
             active = selector.compose(proposed, state.activeModifierIds());
-            state = new RotationState(active.modifierIds(), state.activatedAtMillis(), currentBoundary,
+            state = new RotationState(active.modifierIds(), state.activatedAtMillis(),
+                    currentBoundary,
                     usedNaturalTransition ? proposedNextBoundary : state.transitionAtMillis(),
                     state.emittedWarningsSeconds(), state.selectionSequence());
             replaced = false;
         } catch (IllegalArgumentException ex) {
-            ModifierSelector.SelectionResult selected = selector.select(proposed, Set.copyOf(state.activeModifierIds()));
+            ModifierSelector.SelectionResult selected = selector.select(
+                    proposed, Set.copyOf(state.activeModifierIds()));
             active = selected.activeSet();
             state = new RotationState(active.modifierIds(), clock.millis(), currentBoundary,
                     proposedNextBoundary, Set.of(), state.selectionSequence() + 1);
@@ -147,8 +156,10 @@ public final class RotationManager {
         if (loaded.isPresent()) {
             RotationState candidate = loaded.get();
             try {
-                WarzoneConfig.ActiveSet restored = selector.compose(config, candidate.activeModifierIds());
-                if (candidate.activatedAtMillis() > 0 && candidate.transitionAtMillis() > candidate.activatedAtMillis()
+                WarzoneConfig.ActiveSet restored = selector.compose(
+                        config, candidate.activeModifierIds());
+                if (candidate.activatedAtMillis() > 0
+                        && candidate.transitionAtMillis() > candidate.activatedAtMillis()
                         && candidate.weeklyBoundaryMillis() > 0) {
                     state = candidate;
                     active = restored;
@@ -166,34 +177,33 @@ public final class RotationManager {
         Instant boundary = weekly.previousBoundaryAtOrBefore(current);
         Instant next = weekly.nextBoundaryAfter(current);
         ModifierSelector.SelectionResult selected = selector.select(config, Set.of());
-        state = new RotationState(selected.modifierIds(), current.toEpochMilli(), boundary.toEpochMilli(),
-                next.toEpochMilli(), Set.of(), 1);
+        state = new RotationState(selected.modifierIds(), current.toEpochMilli(),
+                boundary.toEpochMilli(), next.toEpochMilli(), Set.of(), 1);
         active = selected.activeSet();
     }
 
     private void naturalTransition(long now, boolean announce) {
         WeeklySchedule weekly = new WeeklySchedule(config.schedule());
-        WarzoneConfig.ActiveSet previous = active;
-        ModifierSelector.SelectionResult selected = selector.select(config, Set.copyOf(state.activeModifierIds()));
+        ModifierSelector.SelectionResult selected = selector.select(
+                config, Set.copyOf(state.activeModifierIds()));
         Instant nowInstant = Instant.ofEpochMilli(now);
         Instant boundary = weekly.previousBoundaryAtOrBefore(nowInstant);
         Instant next = weekly.nextBoundaryAfter(nowInstant);
         activate(selected.activeSet(), now, boundary.toEpochMilli(), next.toEpochMilli(),
                 state.selectionSequence() + 1, announce);
-        if (!announce) active = selected.activeSet();
-        if (announce && previous.modifierIds().equals(active.modifierIds())) {
-            // A repeat is possible only when no different valid combination exists.
-        }
     }
 
-    private void activate(WarzoneConfig.ActiveSet target, long activatedAt, long weeklyBoundary,
-                          long transitionAt, long sequence, boolean announce) {
+    private void activate(WarzoneConfig.ActiveSet target, long activatedAt,
+                          long weeklyBoundary, long transitionAt, long sequence,
+                          boolean announce) {
         WarzoneConfig.ActiveSet previous = active;
         active = target;
-        state = new RotationState(target.modifierIds(), activatedAt, weeklyBoundary, transitionAt, Set.of(), sequence);
+        state = new RotationState(target.modifierIds(), activatedAt, weeklyBoundary,
+                transitionAt, Set.of(), sequence);
         store.update(state);
         if (previous != null) transition.accept(previous, target, announce);
     }
 
-    public record ApplyResult(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current, boolean replaced) { }
+    public record ApplyResult(WarzoneConfig.ActiveSet previous,
+                              WarzoneConfig.ActiveSet current, boolean replaced) { }
 }
