@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class WarzoneMigrationService {
+    private static final int SCHEMA_FOUR = 4;
     private static final Set<String> SAFE_MODIFIER_FIELDS = Set.of(
             "display-name", "description", "effects", "restrictions",
             "start-message", "end-message", "warning-message");
@@ -77,7 +78,7 @@ public final class WarzoneMigrationService {
         }
 
         Path backup = timestampedBackup(config, "warzone-v" + version);
-        if (version == 4) {
+        if (version == SCHEMA_FOUR) {
             YamlConfiguration migrated = migrateSchema4(old, bundledDefaults());
             saveValidatedAtomically(migrated, config);
             report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
@@ -118,7 +119,9 @@ public final class WarzoneMigrationService {
     private YamlConfiguration bundledDefaults() throws IOException {
         InputStream stream = plugin.getResource("warzone.yml");
         if (stream == null) throw new IOException("Bundled warzone.yml is missing.");
-        try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+        try (stream;
+             InputStreamReader reader = new InputStreamReader(
+                     stream, StandardCharsets.UTF_8)) {
             return YamlConfiguration.loadConfiguration(reader);
         }
     }

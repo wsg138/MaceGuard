@@ -17,6 +17,9 @@ final class AutomatedProjectileLaunchTracker {
     private static final double MIN_DIRECTION_DOT = 0.25;
     private static final double EPSILON = 1.0E-9;
 
+    // Paper events are handled on the server thread, and insertion order is
+    // required for deterministic same-tick tie-breaking.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private final Map<Long, Pending> pending = new LinkedHashMap<>();
     private long nextSequence;
 
@@ -41,35 +44,11 @@ final class AutomatedProjectileLaunchTracker {
                           Vec3 projectileVelocity, long nowNanos) {
         cleanup(serverTick, nowNanos);
         Vec3 normalizedProjectileVelocity = normalize(projectileVelocity);
-        Pending best = null;
-        double bestScore = Double.POSITIVE_INFINITY;
-
-        for (Pending candidate : pending.values()) {
-            if (!candidate.worldId().equals(worldId)
-                    || candidate.serverTick() != serverTick) continue;
-
-            Vec3 displacement = launchLocation.subtract(candidate.sourceCenter());
-            double sourceDistanceSquared = displacement.lengthSquared();
-            if (sourceDistanceSquared > MAX_SOURCE_DISTANCE_SQUARED) continue;
-            if (!directionCompatible(candidate.direction(),
-                    normalizedProjectileVelocity)) continue;
-
-            // Paper fixes the spawn position from the dispenser facing before
-            // BlockDispenseEvent, but uses the event's final velocity for the
-            // projectile. Score by source proximity and verify direction only
-            // against the actual projectile velocity.
-            double score = sourceDistanceSquared;
-            if (best == null || score < bestScore - EPSILON
-                    || (Math.abs(score - bestScore) <= EPSILON
-                    && candidate.id() < best.id())) {
-                best = candidate;
-                bestScore = score;
-            }
-        }
-
+        ScoredPending best = bestMatch(worldId, serverTick, launchLocation,
+                normalizedProjectileVelocity);
         if (best == null) return Optional.empty();
-        pending.remove(best.id());
-        return Optional.of(best.match());
+        pending.remove(best.pending().id());
+        return Optional.of(best.pending().match());
     }
 
     Optional<Match> consumeExactSource(UUID worldId, int blockX, int blockY,
@@ -115,6 +94,43 @@ final class AutomatedProjectileLaunchTracker {
         return expectedDirection.dot(projectileDirection) >= MIN_DIRECTION_DOT;
     }
 
+    private ScoredPending bestMatch(UUID worldId, long serverTick,
+                                    Vec3 launchLocation,
+                                    Vec3 projectileDirection) {
+        ScoredPending best = null;
+        for (Pending candidate : pending.values()) {
+            ScoredPending scored = score(candidate, worldId, serverTick,
+                    launchLocation, projectileDirection);
+            if (scored != null && better(scored, best)) best = scored;
+        }
+        return best;
+    }
+
+    private ScoredPending score(Pending candidate, UUID worldId,
+                                long serverTick, Vec3 launchLocation,
+                                Vec3 projectileDirection) {
+        if (!candidate.worldId().equals(worldId)
+                || candidate.serverTick() != serverTick) return null;
+        double sourceDistanceSquared = launchLocation
+                .subtract(candidate.sourceCenter()).lengthSquared();
+        if (sourceDistanceSquared > MAX_SOURCE_DISTANCE_SQUARED
+                || !directionCompatible(candidate.direction(), projectileDirection))
+            return null;
+
+        // Paper fixes the spawn position from the dispenser facing before
+        // BlockDispenseEvent, but uses the event's final velocity for the
+        // projectile. Score by source proximity and verify direction only
+        // against the actual projectile velocity.
+        return new ScoredPending(candidate, sourceDistanceSquared);
+    }
+
+    private boolean better(ScoredPending candidate, ScoredPending current) {
+        if (current == null) return true;
+        if (candidate.score() < current.score() - EPSILON) return true;
+        return Math.abs(candidate.score() - current.score()) <= EPSILON
+                && candidate.pending().id() < current.pending().id();
+    }
+
     private Vec3 normalize(Vec3 value) {
         double lengthSquared = value.lengthSquared();
         if (lengthSquared <= EPSILON) return Vec3.ZERO;
@@ -156,4 +172,6 @@ final class AutomatedProjectileLaunchTracker {
                     sourceInside);
         }
     }
+
+    private record ScoredPending(Pending pending, double score) { }
 }

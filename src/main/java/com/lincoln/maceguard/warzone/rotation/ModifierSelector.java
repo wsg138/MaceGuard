@@ -15,6 +15,7 @@ import java.util.random.RandomGenerator;
 public final class ModifierSelector {
     public static final int MAX_CONFIGURED_MODIFIERS = 24;
     public static final int MAX_VALID_COMBINATIONS = 100_000;
+    private static final int PERCENT_MAX = 100;
     private static final String ELYTRA = "elytra-no-rockets";
     private static final RestrictionTarget MACE =
             RestrictionTarget.parse("MACE").orElseThrow();
@@ -55,10 +56,12 @@ public final class ModifierSelector {
             if (!alternatives.isEmpty()) eligible = alternatives;
         }
 
+        // Method-local and order-preserving; no concurrent access is possible.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
         Map<Integer, List<List<String>>> byCount = new LinkedHashMap<>();
         for (List<String> candidate : eligible) {
             if (!config.selection().countWeights().containsKey(candidate.size())) continue;
-            byCount.computeIfAbsent(candidate.size(), ignored -> new ArrayList<>()).add(candidate);
+            addByCount(byCount, candidate);
         }
         if (byCount.isEmpty())
             throw new IllegalStateException("No valid modifier count can be filled from the enabled outcomes.");
@@ -77,6 +80,8 @@ public final class ModifierSelector {
             throw new IllegalArgumentException("Selected modifier count must be between "
                     + minimum + " and " + maximum + ".");
         }
+        // Method-local and order-preserving for stable output; never shared.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
         Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions =
                 new LinkedHashMap<>();
         Set<WarzoneConfig.Effect> effects = new LinkedHashSet<>();
@@ -127,40 +132,57 @@ public final class ModifierSelector {
         boolean enabled = modifier != null && modifier.enabled();
         int inclusion = enabled && rule != null
                 ? rule.weeklyInclusionChancePercent() : 0;
+        ElytraBranches branches = splitElytraBranches(combinations);
+        if (inclusion == 0) return requireNonElytraOnly(config, branches.withoutElytra());
 
-        List<List<String>> withElytra = combinations.stream()
-                .filter(value -> value.contains(ELYTRA)).toList();
-        List<List<String>> withoutElytra = combinations.stream()
-                .filter(value -> !value.contains(ELYTRA)).toList();
+        validateElytraBranches(config, branches, inclusion);
+        List<List<String>> withElytra = applyUnrestrictedMaceRule(
+                config, branches.withElytra(), rule);
+        return inclusion == PERCENT_MAX
+                ? withElytra : combine(branches.withoutElytra(), withElytra);
+    }
 
-        if (inclusion == 0) {
-            requireFeasibleBranch(config, withoutElytra,
-                    "No selectable non-Elytra combination exists while Elytra inclusion is disabled.");
-            return withoutElytra;
-        }
+    private List<List<String>> requireNonElytraOnly(
+            WarzoneConfig config, List<List<String>> withoutElytra) {
+        requireFeasibleBranch(config, withoutElytra,
+                "No selectable non-Elytra combination exists while Elytra inclusion is disabled.");
+        return withoutElytra;
+    }
 
-        requireFeasibleBranch(config, withElytra,
+    private void validateElytraBranches(WarzoneConfig config, ElytraBranches branches,
+                                        int inclusion) {
+        requireFeasibleBranch(config, branches.withElytra(),
                 "No selectable Elytra combination exists for the configured inclusion chance.");
-        if (inclusion < 100) {
-            requireFeasibleBranch(config, withoutElytra,
+        if (inclusion < PERCENT_MAX) {
+            requireFeasibleBranch(config, branches.withoutElytra(),
                     "No selectable non-Elytra combination exists for the configured inclusion chance.");
         }
+    }
 
-        List<List<String>> unrestrictedElytra = withElytra;
-        if (rule.unrestrictedMaceChancePercent() > 0) {
-            unrestrictedElytra = withElytra.stream()
-                    .filter(value -> !restrictsMace(config, value)).toList();
-            requireFeasibleBranch(config, unrestrictedElytra,
-                    "No selectable Elytra combination leaves Maces unrestricted for the configured chance.");
-        }
-        if (rule.unrestrictedMaceChancePercent() == 100)
-            withElytra = unrestrictedElytra;
+    private List<List<String>> applyUnrestrictedMaceRule(
+            WarzoneConfig config, List<List<String>> withElytra,
+            WarzoneConfig.SpecialRule rule) {
+        if (rule.unrestrictedMaceChancePercent() <= 0) return withElytra;
+        List<List<String>> unrestricted = withElytra.stream()
+                .filter(value -> !restrictsMace(config, value)).toList();
+        requireFeasibleBranch(config, unrestricted,
+                "No selectable Elytra combination leaves Maces unrestricted for the configured chance.");
+        return rule.unrestrictedMaceChancePercent() == PERCENT_MAX
+                ? unrestricted : withElytra;
+    }
 
-        if (inclusion == 100) return withElytra;
-        List<List<String>> selectable = new ArrayList<>(withoutElytra.size() + withElytra.size());
-        selectable.addAll(withoutElytra);
-        selectable.addAll(withElytra);
-        return List.copyOf(selectable);
+    private ElytraBranches splitElytraBranches(List<List<String>> combinations) {
+        return new ElytraBranches(
+                combinations.stream().filter(value -> value.contains(ELYTRA)).toList(),
+                combinations.stream().filter(value -> !value.contains(ELYTRA)).toList());
+    }
+
+    private List<List<String>> combine(List<List<String>> first,
+                                       List<List<String>> second) {
+        List<List<String>> combined = new ArrayList<>(first.size() + second.size());
+        combined.addAll(first);
+        combined.addAll(second);
+        return List.copyOf(combined);
     }
 
     private List<List<String>> randomEligibleCombinations(WarzoneConfig config) {
@@ -214,34 +236,41 @@ public final class ModifierSelector {
                                                      List<List<String>> combinations,
                                                      int count) {
         List<String> selected = new ArrayList<>();
+        List<List<String>> remaining = combinations;
         while (selected.size() < count) {
-            Set<String> candidates = new LinkedHashSet<>();
-            for (List<String> combination : combinations) {
-                if (!combination.containsAll(selected)) continue;
-                for (String id : combination)
-                    if (!selected.contains(id)) candidates.add(id);
-            }
+            Set<String> candidates = candidates(remaining, selected);
             if (candidates.isEmpty())
                 throw new IllegalStateException("A weighted selection could not be completed.");
-            long total = candidates.stream()
-                    .map(config.modifiers()::get)
-                    .mapToLong(WarzoneConfig.Modifier::weight)
-                    .sum();
-            long roll = random.nextLong(total);
-            String choice = null;
-            for (String id : candidates.stream().sorted().toList()) {
-                roll -= config.modifiers().get(id).weight();
-                if (roll < 0) {
-                    choice = id;
-                    break;
-                }
-            }
-            if (choice == null) throw new IllegalStateException("Could not select a weighted modifier.");
+            String choice = weightedChoice(config, candidates);
             selected.add(choice);
-            combinations = combinations.stream()
+            remaining = remaining.stream()
                     .filter(candidate -> candidate.containsAll(selected)).toList();
         }
         return selected.stream().sorted().toList();
+    }
+
+    private Set<String> candidates(List<List<String>> combinations,
+                                   List<String> selected) {
+        Set<String> candidates = new LinkedHashSet<>();
+        for (List<String> combination : combinations) {
+            if (!combination.containsAll(selected)) continue;
+            for (String id : combination)
+                if (!selected.contains(id)) candidates.add(id);
+        }
+        return candidates;
+    }
+
+    private String weightedChoice(WarzoneConfig config, Set<String> candidates) {
+        long total = candidates.stream()
+                .map(config.modifiers()::get)
+                .mapToLong(WarzoneConfig.Modifier::weight)
+                .sum();
+        long roll = random.nextLong(total);
+        for (String id : candidates.stream().sorted().toList()) {
+            roll -= config.modifiers().get(id).weight();
+            if (roll < 0) return id;
+        }
+        throw new IllegalStateException("Could not select a weighted modifier.");
     }
 
     private void enumerate(WarzoneConfig config, List<String> ids, int index,
@@ -276,9 +305,12 @@ public final class ModifierSelector {
         WarzoneConfig.SpecialRule elytraRule = config.specialRules().get(ELYTRA);
         if (selected.contains(ELYTRA)) {
             if (elytraRule != null && elytraRule.weeklyInclusionChancePercent() == 0) return false;
-            if (elytraRule != null && elytraRule.unrestrictedMaceChancePercent() == 100
+            if (elytraRule != null
+                    && elytraRule.unrestrictedMaceChancePercent() == PERCENT_MAX
                     && restrictsMace(config, ids)) return false;
         }
+        // Method-local and order-preserving for deterministic validation; never shared.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
         Map<RestrictionTarget, WarzoneConfig.Restriction> seen = new LinkedHashMap<>();
         for (String id : ids) {
             WarzoneConfig.Modifier modifier = config.modifiers().get(id);
@@ -293,8 +325,18 @@ public final class ModifierSelector {
     }
 
     private boolean percent(int chance) {
-        return chance >= 100 || chance > 0 && random.nextInt(100) < chance;
+        return chance >= PERCENT_MAX
+                || chance > 0 && random.nextInt(PERCENT_MAX) < chance;
     }
+
+    private void addByCount(Map<Integer, List<List<String>>> byCount,
+                            List<String> candidate) {
+        byCount.computeIfAbsent(candidate.size(), ignored -> new ArrayList<>())
+                .add(candidate);
+    }
+
+    private record ElytraBranches(List<List<String>> withElytra,
+                                  List<List<String>> withoutElytra) { }
 
     public record SelectionResult(List<String> modifierIds, WarzoneConfig.ActiveSet activeSet,
                                   int validCombinationCount) {

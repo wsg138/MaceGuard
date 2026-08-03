@@ -71,6 +71,33 @@ class AutomatedProjectileLaunchTrackerTest {
                 .orElseThrow().attemptId());
     }
 
+    @Test void equalScoreUsesOldestPendingAttempt() {
+        AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
+        UUID world = UUID.randomUUID();
+        long first = tracker.record(world, 0, 64, 0, 45,
+                vec(1, 0, 0), 2_000L);
+        tracker.record(world, 0, 64, 0, 45,
+                vec(1, 0, 0), 2_000L);
+
+        assertEquals(first, tracker.match(world, 45,
+                vec(1.2, 64.5, 0.5), vec(1, 0, 0), 1_000L)
+                .orElseThrow().attemptId());
+    }
+
+    @Test void differentWorldOrTickCannotConsumePendingAttempt() {
+        AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
+        UUID world = UUID.randomUUID();
+        tracker.record(world, 0, 64, 0, 46,
+                vec(1, 0, 0), 2_000L);
+
+        assertTrue(tracker.match(UUID.randomUUID(), 46,
+                vec(1.2, 64.5, 0.5), vec(1, 0, 0), 1_000L).isEmpty());
+        assertTrue(tracker.match(world, 47,
+                vec(1.2, 64.5, 0.5), vec(1, 0, 0), 1_000L).isEmpty());
+        assertEquals(0, tracker.size(),
+                "advancing the tick expires the stale attempt after rejecting it");
+    }
+
     @Test void unrelatedProjectileDoesNotConsumeNearbyPendingAttempt() {
         AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
         UUID world = UUID.randomUUID();

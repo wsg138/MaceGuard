@@ -6,6 +6,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 final class ProjectileLaunchTracker {
+    // Listener access is confined to Paper's server thread; no concurrent
+    // mutation exists to justify the overhead or semantics of a concurrent map.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private final Map<UUID, Pending> pending = new HashMap<>();
 
     void record(UUID projectileId, UUID playerId,

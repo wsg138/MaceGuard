@@ -13,6 +13,15 @@ final class WarzoneStatusValues {
 
     static String resolve(String parameter, boolean scopeActive,
                           WarzoneConfig.ActiveSet active) {
+        String status = resolveStatus(parameter, scopeActive, active);
+        if (status != null) return status;
+        String restriction = resolveRestrictionValue(parameter, scopeActive, active);
+        return restriction != null
+                ? restriction : resolveEffectValue(parameter, scopeActive, active);
+    }
+
+    private static String resolveStatus(String parameter, boolean scopeActive,
+                                        WarzoneConfig.ActiveSet active) {
         return switch (parameter) {
             case "mace_status" -> status(scopeActive, active, MACE);
             case "ender_pearl_status" -> status(scopeActive, active, ENDER_PEARL);
@@ -20,6 +29,14 @@ final class WarzoneStatusValues {
             case "spear_lunge_status" -> status(
                     scopeActive, active, RestrictionTarget.SPEAR_LUNGE);
             case "elytra_status" -> elytraStatus(scopeActive, active);
+            default -> null;
+        };
+    }
+
+    private static String resolveRestrictionValue(
+            String parameter, boolean scopeActive,
+            WarzoneConfig.ActiveSet active) {
+        return switch (parameter) {
             case "mace_disabled" -> Boolean.toString(
                     disabled(scopeActive, active, MACE));
             case "mace_cooldown_seconds" -> Long.toString(
@@ -34,6 +51,14 @@ final class WarzoneStatusValues {
                     cooldownSeconds(scopeActive, active, WIND_CHARGE));
             case "spear_lunge_disabled" -> Boolean.toString(
                     disabled(scopeActive, active, RestrictionTarget.SPEAR_LUNGE));
+            default -> null;
+        };
+    }
+
+    private static String resolveEffectValue(String parameter,
+                                             boolean scopeActive,
+                                             WarzoneConfig.ActiveSet active) {
+        return switch (parameter) {
             case "elytra_gliding_allowed" -> Boolean.toString(
                     scopeActive && active.elytraGlidingAllowed());
             case "firework_boost_blocked" -> Boolean.toString(

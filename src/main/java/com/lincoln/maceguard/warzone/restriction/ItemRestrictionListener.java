@@ -128,13 +128,7 @@ public final class ItemRestrictionListener implements Listener {
         Object shooter = projectile.getShooter();
 
         if (shooter instanceof BlockProjectileSource source) {
-            automatedLaunches.consumeExactSource(source.getBlock().getWorld().getUID(),
-                    source.getBlock().getX(), source.getBlock().getY(), source.getBlock().getZ(),
-                    tick, now);
-            Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
-            if (AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
-                    region.contains(sourceLocation), region.contains(launch)))
-                event.setCancelled(true);
+            handleAssignedBlockSource(event, source, launch, tick, now);
             return;
         }
 
@@ -142,12 +136,33 @@ public final class ItemRestrictionListener implements Listener {
                 == CreatureSpawnEvent.SpawnReason.DEFAULT;
         if (!AutomatedProjectileRestriction.canCorrelatePending(
                 shooter == null, defaultSpawnReason)) return;
+        handlePendingBlockSource(event, projectile, launch, tick, now);
+    }
+
+    private void handleAssignedBlockSource(ProjectileLaunchEvent event,
+                                           BlockProjectileSource source,
+                                           Location launch, long tick,
+                                           long now) {
+        automatedLaunches.consumeExactSource(source.getBlock().getWorld().getUID(),
+                source.getBlock().getX(), source.getBlock().getY(),
+                source.getBlock().getZ(), tick, now);
+        Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        if (AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
+                region.contains(sourceLocation), region.contains(launch)))
+            event.setCancelled(true);
+    }
+
+    private void handlePendingBlockSource(ProjectileLaunchEvent event,
+                                          Projectile projectile,
+                                          Location launch, long tick,
+                                          long now) {
         var match = automatedLaunches.match(launch.getWorld().getUID(), tick,
                 automatedVec(launch), automatedVec(projectile.getVelocity()), now);
-        if (match.isPresent() && AutomatedProjectileRestriction.blocksWindCharge(
+        if (match.isEmpty()) return;
+        boolean blocked = AutomatedProjectileRestriction.blocksWindCharge(
                 activeSet.get(), match.orElseThrow().sourceInside(),
-                region.contains(launch)))
-            event.setCancelled(true);
+                region.contains(launch));
+        if (blocked) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
