@@ -111,6 +111,72 @@ class ModifierSelectorTest {
                     .contains("elytra-no-rockets"));
     }
 
+    @Test void partialInclusionRejectsAnOnlyElytraConfiguration() {
+        WarzoneConfig base = withElytraRule(config(1, 1), 8, 0);
+        WarzoneConfig onlyElytra = withModifiers(base, Map.of(
+                "elytra-no-rockets", base.modifiers().get("elytra-no-rockets")));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ModifierSelector(new java.util.Random(1L))
+                        .selectableCombinations(onlyElytra));
+        assertTrue(failure.getMessage().contains("non-Elytra"));
+    }
+
+    @Test void partialInclusionRejectsWhenNoElytraCapableCombinationExists() {
+        WarzoneConfig base = withElytraRule(config(2, 2), 8, 0);
+        WarzoneConfig limited = withModifiers(base, Map.of(
+                "cobwebs", base.modifiers().get("cobwebs"),
+                "no-lunge", base.modifiers().get("no-lunge"),
+                "elytra-no-rockets", base.modifiers().get("elytra-no-rockets")));
+        limited = withConflictGroups(limited, Map.of(
+                "elytra-cobweb", Set.of("elytra-no-rockets", "cobwebs"),
+                "elytra-lunge", Set.of("elytra-no-rockets", "no-lunge")));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ModifierSelector(new java.util.Random(1L))
+                        .selectableCombinations(limited));
+        assertTrue(failure.getMessage().contains("Elytra combination"));
+    }
+
+    @Test void everyNonTerminalInclusionPercentageHasBothFeasibleBranches() {
+        for (int chance : List.of(1, 8, 50, 99)) {
+            WarzoneConfig config = withElytraRule(config(1, 3), chance, 90);
+            List<List<String>> combinations =
+                    new ModifierSelector(new java.util.Random(chance))
+                            .selectableCombinations(config);
+            assertTrue(combinations.stream().anyMatch(value ->
+                    value.contains("elytra-no-rockets")), "chance=" + chance);
+            assertTrue(combinations.stream().anyMatch(value ->
+                    !value.contains("elytra-no-rockets")), "chance=" + chance);
+        }
+    }
+
+    @Test void unrestrictedMaceChanceRecognizesCustomRestrictionIds() {
+        WarzoneConfig base = withElytraRule(config(2, 2), 100, 90);
+        WarzoneConfig.Modifier customMace = modifier("custom-mace-rule", true, 10,
+                Set.of(), Map.of(target("MACE"),
+                        restriction("MACE", RestrictionMode.DISABLED, null)));
+        WarzoneConfig onlyRestrictedElytra = withModifiers(base, Map.of(
+                "elytra-no-rockets", base.modifiers().get("elytra-no-rockets"),
+                "custom-mace-rule", customMace));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ModifierSelector(new java.util.Random(1L))
+                        .selectableCombinations(onlyRestrictedElytra));
+        assertTrue(failure.getMessage().contains("unrestricted"));
+    }
+
+    @Test void specialRulesRejectRuntimeIgnoredModifierIds() {
+        WarzoneConfig base = config(1, 3);
+        WarzoneConfig unsupported = withSpecialRules(base, Map.of(
+                "cobwebs", new WarzoneConfig.SpecialRule(5, 0)));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ModifierSelector(new java.util.Random(1L))
+                        .selectableCombinations(unsupported));
+        assertTrue(failure.getMessage().contains("supports only"));
+    }
+
     @Test void unrestrictedMaceHundredExcludesBothMaceModesWithElytra() {
         WarzoneConfig config = withElytraRule(config(2, 3), 100, 100);
         ModifierSelector selector = new ModifierSelector(new java.util.Random(8L));
@@ -246,20 +312,36 @@ class ModifierSelectorTest {
     }
 
     static WarzoneConfig withElytraRule(WarzoneConfig base, int inclusion, int unrestrictedMace) {
+        return withSpecialRules(base, Map.of("elytra-no-rockets",
+                new WarzoneConfig.SpecialRule(inclusion, unrestrictedMace)));
+    }
+
+    static WarzoneConfig withSpecialRules(WarzoneConfig base,
+                                           Map<String, WarzoneConfig.SpecialRule> specialRules) {
         return new WarzoneConfig(base.version(), base.enabled(), base.region(), base.schedule(),
-                base.selection(), Map.of("elytra-no-rockets",
-                new WarzoneConfig.SpecialRule(inclusion, unrestrictedMace)),
-                base.warningTimes(), base.messages(), base.cobwebs(), base.targetPolicies(),
-                base.modifiers(), base.conflictGroups());
+                base.selection(), specialRules, base.warningTimes(), base.messages(),
+                base.cobwebs(), base.targetPolicies(), base.modifiers(), base.conflictGroups());
     }
 
     static WarzoneConfig withModifier(WarzoneConfig base, String id,
                                        WarzoneConfig.Modifier modifier) {
         Map<String, WarzoneConfig.Modifier> modifiers = new LinkedHashMap<>(base.modifiers());
         modifiers.put(id, modifier);
+        return withModifiers(base, modifiers);
+    }
+
+    static WarzoneConfig withModifiers(WarzoneConfig base,
+                                        Map<String, WarzoneConfig.Modifier> modifiers) {
         return new WarzoneConfig(base.version(), base.enabled(), base.region(), base.schedule(),
                 base.selection(), base.specialRules(), base.warningTimes(), base.messages(),
                 base.cobwebs(), base.targetPolicies(), modifiers, base.conflictGroups());
+    }
+
+    static WarzoneConfig withConflictGroups(WarzoneConfig base,
+                                             Map<String, Set<String>> conflictGroups) {
+        return new WarzoneConfig(base.version(), base.enabled(), base.region(), base.schedule(),
+                base.selection(), base.specialRules(), base.warningTimes(), base.messages(),
+                base.cobwebs(), base.targetPolicies(), base.modifiers(), conflictGroups);
     }
 
     static WarzoneConfig.Modifier modifier(
