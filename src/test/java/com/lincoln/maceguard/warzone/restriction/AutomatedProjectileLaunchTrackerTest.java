@@ -21,14 +21,15 @@ class AutomatedProjectileLaunchTrackerTest {
         assertEquals(attempt, match.orElseThrow().attemptId());
     }
 
-    @Test void finalDispenseVelocityIsUsedForCorrelation() {
+    @Test void finalModifiedVelocityIsUsedWithoutAssumingItChangedSpawnPosition() {
         AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
         UUID world = UUID.randomUUID();
         tracker.record(world, 0, 64, 0, 20,
                 vec(0, 0, 1), 2_000L);
 
         assertTrue(tracker.match(world, 20,
-                vec(0.5, 64.5, 1.2), vec(0, 0, 1), 1_000L).isPresent());
+                vec(1.2, 64.5, 0.5), vec(0, 0, 1), 1_000L).isPresent(),
+                "Paper fixes the spawn point from dispenser facing before another plugin changes velocity");
     }
 
     @Test void cancelledDispenseAttemptLeavesNoPendingState() {
@@ -125,7 +126,7 @@ class AutomatedProjectileLaunchTrackerTest {
                 vec(1, 0, 0), 2_000L);
 
         assertTrue(tracker.match(world, 100,
-                vec(-0.2, 64.5, 0.5), vec(-1, 0, 0), 1_000L).isEmpty());
+                vec(1.2, 64.5, 0.5), vec(-1, 0, 0), 1_000L).isEmpty());
         assertEquals(1, tracker.size());
     }
 
