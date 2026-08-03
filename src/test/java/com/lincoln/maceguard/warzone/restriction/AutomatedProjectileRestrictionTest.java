@@ -28,16 +28,27 @@ class AutomatedProjectileRestrictionTest {
                 disabled, true, true));
     }
 
-    @Test void bothLocationsOutsideOrInsideAnExclusionRemainAllowed() {
+    @Test void bothLocationsOutsideRemainAllowed() {
         WarzoneConfig.ActiveSet disabled = active(
                 new WarzoneConfig.Restriction(WIND_CHARGE,
                         RestrictionMode.DISABLED, null));
 
         assertFalse(AutomatedProjectileRestriction.blocksWindCharge(
                 disabled, false, false));
+    }
+
+    @Test void spawnAndMarketExclusionsRemainOutsideTheEffectiveScope() {
+        WarzoneConfig.ActiveSet disabled = active(
+                new WarzoneConfig.Restriction(WIND_CHARGE,
+                        RestrictionMode.DISABLED, null));
+        boolean sourceInSpawn = effectiveScope(true, true, false);
+        boolean launchInMarket = effectiveScope(true, false, true);
+
         assertFalse(AutomatedProjectileRestriction.blocksWindCharge(
-                disabled, false, false),
-                "spawn and market exclusions are outside the effective scope");
+                disabled, sourceInSpawn, launchInMarket));
+        assertTrue(AutomatedProjectileRestriction.blocksWindCharge(
+                disabled, effectiveScope(true, false, false), false),
+                "the same outer-region point is restricted when no exclusion contains it");
     }
 
     @Test void automatedSourcesIgnorePlayerCooldownModes() {
@@ -62,6 +73,10 @@ class AutomatedProjectileRestrictionTest {
                 "player and plugin-owned projectiles must not consume pending dispenser state");
         assertFalse(AutomatedProjectileRestriction.canCorrelatePending(true, false),
                 "custom spawn reasons must not consume pending dispenser state");
+    }
+
+    private boolean effectiveScope(boolean outer, boolean spawn, boolean market) {
+        return outer && !spawn && !market;
     }
 
     private WarzoneConfig.ActiveSet active(WarzoneConfig.Restriction restriction) {
