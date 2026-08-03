@@ -1,10 +1,14 @@
 package com.lincoln.maceguard.warzone.runtime;
 
+import com.lincoln.maceguard.warzone.config.WarzoneConfigLoader;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,8 +16,13 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public final class WarzoneMigrationService {
+    private static final Set<String> SAFE_MODIFIER_FIELDS = Set.of(
+            "display-name", "description", "effects", "restrictions",
+            "start-message", "end-message", "warning-message");
+
     private final JavaPlugin plugin;
     private final Path dataFolder;
     private final Path legacyFolder;
@@ -30,7 +39,7 @@ public final class WarzoneMigrationService {
         List<String> report = new ArrayList<>();
         report.add("MaceGuard weekly warzone migration review");
         report.add("Generated: " + Instant.now());
-        report.add("No WorldGuard regions, snapshots, arming state, or schedules were created or enabled.");
+        report.add("No WorldGuard regions, snapshots, arming state, or reset schedules were created or enabled.");
 
         try {
             prepareWarzoneConfig(report);
@@ -54,21 +63,93 @@ public final class WarzoneMigrationService {
         Path config = dataFolder.resolve("warzone.yml");
         if (!Files.isRegularFile(config)) {
             plugin.saveResource("warzone.yml", false);
-            report.add("Created clean schema-4 warzone.yml.");
+            report.add("Created clean schema-" + WarzoneConfigLoader.VERSION + " warzone.yml.");
             return;
         }
-        YamlConfiguration yaml = new YamlConfiguration();
-        yaml.load(config.toFile());
-        int version = yaml.getInt("config-version", -1);
-        if (version == com.lincoln.maceguard.warzone.config.WarzoneConfigLoader.VERSION) {
+        YamlConfiguration old = new YamlConfiguration();
+        old.load(config.toFile());
+        int version = old.getInt("config-version", -1);
+        if (version == WarzoneConfigLoader.VERSION) {
             report.add("Existing warzone.yml already uses schema " + version + "; no rewrite.");
             return;
         }
+
         Path backup = timestampedBackup(config, "warzone-v" + version);
+        if (version == 4) {
+            YamlConfiguration migrated = bundledDefaults();
+            migrated.set("config-version", WarzoneConfigLoader.VERSION);
+            migrated.set("enabled", old.getBoolean("enabled", false));
+            copyPath(old, migrated, "region.world");
+            copyPath(old, migrated, "region.id");
+            copyPath(old, migrated, "region.excluded-region-ids");
+            copyPath(old, migrated, "rotation.schedule");
+            copyPath(old, migrated, "rotation.warning-times");
+            copyPath(old, migrated, "messages");
+            copyPath(old, migrated, "cobwebs");
+            mergeSections(old, migrated, "restriction-targets");
+            mergeSections(old, migrated, "conflict-groups");
+            preserveModifierDefinitions(old, migrated);
+            saveAtomically(migrated, config);
+            report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
+            report.add("Migrated to schema-" + WarzoneConfigLoader.VERSION
+                    + " while preserving enabled state, scope IDs, schedule, messages, cobweb settings, "
+                    + "restriction policies, and compatible modifier text/restrictions.");
+            report.add("Added independent enabled/weight values, count weights, Pearl/Wind outcomes, "
+                    + "and Elytra special-rule defaults.");
+            report.add("Existing weekly state was retained; disabled or invalid persisted IDs reroll "
+                    + "without moving their stored transition boundary.");
+            return;
+        }
+
         plugin.saveResource("warzone.yml", true);
         report.add("Backed up incompatible warzone.yml to " + backup.getFileName() + ".");
-        report.add("Installed clean schema-4 weekly configuration.");
-        report.add("Old short sequential rotations were deliberately not reinterpreted.");
+        report.add("Installed clean schema-" + WarzoneConfigLoader.VERSION + " weekly configuration.");
+        report.add("The replacement remains disabled by default; old short sequential rotations were not reinterpreted.");
+    }
+
+    private YamlConfiguration bundledDefaults() throws IOException {
+        InputStream stream = plugin.getResource("warzone.yml");
+        if (stream == null) throw new IOException("Bundled warzone.yml is missing.");
+        try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+            return YamlConfiguration.loadConfiguration(reader);
+        }
+    }
+
+    private void preserveModifierDefinitions(YamlConfiguration old, YamlConfiguration migrated) {
+        ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
+        if (modifiers == null) return;
+        for (String id : modifiers.getKeys(false)) {
+            String base = "modifiers." + id;
+            if (!migrated.contains(base)) continue;
+            migrated.set(base + ".enabled", old.getBoolean(base + ".enabled", true));
+            if (old.contains(base + ".weight"))
+                migrated.set(base + ".weight", old.get(base + ".weight"));
+            for (String field : SAFE_MODIFIER_FIELDS)
+                copyPath(old, migrated, base + "." + field);
+        }
+    }
+
+    private void mergeSections(YamlConfiguration old, YamlConfiguration migrated, String path) {
+        ConfigurationSection section = old.getConfigurationSection(path);
+        if (section == null) return;
+        for (String key : section.getKeys(false))
+            migrated.set(path + "." + key, section.get(key));
+    }
+
+    private void copyPath(YamlConfiguration source, YamlConfiguration target, String path) {
+        if (source.contains(path)) target.set(path, source.get(path));
+    }
+
+    private void saveAtomically(YamlConfiguration yaml, Path target) throws IOException {
+        Files.createDirectories(target.getParent());
+        Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
+        Files.writeString(temporary, yaml.saveToString(), StandardCharsets.UTF_8);
+        try {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private void prepareMessages(List<String> report) {
