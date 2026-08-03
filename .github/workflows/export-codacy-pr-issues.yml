@@ -13,15 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Codacy PR issue details
-        run: >-
-          curl --fail --silent --show-error --location
-          --header 'Accept: application/json'
-          'https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues?limit=1000&onlyPotential=false&status=new'
-          --output codacy-pr-issues.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues'
+          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000" --output issues-default.json
+          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&onlyPotential=false&status=new" --output issues-new-nonpotential.json
+          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&onlyPotential=true&status=new" --output issues-new-potential.json
+          curl --fail --silent --show-error --location --header 'Accept: application/json' "$base?limit=1000&status=new" --output issues-new.json
       - name: Upload issue details
         uses: actions/upload-artifact@v4
         with:
           name: codacy-pr-issues
-          path: codacy-pr-issues.json
+          path: issues-*.json
           if-no-files-found: error
           retention-days: 1
