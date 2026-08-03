@@ -107,10 +107,11 @@ public final class ItemRestrictionListener implements Listener {
     public void onWindChargeDispenseFinalized(BlockDispenseEvent event) {
         if (event.isCancelled() || event.getItem().getType() != Material.WIND_CHARGE
                 || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+        Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
         automatedLaunches.record(event.getBlock().getWorld().getUID(),
                 event.getBlock().getX(), event.getBlock().getY(), event.getBlock().getZ(),
                 event.getBlock().getWorld().getServer().getCurrentTick(),
-                automatedVec(event.getVelocity()),
+                region.contains(source), automatedVec(event.getVelocity()),
                 System.nanoTime() + 250_000_000L);
     }
 
@@ -144,7 +145,8 @@ public final class ItemRestrictionListener implements Listener {
         var match = automatedLaunches.match(launch.getWorld().getUID(), tick,
                 automatedVec(launch), automatedVec(projectile.getVelocity()), now);
         if (match.isPresent() && AutomatedProjectileRestriction.blocksWindCharge(
-                activeSet.get(), false, region.contains(launch)))
+                activeSet.get(), match.orElseThrow().sourceInside(),
+                region.contains(launch)))
             event.setCancelled(true);
     }
 
