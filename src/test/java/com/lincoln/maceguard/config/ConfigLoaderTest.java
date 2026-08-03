@@ -34,8 +34,24 @@ class ConfigLoaderTest {
         MaceGuardConfig config = new ConfigLoader().load(
                 YamlConfiguration.loadConfiguration(file.toFile()));
         assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
         assertTrue(config.errors().stream().anyMatch(value ->
                 value.contains("block-policies.cobweb-box.place.materials")));
+    }
+
+    @Test void emptyPermissivePolicyRuleIsRejectedAndNotPublished() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("      deny-unlisted: true\n      materials:\n        - COBWEB\n        - ICE",
+                        "      deny-unlisted: false\n      materials: []");
+        Path file = directory.resolve("config-empty-policy.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("block-policies.cobweb-box.place.materials must not be empty")));
     }
 
     @Test void namespacedAndAliasMaterialNamesAreRejectedStrictly() throws Exception {
@@ -47,6 +63,7 @@ class ConfigLoaderTest {
         MaceGuardConfig config = new ConfigLoader().load(
                 YamlConfiguration.loadConfiguration(file.toFile()));
         assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
         assertTrue(config.errors().stream().anyMatch(value ->
                 value.contains("block-policies.cobweb-box.place.materials")
                         && value.contains("invalid material")));
