@@ -35,41 +35,27 @@ public final class BlockPolicyListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
-        Resolution resolution = resolve(event.getBlockPlaced().getLocation());
-        if (!resolution.referenced()) return;
-        if (resolution.policy() == null
-                || !resolution.policy().place().allows(event.getBlockPlaced().getType()))
-            event.setCancelled(true);
+        if (!placeAllowed(resolve(event.getBlockPlaced().getLocation()),
+                event.getBlockPlaced().getType())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
-        Resolution resolution = resolve(event.getBlock().getLocation());
-        if (!resolution.referenced()) return;
-        if (resolution.policy() == null
-                || !resolution.policy().breakRule().allows(event.getBlock().getType()))
-            event.setCancelled(true);
+        if (!breakAllowed(resolve(event.getBlock().getLocation()),
+                event.getBlock().getType())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
         Block target = event.getBlockClicked().getRelative(event.getBlockFace());
-        Resolution resolution = resolve(target.getLocation());
-        if (!resolution.referenced()) return;
-        Material fluid = fluid(event.getBucket());
-        if (resolution.policy() == null
-                || !resolution.policy().buckets().empty().contains(fluid))
+        if (!bucketEmptyAllowed(resolve(target.getLocation()), fluid(event.getBucket())))
             event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketFill(PlayerBucketFillEvent event) {
         Block source = event.getBlockClicked();
-        Resolution resolution = resolve(source.getLocation());
-        if (!resolution.referenced()) return;
-        Material fluid = source.getType();
-        if (resolution.policy() == null
-                || !resolution.policy().buckets().fill().contains(fluid))
+        if (!bucketFillAllowed(resolve(source.getLocation()), source.getType()))
             event.setCancelled(true);
     }
 
@@ -77,34 +63,9 @@ public final class BlockPolicyListener implements Listener {
     public void onFlow(BlockFromToEvent event) {
         Resolution source = resolve(event.getBlock().getLocation());
         Resolution target = resolve(event.getToBlock().getLocation());
-
-        if (source.referenced()) {
-            if (source.policy() == null) {
-                event.setCancelled(true);
-                return;
-            }
-            if (source.policy().liquids().confineToRegion()
-                    && !samePolicy(source, target)) {
-                event.setCancelled(true);
-                return;
-            }
-        }
-        if (target.referenced()) {
-            if (target.policy() == null) {
-                event.setCancelled(true);
-                return;
-            }
-            if (!samePolicy(source, target)
-                    && target.policy().liquids().confineToRegion()) {
-                event.setCancelled(true);
-                return;
-            }
-            if (target.policy().liquids().blockInfiniteWaterSources()
-                    && event.getBlock().getType() == Material.WATER
-                    && createsInfiniteSource(event.getToBlock())) {
-                event.setCancelled(true);
-            }
-        }
+        boolean createsInfiniteWater = event.getBlock().getType() == Material.WATER
+                && createsInfiniteSource(event.getToBlock());
+        if (flowDenied(source, target, createsInfiniteWater)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -148,10 +109,12 @@ public final class BlockPolicyListener implements Listener {
     }
 
     public Resolution resolve(Location location) {
-        String name = worldGuard.effectiveBlockPolicy(location);
-        if (name == null || name.isBlank()) return Resolution.none();
-        String normalized = name.trim().toLowerCase(Locale.ROOT);
-        return new Resolution(normalized, config.blockPolicies().get(normalized), true);
+        WorldGuardQueryService.BlockPolicyReference reference =
+                worldGuard.effectiveBlockPolicyReference(location);
+        if (reference == null || reference.policyName().isBlank()) return Resolution.none();
+        String name = reference.policyName().trim().toLowerCase(Locale.ROOT);
+        String scopeId = reference.regionId().trim().toLowerCase(Locale.ROOT);
+        return new Resolution(scopeId, name, config.blockPolicies().get(name), true);
     }
 
     private boolean pistonTouchesPolicy(Block piston, BlockFace direction,
@@ -168,13 +131,54 @@ public final class BlockPolicyListener implements Listener {
     }
 
     private boolean blocksAutomation(Location location) {
-        Resolution resolution = resolve(location);
+        return automationDenied(resolve(location));
+    }
+
+    static boolean placeAllowed(Resolution resolution, Material material) {
+        return !resolution.referenced() || resolution.policy() != null
+                && resolution.policy().place().allows(material);
+    }
+
+    static boolean breakAllowed(Resolution resolution, Material material) {
+        return !resolution.referenced() || resolution.policy() != null
+                && resolution.policy().breakRule().allows(material);
+    }
+
+    static boolean bucketEmptyAllowed(Resolution resolution, Material fluid) {
+        return !resolution.referenced() || resolution.policy() != null
+                && resolution.policy().buckets().empty().contains(fluid);
+    }
+
+    static boolean bucketFillAllowed(Resolution resolution, Material fluid) {
+        return !resolution.referenced() || resolution.policy() != null
+                && resolution.policy().buckets().fill().contains(fluid);
+    }
+
+    static boolean flowDenied(Resolution source, Resolution target,
+                              boolean createsInfiniteWaterSource) {
+        if (source.referenced()) {
+            if (source.policy() == null) return true;
+            if (source.policy().liquids().confineToRegion() && !samePolicyScope(source, target))
+                return true;
+        }
+        if (target.referenced()) {
+            if (target.policy() == null) return true;
+            if (target.policy().liquids().confineToRegion() && !samePolicyScope(source, target))
+                return true;
+            if (target.policy().liquids().blockInfiniteWaterSources()
+                    && createsInfiniteWaterSource) return true;
+        }
+        return false;
+    }
+
+    static boolean automationDenied(Resolution resolution) {
         return resolution.referenced()
                 && (resolution.policy() == null || !resolution.policy().allowNonPlayerSources());
     }
 
-    private boolean samePolicy(Resolution first, Resolution second) {
+    static boolean samePolicyScope(Resolution first, Resolution second) {
         return first.referenced() && second.referenced()
+                && first.scopeId().equals(second.scopeId())
                 && first.name().equals(second.name())
                 && first.policy() != null && second.policy() != null;
     }
@@ -200,7 +204,7 @@ public final class BlockPolicyListener implements Listener {
         return bucket;
     }
 
-    public record Resolution(String name, BlockPolicy policy, boolean referenced) {
-        public static Resolution none() { return new Resolution("", null, false); }
+    public record Resolution(String scopeId, String name, BlockPolicy policy, boolean referenced) {
+        public static Resolution none() { return new Resolution("", "", null, false); }
     }
 }
