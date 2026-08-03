@@ -19,20 +19,13 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          wc -c .maceguard-repair/*
-          sha256sum .maceguard-repair/*
-          test "$(wc -c < .maceguard-repair/008-0)" = "3000"
           test "$(sha256sum .maceguard-repair/008-0 | awk '{print $1}')" = "0904c755e1837880b893919ab9e7c6c21fc14b330d9dc0ddbc298f6af562e55e"
-          test "$(wc -c < .maceguard-repair/008-1)" = "3000"
           test "$(sha256sum .maceguard-repair/008-1 | awk '{print $1}')" = "06707e5df61708498b60dab71f33417b836e119250097a67feddb44cc53623e8"
-          test "$(wc -c < .maceguard-repair/008-2)" = "3000"
           test "$(sha256sum .maceguard-repair/008-2 | awk '{print $1}')" = "f224dc3c1e19615f6611138e2b34c5e4c4badbb1c60630895395bc72af1315b9"
-          test "$(wc -c < .maceguard-repair/010-0)" = "3000"
           test "$(sha256sum .maceguard-repair/010-0 | awk '{print $1}')" = "55179e8b21e6270165d642ab2d4a723bc59e7059df6b1f5c4996244ae47b2759"
-          test "$(wc -c < .maceguard-repair/010-1)" = "3000"
           test "$(sha256sum .maceguard-repair/010-1 | awk '{print $1}')" = "4713a12e92560e4de90544cb447a1624c382a653b864d56eb7744809d3daa9db"
-          test "$(wc -c < .maceguard-repair/010-2)" = "2660"
-          test "$(sha256sum .maceguard-repair/010-2 | awk '{print $1}')" = "5b4ea1bc7358f4e3e873f38956216891387d6a6602ad5a891b6a00618e274649"
+          head -c 2660 .maceguard-repair/010-2 > /tmp/010-2
+          test "$(sha256sum /tmp/010-2 | awk '{print $1}')" = "5b4ea1bc7358f4e3e873f38956216891387d6a6602ad5a891b6a00618e274649"
           {
             cat .maceguard-bundle/part-000
             cat .maceguard-bundle/part-001
@@ -44,7 +37,7 @@ jobs:
             cat .maceguard-bundle/part-007
             cat .maceguard-repair/008-0 .maceguard-repair/008-1 .maceguard-repair/008-2
             cat .maceguard-bundle/part-009
-            cat .maceguard-repair/010-0 .maceguard-repair/010-1 .maceguard-repair/010-2
+            cat .maceguard-repair/010-0 .maceguard-repair/010-1 /tmp/010-2
           } > /tmp/maceguard-patch.b64
           test "$(wc -c < /tmp/maceguard-patch.b64)" = "77660"
           test "$(sha256sum /tmp/maceguard-patch.b64 | awk '{print $1}')" = "30711be9057d07d91173c2104c3c200fdc8ccd5e4295782881944fadb817e599"
