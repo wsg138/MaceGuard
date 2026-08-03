@@ -103,15 +103,20 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("Explosives: "
                 + (query.explosivesDenied(location, player)
                 ? "DENY" : "not denied by MaceGuard"));
-        String policyName = query.effectiveBlockPolicy(location);
-        var policy = policyName == null ? null
-                : plugin.runtime().settings().blockPolicies()
-                .get(policyName.toLowerCase(Locale.ROOT));
+
+        var policy = plugin.runtime().blockPolicyResolver().resolve(location);
         sender.sendMessage("Effective block policy: "
-                + (policyName == null ? "none" : policyName
-                + (policy == null ? " (MISSING/FAIL-CLOSED)"
-                : " (place=" + policy.place().materials()
-                + ", break=" + policy.breakRule().materials() + ")")));
+                + (policy.referenced() ? policy.name() : "none"));
+        sender.sendMessage("Block policy source: region="
+                + (policy.scopeId().isBlank() ? "none" : policy.scopeId())
+                + ", kind=" + policy.sourceKind()
+                + ", global=" + policy.globalSource());
+        sender.sendMessage("Named policy exists: " + policy.namedPolicyExists());
+        sender.sendMessage("Schema permits enforcement: "
+                + policy.schemaAllowsEnforcement()
+                + " (valid-schema=" + plugin.runtime().settings().validSchema() + ")");
+        sender.sendMessage("Final policy result: " + policy.finalResult());
+
         sender.sendMessage("Effective reset profile: "
                 + String.valueOf(query.effectiveResetProfile(location)));
         String regions = query.applicableRegions(location).stream()
