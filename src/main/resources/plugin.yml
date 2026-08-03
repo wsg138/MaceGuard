@@ -1,20 +1,20 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 4.0.1
+version: 5.0.0
 api-version: '1.21'
 author: P2wn
-description: WorldGuard-scoped warzone rotations, combat restrictions, temporary cobwebs, explosive controls, and safe resets.
+description: WorldGuard-scoped weekly warzone modifiers, block policies, explosive controls, temporary cobwebs, and safe filtered/full resets.
 depend: [WorldGuard]
 softdepend: [PlaceholderAPI]
 
 commands:
   maceguard:
     description: MaceGuard admin command
-    usage: /<command> here|status|capture|validate|plan|arm|disarm|filler|restore|schedule|reset|recover|temporary|reload
+    usage: /<command> here|status|capture|validate|plan|arm|disarm|schedule|reset|recover|temporary|reload
   warzone:
-    description: View or administer the integrated warzone rotation.
+    description: View or administer the integrated weekly warzone modifiers.
     aliases: [warzonerotator, wzr]
-    usage: /<command> [info|items|next|skip|force|set|extend|reload|validate|debug]
+    usage: /<command> [info|modifiers|items|next|skip|force|set|extend|reload|validate|debug]
 
 permissions:
   maceguard.admin:
@@ -28,6 +28,7 @@ permissions:
     default: op
     children:
       warzonerotator.command.info: true
+      warzonerotator.command.modifiers: true
       warzonerotator.command.items: true
       warzonerotator.command.next: true
       warzonerotator.command.skip: true
@@ -39,6 +40,7 @@ permissions:
       warzonerotator.command.debug: true
       warzonerotator.bypass: true
   warzonerotator.command.info: { default: true }
+  warzonerotator.command.modifiers: { default: true }
   warzonerotator.command.items: { default: true }
   warzonerotator.command.next: { default: true }
   warzonerotator.command.skip: { default: op }

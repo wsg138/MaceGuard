@@ -1,7 +1,7 @@
 package com.lincoln.maceguard.temporary;
 
 import com.lincoln.maceguard.config.MaceGuardConfig;
-import com.lincoln.maceguard.runtime.RuntimeSafetyPolicy;
+import com.lincoln.maceguard.policy.BlockPolicyResolver;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Material;
@@ -15,21 +15,42 @@ public final class CobwebListener implements Listener {
     private final WarzoneModule warzone;
     private final TemporaryBlockService temporary;
     private final MaceGuardConfig config;
+    private final BlockPolicyResolver policies;
 
-    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone, TemporaryBlockService temporary, MaceGuardConfig config) {
-        this.worldGuard = worldGuard; this.warzone = warzone; this.temporary = temporary; this.config = config;
+    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
+                          TemporaryBlockService temporary, MaceGuardConfig config) {
+        this(worldGuard, warzone, temporary, config,
+                new BlockPolicyResolver(config, worldGuard));
+    }
+
+    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
+                          TemporaryBlockService temporary, MaceGuardConfig config,
+                          BlockPolicyResolver policies) {
+        this.worldGuard = worldGuard;
+        this.warzone = warzone;
+        this.temporary = temporary;
+        this.config = config;
+        this.policies = policies;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
-        if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
+        if (!handlersEnabled(config.enabled(), config.validSchema())) return;
         var location = event.getBlockPlaced().getLocation();
-        boolean exactWarzone = warzone.appliesAt(location);
+
+        BlockPolicyResolver.Resolution policy = policies.resolve(location);
+        if (policy.referenced()) {
+            boolean allowed = policyTemporaryAllowed(policy,
+                    worldGuard.buildAllowed(location, event.getPlayer()),
+                    worldGuard.cobwebsAllowed(location, event.getPlayer()));
+            if (!allowed) event.setCancelled(true);
+            return;
+        }
+
+        if (!warzone.appliesAt(location)) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
-        if (!exactWarzone && decision.allowed()) return;
-        boolean allowed = exactWarzone
-                && worldGuard.buildAllowed(location, event.getPlayer())
+        boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
                 && worldGuard.cobwebsAllowed(location, event.getPlayer())
                 && worldGuard.warzoneCobwebsAllowed(location)
                 && decision.allowed();
@@ -41,19 +62,45 @@ public final class CobwebListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
-        if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
-        boolean warzoneApplies = warzone.appliesAt(event.getBlockPlaced().getLocation());
-        var decision = warzone.cobwebDecision(event.getPlayer(), event.getBlockPlaced().getLocation());
-        if (!worldGuard.buildAllowed(event.getBlockPlaced().getLocation(), event.getPlayer())
-                || !worldGuard.cobwebsAllowed(event.getBlockPlaced().getLocation(), event.getPlayer())
-                || (warzoneApplies && (!worldGuard.warzoneCobwebsAllowed(event.getBlockPlaced().getLocation())
-                || !decision.allowed()))) return;
-        if (warzoneApplies) warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+        if (!handlersEnabled(config.enabled(), config.validSchema())) return;
+        var location = event.getBlockPlaced().getLocation();
+        BlockPolicyResolver.Resolution policy = policies.resolve(location);
+        boolean policyOverride = policyTemporaryAllowed(policy,
+                worldGuard.buildAllowed(location, event.getPlayer()),
+                worldGuard.cobwebsAllowed(location, event.getPlayer()));
+        boolean warzoneApplies = warzone.appliesAt(location);
+
+        if (policy.referenced()) {
+            if (!policyOverride) return;
+        } else {
+            var decision = warzone.cobwebDecision(event.getPlayer(), location);
+            if (!warzoneApplies
+                    || !worldGuard.buildAllowed(location, event.getPlayer())
+                    || !worldGuard.cobwebsAllowed(location, event.getPlayer())
+                    || !worldGuard.warzoneCobwebsAllowed(location)
+                    || !decision.allowed()) return;
+            warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+        }
+
         String original = event.getBlockReplacedState().getBlockData().getAsString(true);
-        if (!config.temporary().replacements().contains(event.getBlockReplacedState().getType().name())) return;
+        if (!config.temporary().replacements()
+                .contains(event.getBlockReplacedState().getType().name())) return;
         long expiresAt = Math.addExact(System.currentTimeMillis(),
-                warzone.cobwebLifetime(java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
-                        event.getBlockPlaced().getLocation()).toMillis());
-        temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneApplies);
+                warzone.cobwebLifetime(
+                        java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
+                        location).toMillis());
+        temporary.track(event.getBlockPlaced(), original, expiresAt,
+                warzoneApplies && !policyOverride);
+    }
+
+    static boolean handlersEnabled(boolean enabled, boolean validSchema) {
+        return enabled && validSchema;
+    }
+
+    static boolean policyTemporaryAllowed(BlockPolicyResolver.Resolution policy,
+                                          boolean buildAllowed, boolean cobwebFlagAllowed) {
+        return policy.referenced() && policy.policy() != null
+                && policy.policy().place().allows(Material.COBWEB)
+                && buildAllowed && cobwebFlagAllowed;
     }
 }

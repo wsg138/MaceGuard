@@ -2,65 +2,83 @@ package com.lincoln.maceguard.config;
 
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConfigLoaderTest {
-    @Test void missingProfileAndLegacyCoordinatesNeverCreateResetBehavior() {
-        YamlConfiguration yaml = base();
-        yaml.set("gameplay_zones", java.util.List.of(java.util.Map.of("name", "war-pit", "reset_mode", "AIR", "min", java.util.Map.of("x", 0))));
-        var loaded = new ConfigLoader().load(yaml);
-        assertTrue(loaded.resetProfiles().isEmpty());
+    @TempDir Path directory;
+
+    @Test void bundledConfigurationIsValidAndContainsRequiredProfiles() {
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(
+                Path.of("src", "main", "resources", "config.yml").toFile());
+        MaceGuardConfig config = new ConfigLoader().load(yaml);
+        assertTrue(config.validSchema(), config.errors().toString());
+        assertEquals(8, ConfigLoader.VERSION);
+        assertTrue(config.blockPolicies().containsKey("cobweb-box"));
+        assertEquals(ResetProfile.Mode.FULL_SNAPSHOT,
+                config.resetProfiles().get("war-pit").mode());
+        assertEquals(ResetProfile.Mode.FILTERED_SNAPSHOT,
+                config.resetProfiles().get("warzone-environment").mode());
     }
 
-    @Test void missingModeDisablesProfileAndRejectsSchema() {
-        YamlConfiguration yaml = base();
-        yaml.set("reset-profiles.pit.max-total-changes", 100);
-        yaml.set("reset-profiles.pit.max-air-changes", 10);
-        var loaded = new ConfigLoader().load(yaml);
-        assertFalse(loaded.validSchema());
-        assertFalse(loaded.resetProfiles().containsKey("pit"));
+    @Test void invalidPolicyMaterialProducesPathSpecificError() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("        - ICE", "        - NOT_A_REAL_BLOCK");
+        Path file = directory.resolve("config.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("block-policies.cobweb-box.place.materials")));
     }
 
-    @Test void invalidAndUnknownModesDisableProfile() {
-        YamlConfiguration yaml = base();
-        yaml.set("reset-profiles.pit.mode", "AIR");
-        yaml.set("reset-profiles.pit.max-total-changes", 100);
-        yaml.set("reset-profiles.pit.max-air-changes", 10);
-        assertFalse(new ConfigLoader().load(yaml).resetProfiles().containsKey("pit"));
+    @Test void emptyPermissivePolicyRuleIsRejectedAndNotPublished() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("      deny-unlisted: true\n      materials:\n        - COBWEB\n        - ICE",
+                        "      deny-unlisted: false\n      materials: []");
+        Path file = directory.resolve("config-empty-policy.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("block-policies.cobweb-box.place.materials must not be empty")));
     }
 
-    @Test void versionIsNotAcceptedUntilCompleteSchemaValidates() {
-        YamlConfiguration yaml = base();
-        yaml.set("config-version", 6);
-        assertFalse(new ConfigLoader().load(yaml).validSchema());
-        yaml.set("config-version", 7);
-        assertTrue(new ConfigLoader().load(yaml).validSchema());
-    }
-    @Test void missingVersionCannotBeAcceptedFromDefaults() {
-        YamlConfiguration yaml = base();
-        yaml.set("config-version", null);
-        assertFalse(new ConfigLoader().load(yaml).validSchema());
-    }
-    @Test void profileRequiresExplicitCoordinateAndDestructiveLimits() {
-        YamlConfiguration yaml = base();
-        yaml.set("reset-profiles.pit.mode", "FULL_SNAPSHOT");
-        yaml.set("reset-profiles.pit.max-total-changes", 100);
-        yaml.set("reset-profiles.pit.max-air-changes", 10);
-        assertFalse(new ConfigLoader().load(yaml).resetProfiles().containsKey("pit"));
-        yaml.set("reset-profiles.pit.max-coordinates", 1000);
-        assertTrue(new ConfigLoader().load(yaml).resetProfiles().containsKey("pit"));
+    @Test void namespacedAndAliasMaterialNamesAreRejectedStrictly() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("        - ICE", "        - minecraft:ice");
+        Path file = directory.resolve("config-namespaced.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertFalse(config.blockPolicies().containsKey("cobweb-box"));
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("block-policies.cobweb-box.place.materials")
+                        && value.contains("invalid material")));
     }
 
-    private YamlConfiguration base() {
-        YamlConfiguration yaml = new YamlConfiguration();
-        yaml.set("config-version", 7);
-        yaml.set("mace-durability.damage-per-armor-piece", 2);
-        yaml.set("temporary-blocks.cobweb-ttl-seconds", 60);
-        yaml.set("temporary-blocks.max-tracked-blocks", 100);
-        yaml.set("performance.capture-batch-size", 10);
-        yaml.set("performance.plan-batch-size", 10);
-        yaml.set("performance.restore-batch-size", 10);
-        return yaml;
+    @Test void obsoleteSparseProfileFailsClosed() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("mode: FILTERED_SNAPSHOT", "mode: SPARSE_ORIGINALS");
+        Path file = directory.resolve("config-sparse.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("SPARSE_ORIGINALS is obsolete")));
     }
 }

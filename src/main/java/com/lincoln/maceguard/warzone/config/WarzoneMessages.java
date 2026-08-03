@@ -6,5 +6,7 @@ public record WarzoneMessages(
         String abilityDisabled,
         String abilityCooldown,
         String cobwebUnavailable,
+        String elytraUnavailable,
+        String fireworkUnavailable,
         String rotationWarning
 ) { }

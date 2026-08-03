@@ -13,4 +13,10 @@ ability-cooldown: |-
 cobweb-unavailable: |-
   <red>Cobwebs are unavailable during <white><meta><red>.
   <gray>The meta changes in <white><time_left><gray>.
+elytra-unavailable: |-
+  <red>Elytra gliding is not active in the warzone this week.
+  <gray>The meta changes in <white><time_left><gray>.
+firework-unavailable: |-
+  <red>Firework boosting is disabled in the warzone this week.
+  <gray>The meta changes in <white><time_left><gray>.
 rotation-warning: "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>."

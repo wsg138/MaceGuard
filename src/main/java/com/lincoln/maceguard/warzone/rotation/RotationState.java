@@ -1,15 +1,18 @@
 package com.lincoln.maceguard.warzone.rotation;
 
+import java.util.List;
 import java.util.Set;
 
 public record RotationState(
-        String activeRotationId,
-        long startedAtMillis,
-        long endsAtMillis,
-        String nextRotationId,
-        Set<Long> emittedWarningsSeconds
+        List<String> activeModifierIds,
+        long activatedAtMillis,
+        long weeklyBoundaryMillis,
+        long transitionAtMillis,
+        Set<Long> emittedWarningsSeconds,
+        long selectionSequence
 ) {
     public RotationState {
+        activeModifierIds = List.copyOf(activeModifierIds);
         emittedWarningsSeconds = Set.copyOf(emittedWarningsSeconds);
     }
 }

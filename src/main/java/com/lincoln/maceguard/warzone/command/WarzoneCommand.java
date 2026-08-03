@@ -20,8 +20,8 @@ import java.util.List;
 import java.util.Locale;
 
 public final class WarzoneCommand implements TabExecutor {
-    private static final List<String> SUBCOMMANDS = List.of("info", "items", "next", "skip", "force",
-            "set", "extend", "reload", "validate", "debug");
+    private static final List<String> SUBCOMMANDS = List.of("info", "modifiers", "items", "next",
+            "skip", "force", "set", "extend", "reload", "validate", "debug");
     private final WarzoneModule module;
 
     public WarzoneCommand(WarzoneModule module) { this.module = module; }
@@ -30,12 +30,15 @@ public final class WarzoneCommand implements TabExecutor {
         String sub = args.length == 0 ? "info" : args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
             case "info" -> permitted(sender, "info", () -> info(sender));
-            case "items" -> permitted(sender, "items", () -> items(sender));
+            case "modifiers" -> permitted(sender, "modifiers", () -> modifiers(sender));
+            case "items" -> permitted(sender, "items", () -> restrictions(sender));
             case "next" -> permitted(sender, "next", () -> next(sender));
-            case "skip", "force" -> permitted(sender, sub, () -> skip(sender));
-            case "set" -> permitted(sender, "set", () -> set(sender, args.length > 1 ? args[1] : null));
+            case "skip" -> permitted(sender, "skip", () -> reroll(sender, false));
+            case "force" -> permitted(sender, "force", () -> reroll(sender, true));
+            case "set" -> permitted(sender, "set", () -> set(sender, args));
             case "extend" -> permitted(sender, "extend", () -> extend(sender,
-                    args.length > 1 ? String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length)) : ""));
+                    args.length > 1 ? String.join(" ",
+                            java.util.Arrays.copyOfRange(args, 1, args.length)) : ""));
             case "reload" -> permitted(sender, "reload", () -> module.reload(sender));
             case "validate" -> permitted(sender, "validate", () -> module.validate(sender));
             case "debug" -> permitted(sender, "debug", () -> debug(sender));
@@ -47,42 +50,65 @@ public final class WarzoneCommand implements TabExecutor {
     private void info(CommandSender sender) {
         WarzoneRuntime runtime = requireRuntime(sender);
         if (runtime == null) return;
-        WarzoneConfig.Rotation rotation = runtime.rotations().active();
-        module.send(sender, "<gold>Warzone Meta: <meta>");
-        module.send(sender, rotation.description());
-        module.send(sender, "<yellow>Changes in: <white><time_left>");
-        module.send(sender, "<yellow>Changes at: <white><changes_at>");
-        module.send(sender, "<yellow>Next meta: <next_meta>");
-        restrictionLines(sender, rotation);
+        module.send(sender, "<gold>Weekly Warzone Modifiers: <meta>");
+        module.send(sender, runtime.rotations().active().description());
+        module.send(sender, "<yellow>Selected IDs: <white><modifiers>");
+        if (!runtime.gameplayScopeActive())
+            module.send(sender, "<red>The modifier set is selected, but gameplay scope is inactive. "
+                    + "No restrictions or positive effects are being applied.");
+        module.send(sender, "<yellow>Next random transition: <white><changes_at>");
+        module.send(sender, "<yellow>Time remaining: <white><time_left>");
+        restrictionLines(sender, runtime.rotations().active(), runtime.gameplayScopeActive());
     }
 
-    private void items(CommandSender sender) {
+    private void modifiers(CommandSender sender) {
         WarzoneRuntime runtime = requireRuntime(sender);
         if (runtime == null) return;
-        restrictionLines(sender, runtime.rotations().active());
+        module.send(sender, "<gold>Selected modifiers:");
+        for (String id : runtime.rotations().active().modifierIds()) {
+            WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(id);
+            module.send(sender, "<yellow>" + id + "<gray>: " + modifier.description());
+        }
     }
 
-    private void restrictionLines(CommandSender sender, WarzoneConfig.Rotation rotation) {
-        module.send(sender, "<yellow>Disabled: <red>" + join(rotation, RestrictionMode.DISABLED, false));
-        module.send(sender, "<yellow>Cooldowns: <gold>" + join(rotation, RestrictionMode.COOLDOWN, false));
-        module.send(sender, "<yellow>Abilities: <gold>" + abilities(rotation));
-        module.send(sender, rotation.cobwebsAllowed()
+    private void restrictions(CommandSender sender) {
+        WarzoneRuntime runtime = requireRuntime(sender);
+        if (runtime != null)
+            restrictionLines(sender, runtime.rotations().active(), runtime.gameplayScopeActive());
+    }
+
+    private void restrictionLines(CommandSender sender, WarzoneConfig.ActiveSet active,
+                                  boolean scopeActive) {
+        if (!scopeActive) {
+            module.send(sender, "<yellow>Effective gameplay restrictions: <red>inactive");
+            return;
+        }
+        module.send(sender, "<yellow>Disabled: <red>" + join(active, RestrictionMode.DISABLED, false));
+        module.send(sender, "<yellow>Cooldowns: <gold>" + join(active, RestrictionMode.COOLDOWN, false));
+        module.send(sender, "<yellow>Abilities: <gold>" + abilities(active));
+        module.send(sender, active.cobwebsAllowed()
                 ? "<yellow>Cobwebs: <green>Available <gray>— clear after <cobweb_clear_time>"
-                : "<yellow>Cobwebs: <red>Unavailable");
+                : "<yellow>Cobwebs: <red>Unavailable outside an always-on block-policy region");
+        module.send(sender, active.elytraGlidingAllowed()
+                ? "<yellow>Elytra: <green>Gliding allowed; rocket boosting blocked"
+                : "<yellow>Elytra: <red>Gliding cannot be started");
     }
 
-    private String join(WarzoneConfig.Rotation rotation, RestrictionMode mode, boolean effectOnly) {
-        String value = rotation.restrictions().values().stream()
-                .filter(restriction -> restriction.mode() == mode && restriction.target().effectOnly() == effectOnly)
+    private String join(WarzoneConfig.ActiveSet active, RestrictionMode mode, boolean effectOnly) {
+        String value = active.restrictions().values().stream()
+                .filter(restriction -> restriction.mode() == mode
+                        && restriction.target().effectOnly() == effectOnly)
                 .sorted(Comparator.comparing(restriction -> restriction.target().id()))
                 .map(restriction -> WarzoneMessageService.friendly(restriction.target())
-                        + (mode == RestrictionMode.COOLDOWN ? " — " + DurationFormatter.words(restriction.cooldown()) : ""))
+                        + (mode == RestrictionMode.COOLDOWN
+                        ? " — " + DurationFormatter.words(restriction.cooldown()) : ""))
                 .collect(java.util.stream.Collectors.joining(", "));
         return value.isEmpty() ? "None" : value;
     }
 
-    private String abilities(WarzoneConfig.Rotation rotation) {
-        String value = rotation.restrictions().values().stream().filter(value1 -> value1.target().effectOnly())
+    private String abilities(WarzoneConfig.ActiveSet active) {
+        String value = active.restrictions().values().stream()
+                .filter(value1 -> value1.target().effectOnly())
                 .sorted(Comparator.comparing(value1 -> value1.target().id()))
                 .map(value1 -> WarzoneMessageService.friendly(value1.target()) + " — "
                         + (value1.mode() == RestrictionMode.DISABLED ? "disabled"
@@ -92,31 +118,37 @@ public final class WarzoneCommand implements TabExecutor {
     }
 
     private void next(CommandSender sender) {
-        if (requireRuntime(sender) != null)
-            module.send(sender, "<yellow>Next meta: <next_meta><gray>, at <white><changes_at><gray>.");
-    }
-
-    private void skip(CommandSender sender) {
         WarzoneRuntime runtime = requireRuntime(sender);
         if (runtime == null) return;
-        if (!runtime.rotations().skip()) module.send(sender, "<red>The rotation did not change.");
-        else module.send(sender, "<green>Advanced to <meta><green>.");
+        module.send(sender, "<yellow>Next weekly transition: <white><changes_at><gray>. "
+                + "The random modifier combination has not been selected yet.");
     }
 
-    private void set(CommandSender sender, String id) {
+    private void reroll(CommandSender sender, boolean force) {
         WarzoneRuntime runtime = requireRuntime(sender);
         if (runtime == null) return;
-        if (id == null) {
-            module.send(sender, "<red>Usage: /warzone set <rotation-id>");
+        boolean changed = force ? runtime.rotations().force() : runtime.rotations().skip();
+        module.send(sender, changed
+                ? "<green>Selected a new modifier set without moving the weekly boundary: <meta>"
+                : "<yellow>The only valid combination remained selected; the weekly boundary was unchanged.");
+    }
+
+    private void set(CommandSender sender, String[] args) {
+        WarzoneRuntime runtime = requireRuntime(sender);
+        if (runtime == null) return;
+        if (args.length < 2) {
+            module.send(sender, "<red>Usage: /warzone set <modifier-id> [modifier-id...]");
             return;
         }
-        if (!runtime.rotations().config().rotationsById().containsKey(id)) {
-            module.send(sender, "<red>Unknown rotation ID '<white>" + id + "<red>'.");
+        List<String> ids = java.util.Arrays.stream(args).skip(1)
+                .flatMap(value -> java.util.Arrays.stream(value.split(",")))
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> !value.isEmpty()).distinct().toList();
+        if (!runtime.rotations().set(ids, true)) {
+            module.send(sender, "<red>That modifier set is unknown, conflicts, violates selection limits, or is already selected.");
             return;
         }
-        if (!runtime.rotations().activate(id, true))
-            module.send(sender, "<red>Rotation '<white>" + id + "<red>' is already active.");
-        else module.send(sender, "<green>Activated <meta><green>.");
+        module.send(sender, "<green>Selected <meta><green>; the next weekly boundary was preserved.");
     }
 
     private void extend(CommandSender sender, String raw) {
@@ -128,44 +160,79 @@ public final class WarzoneCommand implements TabExecutor {
             module.send(sender, "<red>Enter a positive duration, for example <white>30m<red> or <white>1h 30m<red>.");
             return;
         }
-        if (duration.isZero() || duration.isNegative()) {
+        if (!runtime.rotations().extend(duration)) {
             module.send(sender, "<red>Enter a positive duration.");
             return;
         }
-        if (runtime.rotations().extend(duration))
-            module.send(sender, "<green>Extended the current meta by <white>" + DurationFormatter.words(duration) + "<green>.");
+        module.send(sender, "<green>Extended this set by <white>"
+                + DurationFormatter.words(duration)
+                + "<green>. The calendar schedule remains anchored for later weeks.");
     }
 
     private void debug(CommandSender sender) {
         WarzoneRuntime runtime = module.runtime();
-        module.send(sender, "<gold>MaceGuard integrated warzone debug");
-        module.send(sender, "<yellow>Module enabled: <white>" + module.enabled());
+        module.send(sender, "<gold>MaceGuard weekly warzone debug");
+        module.send(sender, "<yellow>Configured enabled: <white>" + module.enabled());
         if (runtime == null) {
             module.send(sender, "<yellow>Runtime: <red>inactive due to invalid or missing configuration");
-            module.send(sender, "<yellow>MaceGuard temporary cobwebs: <white>" + module.temporaryCobwebCount());
+            module.send(sender, "<yellow>MaceGuard temporary cobwebs: <white>"
+                    + module.temporaryCobwebCount());
             module.send(sender, "<yellow>PlaceholderAPI: <white>" + module.placeholderActive());
             return;
         }
         var state = runtime.rotations().state();
-        Object playerInside = sender instanceof Player player ? runtime.region().contains(player.getLocation()) : "not a player";
-        List<String> lines = List.of(
-                "<yellow>World/region: <white>" + runtime.region().worldName() + " / " + runtime.region().regionId(),
-                "<yellow>World loaded: <white>" + runtime.region().worldLoaded(),
-                "<yellow>Region resolved: <white>" + runtime.region().regionResolved(),
-                "<yellow>Resolution status: <white>" + runtime.region().resolutionStatus(),
-                "<yellow>Active/next: <white>" + state.activeRotationId() + " / " + state.nextRotationId(),
-                "<yellow>Deadline: <white>" + state.endsAtMillis() + " (" + runtime.messages().formatInstant(state.endsAtMillis()) + ")",
-                "<yellow>Active cooldown records: <white>" + runtime.cooldowns().size(),
-                "<yellow>MaceGuard temporary cobwebs: <white>" + module.temporaryCobwebCount(),
-                "<yellow>Scheduler active: <white>" + runtime.schedulerActive(),
-                "<yellow>PlaceholderAPI: <white>" + module.placeholderActive(),
-                "<yellow>You are inside: <white>" + playerInside);
+        Object playerInside = sender instanceof Player player
+                ? runtime.appliesAt(player.getLocation()) : "not a player";
+        List<String> lines = new ArrayList<>();
+        lines.add("<yellow>Outer world/region: <white>" + runtime.region().worldName()
+                + " / " + runtime.region().regionId());
+        lines.add("<yellow>Outer resolution: <white>" + runtime.region().outerResolutionStatus());
+        runtime.region().exclusionResolutionStatuses().forEach((id, status) ->
+                lines.add("<yellow>Exclusion " + id + ": <white>" + status));
+        lines.add("<yellow>Effective scope resolution: <white>" + runtime.region().resolutionStatus());
+        lines.add("<yellow>Gameplay scope active: <white>" + runtime.gameplayScopeActive());
+        lines.add("<yellow>Whole-world fallback: <white>false");
+        lines.add("<yellow>You are inside effective scope: <white>" + playerInside);
+        lines.add("<yellow>Selected modifiers: <white>" + state.activeModifierIds());
+        lines.add("<yellow>Activated: <white>"
+                + runtime.messages().formatInstant(state.activatedAtMillis()));
+        lines.add("<yellow>Calendar boundary: <white>"
+                + runtime.messages().formatInstant(state.weeklyBoundaryMillis()));
+        lines.add("<yellow>Effective transition: <white>"
+                + runtime.messages().formatInstant(state.transitionAtMillis()));
+        lines.add("<yellow>Selection: <white>" + runtime.config().selection().mode()
+                + " min=" + runtime.config().selection().minimum()
+                + " max=" + runtime.config().selection().maximum()
+                + " prevent-repeat=" + runtime.config().selection().preventIdenticalRepeat());
+        lines.add("<yellow>Conflict groups: <white>" + runtime.config().conflictGroups());
+        lines.add("<yellow>Active cooldown records: <white>" + runtime.cooldowns().size());
+        lines.add("<yellow>MaceGuard temporary cobwebs: <white>"
+                + module.temporaryCobwebCount());
+        lines.add("<yellow>Scheduler active: <white>" + runtime.schedulerActive());
+        lines.add("<yellow>PlaceholderAPI: <white>" + module.placeholderActive());
         lines.forEach(line -> module.send(sender, line));
+
+        if (sender instanceof Player player && module.blockPolicies() != null) {
+            var policy = module.blockPolicies().resolve(player.getLocation());
+            module.send(sender, "<yellow>Effective block policy: <white>"
+                    + (policy.referenced() ? policy.name() : "none"));
+            module.send(sender, "<yellow>Policy source: <white>region="
+                    + (policy.scopeId().isBlank() ? "none" : policy.scopeId())
+                    + ", kind=" + policy.sourceKind()
+                    + ", global=" + policy.globalSource());
+            module.send(sender, "<yellow>Named policy exists: <white>"
+                    + policy.namedPolicyExists());
+            module.send(sender, "<yellow>Schema permits enforcement: <white>"
+                    + policy.schemaAllowsEnforcement());
+            module.send(sender, "<yellow>Final policy result: <white>"
+                    + policy.finalResult());
+        }
     }
 
     private WarzoneRuntime requireRuntime(CommandSender sender) {
         WarzoneRuntime runtime = module.runtime();
-        if (runtime == null) module.send(sender, "<red>The integrated warzone module is inactive. Use /warzone validate.");
+        if (runtime == null)
+            module.send(sender, "<red>The integrated warzone module is inactive. Use /warzone validate.");
         return runtime;
     }
 
@@ -174,19 +241,24 @@ public final class WarzoneCommand implements TabExecutor {
         else module.send(sender, "<red>You do not have permission.");
     }
 
-    @Override public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    @Override public List<String> onTabComplete(CommandSender sender, Command command,
+                                                 String alias, String[] args) {
         if (args.length == 1) {
             List<String> allowed = SUBCOMMANDS.stream()
                     .filter(value -> sender.hasPermission("warzonerotator.command." + value)).toList();
-            return StringUtil.copyPartialMatches(args[0], allowed, new ArrayList<>()).stream().sorted().toList();
+            return StringUtil.copyPartialMatches(args[0], allowed, new ArrayList<>())
+                    .stream().sorted().toList();
         }
         WarzoneRuntime runtime = module.runtime();
-        if (args.length == 2 && args[0].equalsIgnoreCase("set") && runtime != null
-                && sender.hasPermission("warzonerotator.command.set"))
-            return StringUtil.copyPartialMatches(args[1], runtime.rotations().config().rotationsById().keySet(),
+        if (args.length >= 2 && args[0].equalsIgnoreCase("set") && runtime != null
+                && sender.hasPermission("warzonerotator.command.set")) {
+            String current = args[args.length - 1];
+            return StringUtil.copyPartialMatches(current, runtime.config().modifiers().keySet(),
                     new ArrayList<>()).stream().sorted().toList();
+        }
         if (args.length == 2 && args[0].equalsIgnoreCase("extend"))
-            return List.of("30m", "1h", "1h 30m").stream().filter(value -> value.startsWith(args[1])).toList();
+            return List.of("30m", "1h", "1h 30m").stream()
+                    .filter(value -> value.startsWith(args[1])).toList();
         return List.of();
     }
 }

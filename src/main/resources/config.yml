@@ -1,4 +1,4 @@
-config-version: 7
+config-version: 8
 enabled: true
 debug: false
 
@@ -7,7 +7,14 @@ mace-durability:
 
 temporary-blocks:
   cobweb-ttl-seconds: 60
-  allowed-replacement-materials: [AIR, GRASS, TALL_GRASS, VINE, SNOW]
+  allowed-replacement-materials:
+    - AIR
+    - SHORT_GRASS
+    - TALL_GRASS
+    - FERN
+    - LARGE_FERN
+    - VINE
+    - SNOW
   max-tracked-blocks: 10000
 
 performance:
@@ -18,10 +25,131 @@ performance:
 storage:
   fsync: true
 
-# Regions and coordinates belong exclusively to WorldGuard. Profiles are inert
-# until a WorldGuard region references one, a baseline is captured, and an
-# administrator explicitly arms that exact region geometry.
-reset-profiles: {}
+# Material groups are explicit and validated against the running Paper/Leaf version.
+material-groups:
+  WATER_FRAGILE:
+    - SHORT_GRASS
+    - TALL_GRASS
+    - FERN
+    - LARGE_FERN
+    - DEAD_BUSH
+    - DANDELION
+    - POPPY
+    - BLUE_ORCHID
+    - ALLIUM
+    - AZURE_BLUET
+    - RED_TULIP
+    - ORANGE_TULIP
+    - WHITE_TULIP
+    - PINK_TULIP
+    - OXEYE_DAISY
+    - CORNFLOWER
+    - LILY_OF_THE_VALLEY
+    - WITHER_ROSE
+    - SUNFLOWER
+    - LILAC
+    - ROSE_BUSH
+    - PEONY
+    - VINE
+    - GLOW_LICHEN
+    - HANGING_ROOTS
+    - CRIMSON_ROOTS
+    - WARPED_ROOTS
+    - NETHER_SPROUTS
+    - BROWN_MUSHROOM
+    - RED_MUSHROOM
+    - SNOW
+    - PINK_PETALS
+    - LILY_PAD
+    - SEAGRASS
+    - TALL_SEAGRASS
+    - KELP
+    - KELP_PLANT
+    - OAK_SAPLING
+    - SPRUCE_SAPLING
+    - BIRCH_SAPLING
+    - JUNGLE_SAPLING
+    - ACACIA_SAPLING
+    - DARK_OAK_SAPLING
+    - CHERRY_SAPLING
+    - MANGROVE_PROPAGULE
+    - BAMBOO_SAPLING
+    - SUGAR_CANE
+    - CACTUS
+    - SWEET_BERRY_BUSH
+    - CAVE_VINES
+    - CAVE_VINES_PLANT
+    - WEEPING_VINES
+    - WEEPING_VINES_PLANT
+    - TWISTING_VINES
+    - TWISTING_VINES_PLANT
+
+# WorldGuard block-place/block-break still provide general build permission.
+# A named MaceGuard policy only narrows the allowed materials and automation.
+block-policies:
+  cobweb-box:
+    place:
+      deny-unlisted: true
+      materials:
+        - COBWEB
+        - ICE
+    break:
+      deny-unlisted: true
+      materials:
+        - COBWEB
+        - ICE
+    buckets:
+      empty:
+        - WATER
+      fill:
+        - WATER
+    liquids:
+      confine-to-region: true
+      block-infinite-water-sources: true
+    # Pistons, dispensers, entity block changes, and other non-player sources fail closed.
+    allow-non-player-sources: false
+
+# Geometry belongs only to WorldGuard. Profiles remain inert until an administrator
+# captures, validates, arms, and separately enables a schedule for the exact region.
+reset-profiles:
+  war-pit:
+    mode: FULL_SNAPSHOT
+    interval-minutes: 60
+    max-coordinates: 400000
+    max-total-changes: 150000
+    max-air-changes: 75000
+    excluded-region-ids: []
+
+  cobweb-box:
+    mode: FULL_SNAPSHOT
+    interval-minutes: 1440
+    max-coordinates: 1200000
+    max-total-changes: 250000
+    max-air-changes: 150000
+    excluded-region-ids: []
+
+  warzone-environment:
+    mode: FILTERED_SNAPSHOT
+    interval-minutes: 1440
+    capture-materials:
+      group: WATER_FRAGILE
+    restore-when-current:
+      - AIR
+      - CAVE_AIR
+      - VOID_AIR
+      - WATER
+      - LAVA
+      - WATER_FRAGILE
+    solid-conflict-policy: SKIP_AND_REPORT
+    max-scan-coordinates: 12000000
+    max-captured-coordinates: 500000
+    max-total-changes: 100000
+    max-air-changes: 100000
+    excluded-region-ids:
+      - spawn
+      - market
+      - war-pit
+      - cobweb-box
 
 end_island:
   enabled: true

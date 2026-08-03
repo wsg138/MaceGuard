@@ -6,9 +6,9 @@
 
     <groupId>dev.lincoln</groupId>
     <artifactId>maceguard</artifactId>
-    <version>4.0.1</version>
+    <version>5.0.0</version>
     <name>MaceGuard</name>
-    <description>WorldGuard-scoped combat rotations, restrictions, temporary cobwebs, explosive controls, and fail-closed region resets.</description>
+    <description>WorldGuard-scoped weekly combat modifiers, strict block policies, temporary cobwebs, explosive controls, and fail-closed filtered/full region resets.</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -17,7 +17,6 @@
     </properties>
 
     <repositories>
-        <!-- Use Paper API for best forward-compat; still works on Spigot/Purpur at runtime -->
         <repository>
             <id>papermc-repo</id>
             <url>https://repo.papermc.io/repository/maven-public/</url>
@@ -42,7 +41,6 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <!-- Use the current Paper API target for the server version. -->
             <version>1.21.11-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
@@ -70,7 +68,6 @@
             <version>2.4</version>
             <scope>provided</scope>
         </dependency>
-
     </dependencies>
 
     <build>

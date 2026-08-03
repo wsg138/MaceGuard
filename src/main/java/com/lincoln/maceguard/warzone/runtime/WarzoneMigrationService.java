@@ -1,7 +1,5 @@
 package com.lincoln.maceguard.warzone.runtime;
 
-import com.lincoln.maceguard.warzone.config.LegacyWarzoneConverter;
-import com.lincoln.maceguard.warzone.config.ValidationResult;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -11,7 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.AtomicMoveNotSupportedException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class WarzoneMigrationService {
     private final JavaPlugin plugin;
@@ -27,85 +27,95 @@ public final class WarzoneMigrationService {
     }
 
     public boolean prepare() {
-        Path config = dataFolder.resolve("warzone.yml");
-        boolean configReady = Files.isRegularFile(config);
-        if (!configReady && Files.isRegularFile(legacyFolder.resolve("config.yml"))) {
-            ValidationResult<String> conversion = new LegacyWarzoneConverter().convert(legacyFolder.resolve("config.yml"));
-            if (!conversion.valid()) {
-                conversion.errors().forEach(error -> plugin.getLogger().severe(
-                        "Warzone migration error in " + legacyFolder.resolve("config.yml") + ": " + error));
-                plugin.getLogger().severe("Legacy WarzoneRotator files were left unchanged; create a valid MaceGuard/warzone.yml before reloading.");
-                return false;
-            }
-            try {
-                writeNew(config, conversion.value().getBytes(StandardCharsets.UTF_8));
-                plugin.getLogger().info("Imported WarzoneRotator/config.yml to MaceGuard/warzone.yml (disabled-items became DISABLED restrictions).");
-                configReady = true;
-            } catch (IOException ex) {
-                plugin.getLogger().severe("Could not write imported MaceGuard/warzone.yml: " + ex.getMessage());
-                return false;
-            }
-        }
-        if (!configReady) {
-            plugin.saveResource("warzone.yml", false);
-            plugin.getLogger().info("Created default MaceGuard/warzone.yml.");
-        }
+        List<String> report = new ArrayList<>();
+        report.add("MaceGuard weekly warzone migration review");
+        report.add("Generated: " + Instant.now());
+        report.add("No WorldGuard regions, snapshots, arming state, or schedules were created or enabled.");
 
-        migrateMessages();
-        migrateState();
-        return true;
-    }
-
-    private void migrateMessages() {
-        Path target = dataFolder.resolve("warzone-messages.yml");
-        if (Files.exists(target)) return;
-        Path old = legacyFolder.resolve("messages.yml");
-        if (Files.isRegularFile(old)) {
-            var validation = new com.lincoln.maceguard.warzone.config.WarzoneMessagesLoader().load(old);
-            if (!validation.valid()) {
-                validation.errors().forEach(error -> plugin.getLogger().severe(
-                        "Warzone migration error in " + old + ": " + error));
-                return;
-            }
-            try {
-                writeNew(target, Files.readAllBytes(old));
-                plugin.getLogger().info("Imported WarzoneRotator/messages.yml to MaceGuard/warzone-messages.yml.");
-                return;
-            } catch (IOException ex) {
-                plugin.getLogger().severe("Could not import WarzoneRotator/messages.yml: " + ex.getMessage());
-            }
-        }
-        plugin.saveResource("warzone-messages.yml", false);
-        plugin.getLogger().info("Created default MaceGuard/warzone-messages.yml.");
-    }
-
-    private void migrateState() {
-        Path target = dataFolder.resolve("state").resolve("warzone-state.yml");
-        Path old = legacyFolder.resolve("state.yml");
-        if (Files.exists(target) || !Files.isRegularFile(old)) return;
         try {
-            YamlConfiguration source = new YamlConfiguration();
-            source.load(old.toFile());
-            if (!source.contains("rotation.active-id")) return;
-            YamlConfiguration destination = new YamlConfiguration();
-            for (String key : java.util.List.of("active-id", "started-at", "ends-at", "next-id", "emitted-warnings"))
-                destination.set("rotation." + key, source.get("rotation." + key));
-            writeNew(target, destination.saveToString().getBytes(StandardCharsets.UTF_8));
-            plugin.getLogger().info("Imported WarzoneRotator/state.yml rotation fields to MaceGuard/state/warzone-state.yml; legacy cobweb entries were not imported.");
+            prepareWarzoneConfig(report);
+            prepareMessages(report);
+            preserveLegacyState(report);
+            if (Files.isDirectory(legacyFolder)) {
+                report.add("Standalone WarzoneRotator directory preserved unchanged for rollback: "
+                        + legacyFolder.toAbsolutePath());
+                report.add("Standalone sequential rotations were not imported into the weekly random system.");
+            }
+            writeReport(report);
+            return true;
         } catch (IOException | InvalidConfigurationException ex) {
-            plugin.getLogger().severe("Could not import WarzoneRotator/state.yml; the legacy file was left unchanged: " + ex.getMessage());
+            plugin.getLogger().severe("Warzone migration preparation failed safely: " + ex.getMessage());
+            return false;
         }
     }
 
-    private void writeNew(Path target, byte[] bytes) throws IOException {
-        Files.createDirectories(target.getParent());
-        Path temporary = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
-        try {
-            Files.write(temporary, bytes);
-            try { Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE); }
-            catch (AtomicMoveNotSupportedException ex) { Files.move(temporary, target); }
-        } finally {
-            Files.deleteIfExists(temporary);
+    private void prepareWarzoneConfig(List<String> report)
+            throws IOException, InvalidConfigurationException {
+        Path config = dataFolder.resolve("warzone.yml");
+        if (!Files.isRegularFile(config)) {
+            plugin.saveResource("warzone.yml", false);
+            report.add("Created clean schema-4 warzone.yml.");
+            return;
         }
+        YamlConfiguration yaml = new YamlConfiguration();
+        yaml.load(config.toFile());
+        int version = yaml.getInt("config-version", -1);
+        if (version == com.lincoln.maceguard.warzone.config.WarzoneConfigLoader.VERSION) {
+            report.add("Existing warzone.yml already uses schema " + version + "; no rewrite.");
+            return;
+        }
+        Path backup = timestampedBackup(config, "warzone-v" + version);
+        plugin.saveResource("warzone.yml", true);
+        report.add("Backed up incompatible warzone.yml to " + backup.getFileName() + ".");
+        report.add("Installed clean schema-4 weekly configuration.");
+        report.add("Old short sequential rotations were deliberately not reinterpreted.");
+    }
+
+    private void prepareMessages(List<String> report) {
+        Path target = dataFolder.resolve("warzone-messages.yml");
+        if (!Files.exists(target)) {
+            plugin.saveResource("warzone-messages.yml", false);
+            report.add("Created default warzone-messages.yml.");
+        }
+    }
+
+    private void preserveLegacyState(List<String> report) throws IOException {
+        Path state = dataFolder.resolve("state").resolve("warzone-state.yml");
+        if (!Files.isRegularFile(state)) return;
+        YamlConfiguration yaml = new YamlConfiguration();
+        try { yaml.load(state.toFile()); }
+        catch (InvalidConfigurationException ex) {
+            Path backup = timestampedBackup(state, "warzone-state-invalid");
+            Files.deleteIfExists(state);
+            report.add("Preserved invalid old warzone state as " + backup.getFileName()
+                    + "; weekly state will be selected fresh.");
+            return;
+        }
+        if (yaml.contains("selection.active-modifiers")) {
+            report.add("Existing weekly state retained for restart continuity.");
+            return;
+        }
+        Path backup = timestampedBackup(state, "warzone-state-sequential");
+        Files.deleteIfExists(state);
+        report.add("Preserved sequential rotation state as " + backup.getFileName() + ".");
+        report.add("A fresh weekly selection will be persisted; no short-rotation deadline was reinterpreted.");
+    }
+
+    private Path timestampedBackup(Path source, String label) throws IOException {
+        Files.createDirectories(dataFolder.resolve("migration-backups"));
+        Path target = dataFolder.resolve("migration-backups")
+                .resolve(label + "-" + System.currentTimeMillis() + ".yml.bak");
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.COPY_ATTRIBUTES);
+        return target;
+    }
+
+    private void writeReport(List<String> lines) throws IOException {
+        Path reports = dataFolder.resolve("migration-reports");
+        Files.createDirectories(reports);
+        Path report = reports.resolve("weekly-warzone-" + System.currentTimeMillis() + ".txt");
+        Files.writeString(report, String.join(System.lineSeparator(), lines) + System.lineSeparator(),
+                StandardCharsets.UTF_8);
+        plugin.getLogger().info("Warzone migration review written to " + report.getFileName() + ".");
     }
 }

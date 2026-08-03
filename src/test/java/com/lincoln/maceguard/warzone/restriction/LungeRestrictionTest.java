@@ -5,7 +5,9 @@ import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -94,8 +96,9 @@ class LungeRestrictionTest {
     private RestrictionService service(RestrictionMode mode, Duration cooldown) {
         WarzoneConfig.Restriction restriction =
                 new WarzoneConfig.Restriction(RestrictionTarget.SPEAR_LUNGE, mode, cooldown);
-        WarzoneConfig.Rotation rotation = new WarzoneConfig.Rotation("test", "Test", "Test",
-                Duration.ofHours(1), true, Map.of(RestrictionTarget.SPEAR_LUNGE, restriction), "", null, null);
-        return new RestrictionService(() -> rotation, cooldowns);
+        WarzoneConfig.ActiveSet activeSet = new WarzoneConfig.ActiveSet(
+                List.of("test"), "Test", "Test", Set.of(),
+                Map.of(RestrictionTarget.SPEAR_LUNGE, restriction));
+        return new RestrictionService(() -> activeSet, cooldowns);
     }
 }
