@@ -3,17 +3,21 @@ name: Apply interrupted implementation bundle
 on:
   push:
     branches: [agent/weekly-warzone-modifiers]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, '[bundle-applied]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[bundle-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/weekly-warzone-modifiers
           fetch-depth: 0
       - name: Reconstruct and apply bundle
         shell: bash
