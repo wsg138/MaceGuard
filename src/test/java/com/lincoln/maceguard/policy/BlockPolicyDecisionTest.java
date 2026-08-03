@@ -31,13 +31,13 @@ class BlockPolicyDecisionTest {
     }
 
     @Test void missingReferencedPolicyFailsClosed() {
-        var missing = new BlockPolicyListener.Resolution("box-a", "missing", null, true);
+        var missing = new BlockPolicyResolver.Resolution("box-a", "missing", null, true,
+                "direct", false, BlockPolicyResolver.Status.REFERENCED_POLICY_MISSING);
         assertFalse(BlockPolicyListener.placeAllowed(missing, Material.COBWEB));
         assertFalse(BlockPolicyListener.breakAllowed(missing, Material.COBWEB));
         assertFalse(BlockPolicyListener.bucketEmptyAllowed(missing, Material.WATER));
         assertFalse(BlockPolicyListener.bucketFillAllowed(missing, Material.WATER));
-        assertTrue(BlockPolicyListener.flowDenied(missing,
-                BlockPolicyListener.Resolution.none(), false));
+        assertTrue(BlockPolicyListener.flowDenied(missing, none(), false));
         assertTrue(BlockPolicyListener.automationDenied(missing));
     }
 
@@ -48,10 +48,8 @@ class BlockPolicyDecisionTest {
 
         assertFalse(BlockPolicyListener.flowDenied(source, sameBox, false));
         assertTrue(BlockPolicyListener.flowDenied(source, anotherBoxUsingSamePolicy, false));
-        assertTrue(BlockPolicyListener.flowDenied(source,
-                BlockPolicyListener.Resolution.none(), false));
-        assertTrue(BlockPolicyListener.flowDenied(BlockPolicyListener.Resolution.none(),
-                source, false));
+        assertTrue(BlockPolicyListener.flowDenied(source, none(), false));
+        assertTrue(BlockPolicyListener.flowDenied(none(), source, false));
     }
 
     @Test void infiniteWaterCreationIsDeniedInsideTheSameBox() {
@@ -61,10 +59,16 @@ class BlockPolicyDecisionTest {
 
     @Test void nonPlayerSourcesAreDeniedButOutsideLocationsRemainUntouched() {
         assertTrue(BlockPolicyListener.automationDenied(resolved("box-a")));
-        assertFalse(BlockPolicyListener.automationDenied(BlockPolicyListener.Resolution.none()));
+        assertFalse(BlockPolicyListener.automationDenied(none()));
     }
 
-    private BlockPolicyListener.Resolution resolved(String scopeId) {
-        return new BlockPolicyListener.Resolution(scopeId, policy.name(), policy, true);
+    private BlockPolicyResolver.Resolution resolved(String scopeId) {
+        return new BlockPolicyResolver.Resolution(scopeId, policy.name(), policy, true,
+                "direct", false, BlockPolicyResolver.Status.ACTIVE);
+    }
+
+    private BlockPolicyResolver.Resolution none() {
+        return BlockPolicyResolver.Resolution.none(
+                BlockPolicyResolver.Status.NO_EFFECTIVE_VALUE);
     }
 }
