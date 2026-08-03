@@ -38,6 +38,20 @@ class ConfigLoaderTest {
                 value.contains("block-policies.cobweb-box.place.materials")));
     }
 
+    @Test void namespacedAndAliasMaterialNamesAreRejectedStrictly() throws Exception {
+        String text = Files.readString(
+                Path.of("src", "main", "resources", "config.yml"))
+                .replace("        - ICE", "        - minecraft:ice");
+        Path file = directory.resolve("config-namespaced.yml");
+        Files.writeString(file, text);
+        MaceGuardConfig config = new ConfigLoader().load(
+                YamlConfiguration.loadConfiguration(file.toFile()));
+        assertFalse(config.validSchema());
+        assertTrue(config.errors().stream().anyMatch(value ->
+                value.contains("block-policies.cobweb-box.place.materials")
+                        && value.contains("invalid material")));
+    }
+
     @Test void obsoleteSparseProfileFailsClosed() throws Exception {
         String text = Files.readString(
                 Path.of("src", "main", "resources", "config.yml"))
