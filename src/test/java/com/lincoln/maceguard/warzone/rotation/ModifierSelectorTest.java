@@ -128,13 +128,13 @@ class ModifierSelectorTest {
                 "cobwebs", base.modifiers().get("cobwebs"),
                 "no-lunge", base.modifiers().get("no-lunge"),
                 "elytra-no-rockets", base.modifiers().get("elytra-no-rockets")));
-        limited = withConflictGroups(limited, Map.of(
+        WarzoneConfig conflicted = withConflictGroups(limited, Map.of(
                 "elytra-cobweb", Set.of("elytra-no-rockets", "cobwebs"),
                 "elytra-lunge", Set.of("elytra-no-rockets", "no-lunge")));
 
         IllegalStateException failure = assertThrows(IllegalStateException.class,
                 () -> new ModifierSelector(new java.util.Random(1L))
-                        .selectableCombinations(limited));
+                        .selectableCombinations(conflicted));
         assertTrue(failure.getMessage().contains("Elytra combination"));
     }
 
