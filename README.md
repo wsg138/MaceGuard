@@ -28,6 +28,7 @@ Commands:
 ```text
 /warzone info
 /warzone modifiers
+/warzone items
 /warzone next
 /warzone skip
 /warzone force
@@ -38,13 +39,15 @@ Commands:
 /warzone debug
 ```
 
-`skip`, `force`, `set`, and `extend` change the active state without moving the next weekly calendar boundary. `/warzone next` reports the transition time but does not reveal an unselected future random combination.
+`skip`, `force`, and `set` change the active state without moving the effective transition time. `extend` delays the next effective transition once; after that transition, later changes return to the configured weekly calendar schedule. `/warzone next` reports the transition time but does not reveal an unselected future random combination.
 
 ## Block policies
 
 The WorldGuard string flag `maceguard-block-policy` associates a region with a named policy from `config.yml`. WorldGuard must first allow the action; MaceGuard only adds restrictions and never un-cancels another plugin's event.
 
 The bundled `cobweb-box` policy permits players to place and break cobwebs and ice, use and collect water, confines liquids to the region, blocks infinite-water source creation, and denies unlisted materials. Pistons, dispensers, fluid flow, and non-player block sources are checked explicitly. Missing or invalid named policies fail closed.
+
+The block policy decides whether cobweb is an allowed material. The separate `maceguard-cobwebs allow` flag explicitly enables temporary tracked cobweb behavior and its TTL. Both are required in a policy-controlled cobweb box.
 
 ## Reset profiles
 
@@ -53,7 +56,7 @@ MaceGuard supports:
 - `FULL_SNAPSHOT` for bounded areas such as `war-pit` and `cobweb-box`.
 - `FILTERED_SNAPSHOT` for a large, vertically limited `warzone-reset` cuboid. Only explicitly configured fragile block data is persisted and restored.
 
-Filtered restoration may replace only configured air, liquid, or fragile materials. A normal solid block at a captured coordinate is skipped and reported; it is never overwritten. Excluded regions are applied during capture, preflight, and restore. Capture and restore run in bounded main-thread batches, do not force-load chunks, and share one destructive-operation lock.
+Filtered restoration may replace only configured air variants, liquids, or fragile materials. A normal solid block at a captured coordinate is skipped and reported; it is never overwritten. Excluded regions are applied during capture, preflight, and restore. Capture and restore run in bounded main-thread batches, do not force-load chunks, and share one destructive-operation lock.
 
 Every production reset uses the existing lifecycle:
 
