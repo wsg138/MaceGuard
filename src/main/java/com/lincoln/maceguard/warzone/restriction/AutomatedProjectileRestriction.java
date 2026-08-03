@@ -8,12 +8,20 @@ final class AutomatedProjectileRestriction {
 
     private AutomatedProjectileRestriction() { }
 
-    static boolean blocksWindCharge(WarzoneConfig.ActiveSet activeSet,
-                                    boolean sourceInside,
-                                    boolean launchInside) {
-        if (!sourceInside && !launchInside) return false;
+    static boolean windChargeDisabled(WarzoneConfig.ActiveSet activeSet) {
         WarzoneConfig.Restriction restriction =
                 activeSet.restrictions().get(WIND_CHARGE);
         return restriction != null && restriction.mode() == RestrictionMode.DISABLED;
+    }
+
+    static boolean blocksWindCharge(WarzoneConfig.ActiveSet activeSet,
+                                    boolean sourceInside,
+                                    boolean launchInside) {
+        return (sourceInside || launchInside) && windChargeDisabled(activeSet);
+    }
+
+    static boolean canCorrelatePending(boolean shooterAbsent,
+                                       boolean defaultSpawnReason) {
+        return shooterAbsent && defaultSpawnReason;
     }
 }
