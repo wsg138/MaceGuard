@@ -110,7 +110,7 @@ public final class ItemRestrictionListener implements Listener {
         Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
         automatedLaunches.record(event.getBlock().getWorld().getUID(),
                 event.getBlock().getX(), event.getBlock().getY(), event.getBlock().getZ(),
-                event.getBlock().getWorld().getServer().getCurrentTick(),
+                org.bukkit.Bukkit.getCurrentTick(),
                 region.contains(source), automatedVec(event.getVelocity()),
                 System.nanoTime() + 250_000_000L);
     }
