@@ -10,7 +10,7 @@ import com.lincoln.maceguard.storage.SparseBaselineRepository;
 import com.lincoln.maceguard.worldguard.MaceGuardFlags;
 import com.lincoln.maceguard.worldguard.RegionDescriptor;
 import com.lincoln.maceguard.worldguard.WorldGuardRegionService;
-import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldguard.protection.regions.ProtectedCuboidRegion;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -52,7 +52,8 @@ public final class ResetCoordinator {
 
     public ResetCoordinator(JavaPlugin plugin, MaceGuardConfig config, MaceGuardFlags flags,
                             WorldGuardRegionService regions, SnapshotRepository snapshots,
-                            ArmStateRepository arms, ResetJournalRepository journals, Executor io) {
+                            ArmStateRepository arms, ResetJournalRepository journals,
+                            Executor io) {
         this(plugin, config, flags, regions, snapshots, arms, journals, null, io);
     }
 
@@ -95,7 +96,8 @@ public final class ResetCoordinator {
                                 + "/" + value.totalChanges())
                         .orElse("No restore journal exists.")));
             } catch (IOException ex) {
-                main(() -> feedback.accept("Restore journal cannot be read: " + ex.getMessage()));
+                main(() -> feedback.accept(
+                        "Restore journal cannot be read: " + ex.getMessage()));
             }
         });
     }
@@ -114,8 +116,12 @@ public final class ResetCoordinator {
         for (ArmState state : arms.all().values()) {
             if (!state.isScheduleEnabled()) continue;
             World world;
-            try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(state.worldUuid())); }
-            catch (IllegalArgumentException ex) { continue; }
+            try {
+                world = org.bukkit.Bukkit.getWorld(
+                        java.util.UUID.fromString(state.worldUuid()));
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
             if (world == null) continue;
             Resolution resolution = resolve(world, state.regionId());
             if (!resolution.valid() || !armMatches(state, resolution)) {
@@ -147,9 +153,7 @@ public final class ResetCoordinator {
             try {
                 arms.disarm(worldUuid, resolution.region().id());
                 main(() -> capture.capture(world, resolution.region(), resolution.profile(),
-                        (x, y, z) -> resolution.exclusions().stream()
-                                .anyMatch(region -> region.contains(BlockVector3.at(x, y, z))),
-                        result -> {
+                        resolution.exclusion(), result -> {
                             if (!result.successful()) {
                                 endOperation();
                                 feedback.accept("Capture failed: " + result.error());
@@ -270,7 +274,8 @@ public final class ResetCoordinator {
                 main(() -> feedback.accept("Automatic snapshot restores "
                         + (enabled ? "enabled" : "paused") + " for " + regionId + "."));
             } catch (IOException ex) {
-                main(() -> feedback.accept("Schedule change failed: " + ex.getMessage()));
+                main(() -> feedback.accept(
+                        "Schedule change failed: " + ex.getMessage()));
             }
         });
     }
@@ -431,8 +436,9 @@ public final class ResetCoordinator {
                     ? "enabled" : "paused")
                     + ", persisted=" + snapshot.blocks().size());
         }, error -> {
-            disarm(world, regionId, ignored -> { });
-            feedback.accept(statusLine(regionId, resolution, false)
+            boolean transientReadFailure = error.startsWith("Snapshot could not be loaded:");
+            if (!transientReadFailure) disarm(world, regionId, ignored -> { });
+            feedback.accept(statusLine(regionId, resolution, transientReadFailure)
                     + ", snapshot=" + error);
         });
     }
@@ -458,8 +464,8 @@ public final class ResetCoordinator {
             }
             collectCurrent(world, snapshot, current -> {
                 ResetPlan plan = planner.plan(snapshot, current,
-                        block -> resolution.exclusions().stream().anyMatch(region ->
-                                region.contains(BlockVector3.at(block.x(), block.y(), block.z()))),
+                        block -> resolution.exclusion().test(
+                                block.x(), block.y(), block.z()),
                         config.performance().restoreBatchSize(), resolution.profile());
                 callback.accept(new PlanResult(plan, resolution.profile(), null));
             }, error -> callback.accept(PlanResult.failure(error)));
@@ -512,12 +518,14 @@ public final class ResetCoordinator {
                     + world.getName() + ".");
         Optional<RegionDescriptor> descriptor = regions.cuboid(world, regionId);
         if (descriptor.isEmpty())
-            return Resolution.failure("Reset disabled: only exact WorldGuard cuboid regions are supported.");
+            return Resolution.failure(
+                    "Reset disabled: only exact WorldGuard cuboid regions are supported.");
         if (flags.resetProfile() == null)
             return Resolution.failure("Reset disabled: reset-profile flag is unavailable.");
         String profileName = raw.get().getFlag(flags.resetProfile());
         if (profileName == null || profileName.isBlank())
-            return Resolution.failure("Reset disabled: region has no direct maceguard-reset-profile value.");
+            return Resolution.failure(
+                    "Reset disabled: region has no direct maceguard-reset-profile value.");
         ResetProfile profile = config.resetProfiles().get(profileName);
         if (profile == null)
             return Resolution.failure("Reset disabled: profile '" + profileName
@@ -537,8 +545,33 @@ public final class ResetCoordinator {
             exclusions.add(excluded.get());
             exclusionGeometry.append(exclusionGeometry(excluded.get())).append('\n');
         }
-        return new Resolution(descriptor.get(), profile, List.copyOf(exclusions),
-                sha256(exclusionGeometry.toString()), null);
+        return new Resolution(descriptor.get(), profile,
+                exclusionMatcher(exclusions), sha256(exclusionGeometry.toString()), null);
+    }
+
+    private SnapshotCaptureService.CoordinateExclusion exclusionMatcher(
+            List<ProtectedRegion> exclusions) {
+        List<CuboidBounds> cuboids = new ArrayList<>();
+        List<ProtectedRegion> exact = new ArrayList<>();
+        for (ProtectedRegion region : exclusions) {
+            if (region instanceof ProtectedCuboidRegion) {
+                cuboids.add(new CuboidBounds(region.getMinimumPoint().x(),
+                        region.getMinimumPoint().y(), region.getMinimumPoint().z(),
+                        region.getMaximumPoint().x(), region.getMaximumPoint().y(),
+                        region.getMaximumPoint().z()));
+            } else {
+                exact.add(region);
+            }
+        }
+        List<CuboidBounds> fixedCuboids = List.copyOf(cuboids);
+        List<ProtectedRegion> fixedExact = List.copyOf(exact);
+        return (x, y, z) -> {
+            for (CuboidBounds bounds : fixedCuboids)
+                if (bounds.contains(x, y, z)) return true;
+            for (ProtectedRegion region : fixedExact)
+                if (region.contains(x, y, z)) return true;
+            return false;
+        };
     }
 
     private boolean armMatches(ArmState state, Resolution current) {
@@ -596,7 +629,8 @@ public final class ResetCoordinator {
                     else failure.accept("Snapshot invalid: " + validation.reason());
                 });
             } catch (IOException ex) {
-                main(() -> failure.accept("Snapshot could not be loaded: " + ex.getMessage()));
+                main(() -> failure.accept(
+                        "Snapshot could not be loaded: " + ex.getMessage()));
             }
         });
     }
@@ -630,8 +664,9 @@ public final class ResetCoordinator {
     }
 
     private void notifySuccessfulReset(World world, String regionId) {
-        try { successfulResetHook.accept(world, regionId); }
-        catch (RuntimeException ex) {
+        try {
+            successfulResetHook.accept(world, regionId);
+        } catch (RuntimeException ex) {
             plugin.getLogger().severe("Reset completed, but post-reset temporary-block "
                     + "reconciliation failed: " + ex.getMessage());
         }
@@ -640,7 +675,8 @@ public final class ResetCoordinator {
     private boolean beginOperation(World world, String regionId) {
         if (!config.enabled() || resetLocked.get()) return false;
         if (!destructiveOperation.compareAndSet(false, true)) return false;
-        activeRegionKey = world.getUID() + ":" + regionId.toLowerCase(java.util.Locale.ROOT);
+        activeRegionKey = world.getUID() + ":"
+                + regionId.toLowerCase(java.util.Locale.ROOT);
         activeRegion = regions.cuboid(world, regionId).orElse(null);
         return true;
     }
@@ -655,11 +691,20 @@ public final class ResetCoordinator {
         if (resetLocked.compareAndSet(false, true)) resetLockReason = reason;
     }
 
+    private record CuboidBounds(int minX, int minY, int minZ,
+                                int maxX, int maxY, int maxZ) {
+        boolean contains(int x, int y, int z) {
+            return x >= minX && x <= maxX
+                    && y >= minY && y <= maxY
+                    && z >= minZ && z <= maxZ;
+        }
+    }
+
     private record Resolution(RegionDescriptor region, ResetProfile profile,
-                              List<ProtectedRegion> exclusions,
+                              SnapshotCaptureService.CoordinateExclusion exclusion,
                               String exclusionHash, String error) {
         static Resolution failure(String error) {
-            return new Resolution(null, null, List.of(), null, error);
+            return new Resolution(null, null, (x, y, z) -> false, null, error);
         }
         boolean valid() { return error == null; }
     }
