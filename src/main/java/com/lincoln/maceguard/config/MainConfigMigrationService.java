@@ -79,8 +79,10 @@ public final class MainConfigMigrationService {
             plugin.getLogger().warning("Migrated config.yml to schema "
                     + ConfigLoader.VERSION + "; review " + report.getFileName() + ".");
         } catch (IOException | InvalidConfigurationException ex) {
-            plugin.getLogger().severe("Could not migrate config.yml safely; the existing file "
-                    + "was left for review: " + ex.getMessage());
+            String message = "Could not migrate config.yml safely; the existing file "
+                    + "was left for review: " + ex.getMessage();
+            plugin.getLogger().severe(message);
+            throw new IllegalStateException(message, ex);
         }
     }
 }
