@@ -68,6 +68,33 @@ class WarzoneConfigLoaderTest {
         assertTrue(result.valid(), result.errors().toString());
     }
 
+    @Test void rejectsPartialElytraChanceWithoutANonElytraBranch()
+            throws IOException {
+        String text = defaultText()
+                .replace("    enabled: true", "    enabled: false")
+                .replace("  elytra-no-rockets:\n    enabled: false",
+                        "  elytra-no-rockets:\n    enabled: true");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("non-Elytra combination")));
+    }
+
+    @Test void rejectsSpecialRulesForRuntimeIgnoredModifierIds()
+            throws IOException {
+        String text = defaultText().replace(
+                "  special-rules:\n    elytra-no-rockets:",
+                "  special-rules:\n"
+                        + "    cobwebs:\n"
+                        + "      weekly-inclusion-chance-percent: 5\n"
+                        + "      unrestricted-mace-chance-percent: 0\n"
+                        + "    elytra-no-rockets:");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("supports only 'elytra-no-rockets'")));
+    }
+
     @Test void rejectsInvalidPercentages() throws IOException {
         String text = defaultText().replace(
                 "weekly-inclusion-chance-percent: 8",
