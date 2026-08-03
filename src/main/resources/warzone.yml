@@ -1,6 +1,7 @@
 # Weekly, calendar-based, composable warzone modifiers.
+# Fresh installs remain inactive until the configured WorldGuard scope passes /warzone validate.
 config-version: 4
-enabled: true
+enabled: false
 
 region:
   world: world
