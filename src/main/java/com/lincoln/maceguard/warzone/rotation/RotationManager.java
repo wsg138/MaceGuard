@@ -104,18 +104,26 @@ public final class RotationManager {
 
     public ApplyResult applyConfig(WarzoneConfig proposed) {
         WarzoneConfig.ActiveSet previous = active;
+        WarzoneConfig previousConfig = config;
         config = proposed;
+        WeeklySchedule proposedSchedule = new WeeklySchedule(proposed.schedule());
+        Instant now = clock.instant();
+        long currentBoundary = proposedSchedule.previousBoundaryAtOrBefore(now).toEpochMilli();
+        long proposedNextBoundary = proposedSchedule.nextBoundaryAfter(now).toEpochMilli();
+        boolean usedNaturalTransition = state.transitionAtMillis()
+                == new WeeklySchedule(previousConfig.schedule()).nextBoundaryAfter(now).toEpochMilli();
         boolean replaced;
         try {
             active = selector.compose(proposed, state.activeModifierIds());
+            state = new RotationState(active.modifierIds(), state.activatedAtMillis(), currentBoundary,
+                    usedNaturalTransition ? proposedNextBoundary : state.transitionAtMillis(),
+                    state.emittedWarningsSeconds(), state.selectionSequence());
             replaced = false;
         } catch (IllegalArgumentException ex) {
             ModifierSelector.SelectionResult selected = selector.select(proposed, Set.copyOf(state.activeModifierIds()));
             active = selected.activeSet();
-            state = new RotationState(active.modifierIds(), clock.millis(),
-                    new WeeklySchedule(proposed.schedule()).nextBoundaryAfter(clock.instant()).toEpochMilli(),
-                    new WeeklySchedule(proposed.schedule()).nextBoundaryAfter(clock.instant()).toEpochMilli(),
-                    Set.of(), state.selectionSequence() + 1);
+            state = new RotationState(active.modifierIds(), clock.millis(), currentBoundary,
+                    proposedNextBoundary, Set.of(), state.selectionSequence() + 1);
             replaced = true;
         }
         store.update(state);
@@ -155,10 +163,10 @@ public final class RotationManager {
             }
         }
         Instant current = clock.instant();
-        Instant activated = weekly.previousBoundaryAtOrBefore(current);
+        Instant boundary = weekly.previousBoundaryAtOrBefore(current);
         Instant next = weekly.nextBoundaryAfter(current);
         ModifierSelector.SelectionResult selected = selector.select(config, Set.of());
-        state = new RotationState(selected.modifierIds(), activated.toEpochMilli(), next.toEpochMilli(),
+        state = new RotationState(selected.modifierIds(), current.toEpochMilli(), boundary.toEpochMilli(),
                 next.toEpochMilli(), Set.of(), 1);
         active = selected.activeSet();
     }
@@ -170,7 +178,7 @@ public final class RotationManager {
         Instant nowInstant = Instant.ofEpochMilli(now);
         Instant boundary = weekly.previousBoundaryAtOrBefore(nowInstant);
         Instant next = weekly.nextBoundaryAfter(nowInstant);
-        activate(selected.activeSet(), boundary.toEpochMilli(), next.toEpochMilli(), next.toEpochMilli(),
+        activate(selected.activeSet(), now, boundary.toEpochMilli(), next.toEpochMilli(),
                 state.selectionSequence() + 1, announce);
         if (!announce) active = selected.activeSet();
         if (announce && previous.modifierIds().equals(active.modifierIds())) {
