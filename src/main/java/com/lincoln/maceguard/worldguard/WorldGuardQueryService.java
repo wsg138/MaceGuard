@@ -66,7 +66,8 @@ public final class WorldGuardQueryService {
         String effective = query().queryValue(BukkitAdapter.adapt(location), null, flags.blockPolicy());
         if (effective == null || effective.isBlank()) return null;
 
-        for (ProtectedRegion region : applicableRegions(location)) {
+        List<ProtectedRegion> applicable = applicableRegions(location);
+        for (ProtectedRegion region : applicable) {
             for (ProtectedRegion source = region; source != null; source = source.getParent()) {
                 String direct = source.getFlag(flags.blockPolicy());
                 if (effective.equals(direct))
@@ -74,10 +75,10 @@ public final class WorldGuardQueryService {
             }
         }
 
-        // QueryState remains authoritative. This fallback is deliberately location-specific and
-        // avoids treating an unresolved source as globally shared with another region.
-        return new BlockPolicyReference("effective@" + location.getBlockX() + ":"
-                + location.getBlockY() + ":" + location.getBlockZ(), effective);
+        String scopeId = applicable.isEmpty()
+                ? "world@" + location.getWorld().getUID()
+                : "effective@" + applicable.getFirst().getId();
+        return new BlockPolicyReference(scopeId, effective);
     }
 
     public List<ProtectedRegion> applicableRegions(Location location) {
