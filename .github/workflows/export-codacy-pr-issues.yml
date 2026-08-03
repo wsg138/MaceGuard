@@ -6,66 +6,23 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out pull-request head
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Apply staged Codacy cleanup
-        id: apply
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          parts=(.github/codacy-fix-bundle.part*)
-          if (( ${#parts[@]} == 0 )); then
-            echo "applied=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          cat <<'CHECKSUMS' | sha256sum --check --strict
-          bad2f1855c6177fd2e71fe7f8583462654c935e9ac53e48fe468b41d2c9ab5d7  .github/codacy-fix-bundle.part00
-          19e8cbcc19849f865df9261ad55bf5265f484065cf81aff5d962e3379b16f33f  .github/codacy-fix-bundle.part01
-          b2a889a6720d1ee40e8f25be8e250164812af13a83dcea21e27fd49a4f11aa8c  .github/codacy-fix-bundle.part02a
-          bdd402e2dc75c0194e4d165362c9370072c8d0b1df13c082545d21d18d448ce5  .github/codacy-fix-bundle.part02b
-          ae6f5dc67e15d5598d38a5e3285c1297007622c13777515b014864b7f23ba81f  .github/codacy-fix-bundle.part03
-          5b6e74592202f74a984314b6697081686156cd86791edb7b570564879259f09d  .github/codacy-fix-bundle.part04
-          CHECKSUMS
-
-          cat "${parts[@]}" | base64 --decode > /tmp/codacy-fix-bundle.tar.gz
-          echo "56444a62e0dfaf57509181a0122324777da65f09ebb6b6bbf31c949f20b203ea  /tmp/codacy-fix-bundle.tar.gz" | sha256sum --check --strict
-          tar -xzf /tmp/codacy-fix-bundle.tar.gz -C .
-          rm "${parts[@]}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "Resolve Codacy findings"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-          echo "applied=true" >> "$GITHUB_OUTPUT"
-
       - name: Download Codacy PR issue details
-        if: steps.apply.outputs.applied != 'true'
         run: >-
           curl --fail --silent --show-error --location
           --header 'Accept: application/json'
           'https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues?limit=1000&onlyPotential=false&status=new'
           --output codacy-pr-issues.json
-
       - name: Archive repository source
-        if: steps.apply.outputs.applied != 'true'
         run: git archive --format=zip --output=maceguard-source.zip HEAD
-
       - name: Upload diagnostics
-        if: steps.apply.outputs.applied != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: codacy-pr-diagnostics
