@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.temporary;
 
+import com.lincoln.maceguard.config.BlockPolicy;
 import com.lincoln.maceguard.config.MaceGuardConfig;
 import com.lincoln.maceguard.runtime.RuntimeSafetyPolicy;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
@@ -10,14 +11,20 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 
+import java.util.Locale;
+
 public final class CobwebListener implements Listener {
     private final WorldGuardQueryService worldGuard;
     private final WarzoneModule warzone;
     private final TemporaryBlockService temporary;
     private final MaceGuardConfig config;
 
-    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone, TemporaryBlockService temporary, MaceGuardConfig config) {
-        this.worldGuard = worldGuard; this.warzone = warzone; this.temporary = temporary; this.config = config;
+    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
+                          TemporaryBlockService temporary, MaceGuardConfig config) {
+        this.worldGuard = worldGuard;
+        this.warzone = warzone;
+        this.temporary = temporary;
+        this.config = config;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -25,11 +32,20 @@ public final class CobwebListener implements Listener {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
         var location = event.getBlockPlaced().getLocation();
+
+        PolicyDecision policy = policy(location);
+        if (policy.referenced()) {
+            boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
+                    && policy.policy() != null
+                    && policy.policy().place().allows(Material.COBWEB);
+            if (!allowed) event.setCancelled(true);
+            return;
+        }
+
         boolean exactWarzone = warzone.appliesAt(location);
+        if (!exactWarzone) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
-        if (!exactWarzone && decision.allowed()) return;
-        boolean allowed = exactWarzone
-                && worldGuard.buildAllowed(location, event.getPlayer())
+        boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
                 && worldGuard.cobwebsAllowed(location, event.getPlayer())
                 && worldGuard.warzoneCobwebsAllowed(location)
                 && decision.allowed();
@@ -42,18 +58,44 @@ public final class CobwebListener implements Listener {
     public void onPlace(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!RuntimeSafetyPolicy.allowsTemporaryTracking(config.enabled())) return;
-        boolean warzoneApplies = warzone.appliesAt(event.getBlockPlaced().getLocation());
-        var decision = warzone.cobwebDecision(event.getPlayer(), event.getBlockPlaced().getLocation());
-        if (!worldGuard.buildAllowed(event.getBlockPlaced().getLocation(), event.getPlayer())
-                || !worldGuard.cobwebsAllowed(event.getBlockPlaced().getLocation(), event.getPlayer())
-                || (warzoneApplies && (!worldGuard.warzoneCobwebsAllowed(event.getBlockPlaced().getLocation())
-                || !decision.allowed()))) return;
-        if (warzoneApplies) warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+        var location = event.getBlockPlaced().getLocation();
+        PolicyDecision policy = policy(location);
+        boolean policyOverride = policy.referenced()
+                && policy.policy() != null
+                && policy.policy().place().allows(Material.COBWEB);
+        boolean warzoneApplies = warzone.appliesAt(location);
+
+        if (policy.referenced()) {
+            if (!policyOverride || !worldGuard.buildAllowed(location, event.getPlayer())) return;
+        } else {
+            var decision = warzone.cobwebDecision(event.getPlayer(), location);
+            if (!warzoneApplies
+                    || !worldGuard.buildAllowed(location, event.getPlayer())
+                    || !worldGuard.cobwebsAllowed(location, event.getPlayer())
+                    || !worldGuard.warzoneCobwebsAllowed(location)
+                    || !decision.allowed()) return;
+            warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+        }
+
         String original = event.getBlockReplacedState().getBlockData().getAsString(true);
-        if (!config.temporary().replacements().contains(event.getBlockReplacedState().getType().name())) return;
+        if (!config.temporary().replacements()
+                .contains(event.getBlockReplacedState().getType().name())) return;
         long expiresAt = Math.addExact(System.currentTimeMillis(),
-                warzone.cobwebLifetime(java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
-                        event.getBlockPlaced().getLocation()).toMillis());
-        temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneApplies);
+                warzone.cobwebLifetime(
+                        java.time.Duration.ofSeconds(config.temporary().cobwebTtlSeconds()),
+                        location).toMillis());
+        temporary.track(event.getBlockPlaced(), original, expiresAt,
+                warzoneApplies && !policyOverride);
+    }
+
+    private PolicyDecision policy(org.bukkit.Location location) {
+        String name = worldGuard.effectiveBlockPolicy(location);
+        if (name == null || name.isBlank()) return PolicyDecision.none();
+        String normalized = name.trim().toLowerCase(Locale.ROOT);
+        return new PolicyDecision(true, config.blockPolicies().get(normalized));
+    }
+
+    private record PolicyDecision(boolean referenced, BlockPolicy policy) {
+        static PolicyDecision none() { return new PolicyDecision(false, null); }
     }
 }

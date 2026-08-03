@@ -12,10 +12,13 @@ public record MaceGuardConfig(
         int durabilityCap,
         TemporarySettings temporary,
         PerformanceSettings performance,
+        Map<String, BlockPolicy> blockPolicies,
         Map<String, ResetProfile> resetProfiles,
         EndIslandSettings endIsland,
         Set<String> errors
 ) {
-    public record TemporarySettings(int cobwebTtlSeconds, Set<String> replacements, int maxTrackedBlocks) { }
-    public record PerformanceSettings(int captureBatchSize, int planBatchSize, int restoreBatchSize) { }
+    public record TemporarySettings(int cobwebTtlSeconds, Set<String> replacements,
+                                    int maxTrackedBlocks) { }
+    public record PerformanceSettings(int captureBatchSize, int planBatchSize,
+                                      int restoreBatchSize) { }
 }

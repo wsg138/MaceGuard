@@ -1,13 +1,30 @@
-# Integrated WarzoneRotator configuration. Durations accept 30s, 15m, 2h, or 1h 30m.
-config-version: 3
+# Weekly, calendar-based, composable warzone modifiers.
+config-version: 4
 enabled: true
 
 region:
   world: world
   id: warzone
+  excluded-region-ids:
+    - spawn
+    - market
 
 rotation:
-  warning-times: [10m, 5m, 1m, 30s, 10s, 5s, 4s, 3s, 2s, 1s]
+  schedule:
+    day: SUNDAY
+    time: "04:00"
+    timezone: America/Indiana/Indianapolis
+  selection:
+    mode: RANDOM_MODIFIERS
+    minimum: 1
+    maximum: 3
+    prevent-identical-repeat: true
+  warning-times:
+    - 1h
+    - 30m
+    - 10m
+    - 5m
+    - 1m
 
 messages:
   blocked-message-cooldown: 2s
@@ -19,60 +36,66 @@ cobwebs:
   clear-on-meta-change: true
   clear-on-disable: true
 
-# A rotation may only use modes explicitly allowed here.
+# A modifier may only use restriction modes explicitly enabled here.
 restriction-targets:
   MACE:
     can-disable: true
-    can-cooldown: false
-  ENDER_PEARL:
-    can-disable: true
     can-cooldown: true
     maximum-cooldown: 60s
-  WIND_CHARGE:
-    can-disable: true
-    can-cooldown: true
-    maximum-cooldown: 30s
-  SPEAR:
-    can-disable: true
-    can-cooldown: false
   SPEAR_LUNGE:
     can-disable: true
-    can-cooldown: true
-    maximum-cooldown: 60s
+    can-cooldown: false
+  COBWEB:
+    can-disable: false
+    can-cooldown: false
 
-rotations:
-  no-mace:
-    display-name: "<red>No Maces"
-    description: "<gray>Maces cannot be used in the warzone."
-    duration: 2h
-    cobwebs-allowed: false
+conflict-groups:
+  mace-mode:
+    - mace-disabled
+    - mace-cooldown
+
+modifiers:
+  cobwebs:
+    display-name: "<white>Cobwebs"
+    description: "<gray>Temporary cobweb placement is available in the effective warzone."
+    effects:
+      - COBWEBS
+    restrictions: {}
+    start-message: "<white>Cobwebs are active in the warzone this week."
+    end-message: "<gray>The weekly warzone cobweb modifier has ended."
+
+  no-lunge:
+    display-name: "<red>No Lunge"
+    description: "<gray>The Spear Lunge effect is disabled without blocking normal spear use."
+    effects: []
+    restrictions:
+      SPEAR_LUNGE:
+        mode: DISABLED
+    start-message: "<red>Spear Lunge is disabled in the warzone this week."
+
+  mace-disabled:
+    display-name: "<dark_red>No Maces"
+    description: "<gray>Mace use is disabled in the effective warzone."
+    effects: []
     restrictions:
       MACE:
         mode: DISABLED
-    start-message: "<red>The warzone meta has changed to <white>No Maces<red>."
+    start-message: "<dark_red>Maces are disabled in the warzone this week."
 
-  limited-mobility:
-    display-name: "<gold>Limited Mobility"
-    description: "<gray>Pearls and Lunge are available with longer cooldowns."
-    duration: 90m
-    cobwebs-allowed: false
+  mace-cooldown:
+    display-name: "<gold>Mace Cooldown"
+    description: "<gray>Successful mace attacks receive a ten-second cooldown."
+    effects: []
     restrictions:
-      ENDER_PEARL:
-        mode: COOLDOWN
-        cooldown: 15s
-      SPEAR_LUNGE:
+      MACE:
         mode: COOLDOWN
         cooldown: 10s
-    start-message: "<gold>The warzone meta has changed to <white>Limited Mobility<gold>."
+    start-message: "<gold>Successful mace attacks now have a ten-second warzone cooldown."
 
-  grounded:
-    display-name: "<yellow>Grounded"
-    description: "<gray>Spears and wind charges are unavailable."
-    duration: 90m
-    cobwebs-allowed: false
-    restrictions:
-      SPEAR:
-        mode: DISABLED
-      WIND_CHARGE:
-        mode: DISABLED
-    start-message: "<yellow>The warzone meta has changed to <white>Grounded<yellow>."
+  elytra-no-rockets:
+    display-name: "<aqua>Elytra, No Rockets"
+    description: "<gray>Elytra gliding is allowed, but actual firework boosting is blocked."
+    effects:
+      - ELYTRA_NO_ROCKETS
+    restrictions: {}
+    start-message: "<aqua>Elytra gliding is active in the warzone this week; rocket boosting is disabled."

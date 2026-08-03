@@ -13,6 +13,7 @@ import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
 import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionService;
 import com.lincoln.maceguard.warzone.restriction.VisualCooldownService;
+import com.lincoln.maceguard.warzone.rotation.ModifierSelector;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
 import org.bukkit.Location;
@@ -28,7 +29,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.random.RandomGenerator;
 
 public final class WarzoneRuntime {
     private final JavaPlugin plugin;
@@ -48,6 +52,11 @@ public final class WarzoneRuntime {
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
+        this(plugin, temporaryBlocks, config, templates, store, clock, RandomGenerator.getDefault());
+    }
+
+    WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
+                   WarzoneMessages templates, WarzoneStateStore store, Clock clock, RandomGenerator random) {
         validateCooldownTargets(config);
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
@@ -60,13 +69,14 @@ public final class WarzoneRuntime {
         this.cooldowns = new CooldownService(clock::millis);
         this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis,
                 () -> plugin.getServer().getCurrentTick());
-        this.rotations = new RotationManager(config, store, clock, this::transition, this::warning);
+        this.rotations = new RotationManager(config, store, clock, random, this::transition, this::warning);
         this.messages.bind(rotations);
         this.restrictions = new RestrictionService(rotations::active, cooldowns);
-        this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns, region,
-                messages, new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
+        this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns,
+                region, messages, rotations::active,
+                new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         clearCobwebsAfterOfflineTransition();
-        if (pendingWarzoneCobwebClear && region.regionResolved()) clearTrackedCobwebs();
+        if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
     }
 
     public void start() {
@@ -78,7 +88,7 @@ public final class WarzoneRuntime {
             cooldowns.discardExpired();
             messages.cleanup();
             restrictionListener.cleanup();
-            if (pendingWarzoneCobwebClear && region.regionResolved()) clearTrackedCobwebs();
+            if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             boolean resolved = region.refresh();
@@ -100,10 +110,9 @@ public final class WarzoneRuntime {
     }
 
     public CobwebDecision cobwebDecision(Player player, Location location) {
-        if (!config.enabled()) return CobwebDecision.permit();
-        if (player.hasPermission("warzonerotator.bypass")) return CobwebDecision.permit();
-        if (!region.regionResolved() && region.inConfiguredWorld(location)) return CobwebDecision.unavailable();
-        if (!region.containsResolved(location)) return CobwebDecision.permit();
+        if (!config.enabled() || player.hasPermission("warzonerotator.bypass"))
+            return CobwebDecision.permit();
+        if (!region.contains(location)) return CobwebDecision.permit();
         if (!rotations.active().cobwebsAllowed()) return CobwebDecision.unavailable();
         RestrictionDecision restriction = restrictions.material(player.getUniqueId(), Material.COBWEB,
                 false, true, false);
@@ -121,28 +130,52 @@ public final class WarzoneRuntime {
         else if (decision.restriction() != null) messages.denial(player, decision.restriction());
     }
 
-    private void transition(WarzoneConfig.Rotation previous, WarzoneConfig.Rotation current, boolean announce) {
+    private void transition(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current, boolean announce) {
         restrictionListener.clearTransientState();
         visualCooldowns.clearOwned();
         cooldowns.clear();
-        if (previous.cobwebsAllowed() && !current.cobwebsAllowed() && config.cobwebs().clearOnMetaChange())
-            clearTrackedCobwebs();
+        if (previous.cobwebsAllowed() && !current.cobwebsAllowed()
+                && config.cobwebs().clearOnMetaChange()) clearTrackedCobwebs();
         if (!announce) return;
-        if (previous.endMessage() != null && !previous.endMessage().isBlank())
-            messages.broadcast(previous.endMessage(), config.messages().transitionAudience());
-        messages.broadcast(current.startMessage(), config.messages().transitionAudience());
+
+        Set<String> removed = new LinkedHashSet<>(previous.modifierIds());
+        removed.removeAll(current.modifierIds());
+        for (String id : removed) {
+            WarzoneConfig.Modifier modifier = config.modifiers().get(id);
+            if (modifier != null && modifier.endMessage() != null && !modifier.endMessage().isBlank())
+                messages.broadcast(modifier.endMessage(), config.messages().transitionAudience());
+        }
+
+        Set<String> added = new LinkedHashSet<>(current.modifierIds());
+        added.removeAll(previous.modifierIds());
+        for (String id : added) {
+            WarzoneConfig.Modifier modifier = config.modifiers().get(id);
+            if (modifier != null && modifier.startMessage() != null && !modifier.startMessage().isBlank())
+                messages.broadcast(modifier.startMessage(), config.messages().transitionAudience());
+        }
+        if (added.isEmpty())
+            messages.broadcast("<gold>The weekly warzone modifiers are now <meta><gold>.",
+                    config.messages().transitionAudience());
     }
 
-    private void warning(WarzoneConfig.Rotation rotation, Duration remaining) {
-        String template = rotation.warningMessage() == null ? messages.rotationWarning() : rotation.warningMessage();
+    private void warning(WarzoneConfig.ActiveSet active, Duration remaining) {
+        String template = active.modifierIds().stream().map(config.modifiers()::get)
+                .filter(java.util.Objects::nonNull).map(WarzoneConfig.Modifier::warningMessage)
+                .filter(value -> value != null && !value.isBlank()).findFirst()
+                .orElse(messages.rotationWarning());
         messages.broadcast(template, config.messages().warningAudience());
     }
 
     private void clearCobwebsAfterOfflineTransition() {
         if (!config.cobwebs().clearOnMetaChange() || !rotations.advancedDuringRestore()) return;
-        WarzoneConfig.Rotation stored = config.rotationsById().get(rotations.storedActiveRotationId());
-        if (stored != null && stored.cobwebsAllowed() && !rotations.active().cobwebsAllowed())
-            clearTrackedCobwebs();
+        try {
+            WarzoneConfig.ActiveSet stored = new ModifierSelector(new java.util.Random(0L))
+                    .compose(config, rotations.storedActiveModifierIds());
+            if (stored.cobwebsAllowed() && !rotations.active().cobwebsAllowed())
+                clearTrackedCobwebs();
+        } catch (IllegalArgumentException ignored) {
+            // Invalid old state cannot safely identify a prior cobweb-enabled set.
+        }
     }
 
     private void validateCooldownTargets(WarzoneConfig config) {
@@ -151,10 +184,10 @@ public final class WarzoneRuntime {
                 throw new IllegalArgumentException("restriction-targets." + target.id()
                         + " enables cooldowns but has no reliable success event");
         });
-        for (WarzoneConfig.Rotation rotation : config.rotations()) {
-            rotation.restrictions().forEach((target, restriction) -> {
+        for (WarzoneConfig.Modifier modifier : config.modifiers().values()) {
+            modifier.restrictions().forEach((target, restriction) -> {
                 if (restriction.mode() == RestrictionMode.COOLDOWN && !target.supportsCooldown())
-                    throw new IllegalArgumentException("rotations." + rotation.id() + ".restrictions."
+                    throw new IllegalArgumentException("modifiers." + modifier.id() + ".restrictions."
                             + target.id() + " uses COOLDOWN without a reliable success event");
             });
         }
@@ -172,17 +205,16 @@ public final class WarzoneRuntime {
             ensurePendingCobwebMarker();
         pendingWarzoneCobwebClear = true;
 
-        if (!region.regionResolved()) {
+        if (!region.fullyResolved())
             return temporaryBlocks.clearMatching(TemporaryBlock::warzoneOwned);
-        }
 
         Predicate<TemporaryBlock> selected = this::isWarzoneCobweb;
         int affected = temporaryBlocks.clearMatching(selected);
         if (temporaryBlocks.countMatching(selected) == 0) {
             temporaryBlocks.persistCurrentState().whenComplete((ignored, failure) -> {
                 if (failure != null) {
-                    plugin.getLogger().severe("Could not durably finish the warzone cobweb clear; the pending marker was retained: "
-                            + failure.getMessage());
+                    plugin.getLogger().severe("Could not durably finish the warzone cobweb clear; "
+                            + "the pending marker was retained: " + failure.getMessage());
                     return;
                 }
                 clearPendingCobwebMarker();
@@ -196,7 +228,7 @@ public final class WarzoneRuntime {
         org.bukkit.World world;
         try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(entry.worldUuid())); }
         catch (IllegalArgumentException ex) { return false; }
-        return world != null && region.containsResolved(new Location(world, entry.x(), entry.y(), entry.z()));
+        return world != null && region.contains(new Location(world, entry.x(), entry.y(), entry.z()));
     }
 
     private void ensurePendingCobwebMarker() {
@@ -205,7 +237,8 @@ public final class WarzoneRuntime {
             Files.writeString(pendingCobwebClearMarker, "pending\n", StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
         } catch (IOException ex) {
-            plugin.getLogger().severe("Could not persist the pending warzone cobweb clear marker: " + ex.getMessage());
+            plugin.getLogger().severe("Could not persist the pending warzone cobweb clear marker: "
+                    + ex.getMessage());
         }
     }
 
@@ -214,12 +247,13 @@ public final class WarzoneRuntime {
             Files.deleteIfExists(pendingCobwebClearMarker);
             pendingWarzoneCobwebClear = false;
         } catch (IOException ex) {
-            plugin.getLogger().warning("Warzone cobwebs were cleared, but the pending marker could not be removed; "
-                    + "the clear will be checked again after restart: " + ex.getMessage());
+            plugin.getLogger().warning("Warzone cobwebs were cleared, but the pending marker could not "
+                    + "be removed; the clear will be checked again after restart: " + ex.getMessage());
         }
     }
 
-    public record CobwebDecision(boolean allowed, boolean rotationUnavailable, RestrictionDecision restriction) {
+    public record CobwebDecision(boolean allowed, boolean rotationUnavailable,
+                                 RestrictionDecision restriction) {
         public static CobwebDecision permit() {
             return new CobwebDecision(true, false, RestrictionDecision.unrestricted());
         }

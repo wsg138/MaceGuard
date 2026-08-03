@@ -20,7 +20,6 @@ import org.bukkit.entity.Player;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 public final class WarzoneMessageService {
@@ -72,11 +71,19 @@ public final class WarzoneMessageService {
         player.sendMessage(render(templates.cobwebUnavailable(), target, Duration.ZERO));
     }
 
+    public void elytraUnavailable(Player player) {
+        player.sendMessage(mini.deserialize("<red>Elytra gliding is not active in the warzone this week."));
+    }
+
+    public void rocketUnavailable(Player player) {
+        player.sendMessage(mini.deserialize("<red>Firework boosting is disabled in the warzone this week."));
+    }
+
     public void broadcast(String template, WarzoneConfig.Audience audience) {
         Component component = render(template, null, Duration.ZERO);
         Bukkit.getOnlinePlayers().stream()
                 .filter(player -> audience == WarzoneConfig.Audience.GLOBAL
-                        || region.containsResolved(player.getLocation()))
+                        || region.contains(player.getLocation()))
                 .forEach(player -> player.sendMessage(component));
         Bukkit.getConsoleSender().sendMessage(component);
     }
@@ -86,28 +93,35 @@ public final class WarzoneMessageService {
     }
 
     public Component render(String template, RestrictionTarget target, Duration cooldownRemaining) {
-        WarzoneConfig.Rotation active = rotations.active();
+        WarzoneConfig.ActiveSet active = rotations.active();
         return mini.deserialize(template,
                 Placeholder.component("meta", mini.deserialize(active.displayName())),
                 Placeholder.unparsed("meta_id", active.id()),
+                Placeholder.unparsed("modifiers", String.join(", ", active.modifierIds())),
                 Placeholder.unparsed("item", friendly(target)),
-                Placeholder.unparsed("ability", target == RestrictionTarget.SPEAR_LUNGE ? "Spear Lunge" : friendly(target)),
+                Placeholder.unparsed("ability",
+                        target == RestrictionTarget.SPEAR_LUNGE ? "Spear Lunge" : friendly(target)),
                 Placeholder.unparsed("time_left", DurationFormatter.words(rotations.remaining())),
-                Placeholder.unparsed("changes_at", formatInstant(rotations.state().endsAtMillis())),
-                Placeholder.component("next_meta", mini.deserialize(rotations.next().displayName())),
+                Placeholder.unparsed("changes_at", formatInstant(rotations.state().transitionAtMillis())),
+                Placeholder.unparsed("next_meta", "Random weekly selection"),
+                Placeholder.unparsed("next_meta_id", "unselected"),
                 Placeholder.unparsed("cooldown_remaining", precise(cooldownRemaining)),
-                Placeholder.unparsed("cooldown", cooldownRemaining.isZero() ? "0s" : DurationFormatter.words(cooldownRemaining)),
-                Placeholder.unparsed("cobweb_clear_time", DurationFormatter.words(config.cobwebs().clearAfter())));
+                Placeholder.unparsed("cooldown",
+                        cooldownRemaining.isZero() ? "0s" : DurationFormatter.words(cooldownRemaining)),
+                Placeholder.unparsed("cobweb_clear_time",
+                        DurationFormatter.words(config.cobwebs().clearAfter())));
     }
 
     public String plain(String miniMessage) { return plain.serialize(mini.deserialize(miniMessage)); }
 
     public String formatInstant(long epochMillis) {
-        return DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault())
+        return DateTimeFormatter.ofPattern("EEE, MMM d h:mm a z")
+                .withZone(config.schedule().timezone())
                 .format(Instant.ofEpochMilli(epochMillis));
     }
 
     public String rotationWarning() { return templates.rotationWarning(); }
+
     public void cleanup() {
         denialThrottle.discardOlderThan(clock.millis() - Math.max(1_000L,
                 config.messages().blockedMessageCooldown().toMillis()));

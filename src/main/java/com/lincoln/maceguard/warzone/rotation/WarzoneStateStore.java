@@ -13,7 +13,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.logging.Logger;
@@ -38,15 +37,16 @@ public final class WarzoneStateStore {
         try {
             YamlConfiguration yaml = new YamlConfiguration();
             yaml.load(file.toFile());
-            String active = yaml.getString("rotation.active-id");
-            if (active == null) return Optional.empty();
-            long started = yaml.getLong("rotation.started-at");
-            long ends = yaml.getLong("rotation.ends-at");
-            String next = yaml.getString("rotation.next-id", "");
-            if (active.isBlank() || next.isBlank() || started <= 0 || ends <= started)
-                throw new IllegalArgumentException("invalid rotation state values");
-            current = new RotationState(active, started, ends, next,
-                    new LinkedHashSet<>(yaml.getLongList("rotation.emitted-warnings")));
+            java.util.List<String> active = yaml.getStringList("selection.active-modifiers").stream()
+                    .map(String::trim).filter(value -> !value.isEmpty()).distinct().sorted().toList();
+            long activated = yaml.getLong("selection.activated-at");
+            long boundary = yaml.getLong("selection.weekly-boundary");
+            long transition = yaml.getLong("selection.transition-at");
+            long sequence = yaml.getLong("selection.sequence", 0);
+            if (active.isEmpty() || activated <= 0 || boundary <= 0 || transition <= activated || sequence < 0)
+                throw new IllegalArgumentException("invalid weekly selection state values");
+            current = new RotationState(active, activated, boundary, transition,
+                    new LinkedHashSet<>(yaml.getLongList("selection.emitted-warnings")), sequence);
             return Optional.of(current);
         } catch (IOException | InvalidConfigurationException | IllegalArgumentException ex) {
             Path backup = file.resolveSibling(file.getFileName() + ".invalid-" + System.currentTimeMillis() + ".bak");
@@ -54,7 +54,8 @@ public final class WarzoneStateStore {
             catch (IOException copyFailure) {
                 logger.severe("Could not preserve invalid warzone state: " + copyFailure.getMessage());
             }
-            logger.severe("Could not parse warzone state; preserved it as " + backup.getFileName() + ": " + ex.getMessage());
+            logger.severe("Could not parse weekly warzone state; preserved it as " + backup.getFileName()
+                    + ": " + ex.getMessage());
             return Optional.empty();
         }
     }
@@ -81,18 +82,19 @@ public final class WarzoneStateStore {
                 }
             }
             try { save(snapshot); }
-            catch (IOException ex) { logger.severe("Could not persist warzone state: " + ex.getMessage()); }
+            catch (IOException ex) { logger.severe("Could not persist weekly warzone state: " + ex.getMessage()); }
         }
     }
 
     private void save(RotationState state) throws IOException {
         Files.createDirectories(file.getParent());
         YamlConfiguration yaml = new YamlConfiguration();
-        yaml.set("rotation.active-id", state.activeRotationId());
-        yaml.set("rotation.started-at", state.startedAtMillis());
-        yaml.set("rotation.ends-at", state.endsAtMillis());
-        yaml.set("rotation.next-id", state.nextRotationId());
-        yaml.set("rotation.emitted-warnings", state.emittedWarningsSeconds().stream().sorted().toList());
+        yaml.set("selection.active-modifiers", state.activeModifierIds());
+        yaml.set("selection.activated-at", state.activatedAtMillis());
+        yaml.set("selection.weekly-boundary", state.weeklyBoundaryMillis());
+        yaml.set("selection.transition-at", state.transitionAtMillis());
+        yaml.set("selection.emitted-warnings", state.emittedWarningsSeconds().stream().sorted().toList());
+        yaml.set("selection.sequence", state.selectionSequence());
         byte[] bytes = yaml.saveToString().getBytes(StandardCharsets.UTF_8);
         Path temporary = Files.createTempFile(file.getParent(), "warzone-state-", ".tmp");
         try {

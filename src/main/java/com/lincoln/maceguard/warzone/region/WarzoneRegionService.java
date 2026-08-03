@@ -9,6 +9,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.logging.Logger;
 
@@ -16,7 +18,10 @@ public final class WarzoneRegionService {
     private WarzoneConfig.Region settings;
     private final Logger logger;
     private World cachedWorld;
-    private ProtectedRegion cachedRegion;
+    private ProtectedRegion outer;
+    private final Map<String, ProtectedRegion> exclusions = new LinkedHashMap<>();
+    private final Map<String, String> exclusionStatuses = new LinkedHashMap<>();
+    private String outerStatus = "not checked";
     private String resolutionStatus = "not checked";
 
     public WarzoneRegionService(WarzoneConfig.Region settings) {
@@ -33,42 +38,85 @@ public final class WarzoneRegionService {
         refresh();
     }
 
-    /** Re-resolves by world and region ID so recreated or replaced regions are picked up. */
     public boolean refresh() {
         World world = Bukkit.getWorld(settings.world());
-        ProtectedRegion region = null;
-        String nextStatus;
+        ProtectedRegion resolvedOuter = null;
+        Map<String, ProtectedRegion> resolvedExclusions = new LinkedHashMap<>();
+        Map<String, String> nextExclusionStatuses = new LinkedHashMap<>();
+        String nextOuterStatus;
+
         if (world == null) {
-            nextStatus = "world not loaded";
+            nextOuterStatus = "world not loaded";
+            for (String id : settings.excludedRegionIds())
+                nextExclusionStatuses.put(id, "world not loaded");
         } else {
             RegionManager manager = WorldGuard.getInstance().getPlatform().getRegionContainer()
                     .get(BukkitAdapter.adapt(world));
-            if (manager == null) nextStatus = "WorldGuard region manager unavailable";
-            else {
-                region = manager.getRegion(settings.id());
-                nextStatus = region == null ? "region not found" : "resolved";
+            if (manager == null) {
+                nextOuterStatus = "WorldGuard region manager unavailable";
+                for (String id : settings.excludedRegionIds())
+                    nextExclusionStatuses.put(id, "WorldGuard region manager unavailable");
+            } else {
+                resolvedOuter = manager.getRegion(settings.id());
+                nextOuterStatus = resolvedOuter == null ? "region not found" : "resolved";
+                for (String id : settings.excludedRegionIds()) {
+                    ProtectedRegion excluded = manager.getRegion(id);
+                    if (excluded == null) nextExclusionStatuses.put(id, "region not found");
+                    else {
+                        resolvedExclusions.put(id, excluded);
+                        nextExclusionStatuses.put(id, "resolved");
+                    }
+                }
             }
         }
+
         cachedWorld = world;
-        cachedRegion = region;
+        outer = resolvedOuter;
+        exclusions.clear();
+        exclusions.putAll(resolvedExclusions);
+        exclusionStatuses.clear();
+        exclusionStatuses.putAll(nextExclusionStatuses);
+        outerStatus = nextOuterStatus;
+        String nextStatus = fullyResolved(nextOuterStatus, nextExclusionStatuses)
+                ? "resolved" : "unresolved; effective scope disabled";
         reportStatusChange(nextStatus);
         resolutionStatus = nextStatus;
-        return cachedRegion != null;
+        return fullyResolved();
+    }
+
+    private boolean fullyResolved(String candidateOuter, Map<String, String> candidateExclusions) {
+        return "resolved".equals(candidateOuter)
+                && candidateExclusions.values().stream().allMatch("resolved"::equals);
     }
 
     /**
-     * Fails closed in the configured loaded world while the region cannot be resolved.
-     * This is for restrictive decisions only; positive region-scoped behavior must use containsResolved.
+     * Returns true only for the exact configured WorldGuard scope. Missing outer or exclusion
+     * regions disable the scope rather than broadening restrictions to the world.
      */
     public boolean contains(Location location) {
-        if (!inConfiguredWorld(location)) return false;
-        return cachedRegion == null || cachedRegion.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        return containsResolved(location);
     }
 
-    /** Exact membership only; positive or destructive behavior must never broaden to the whole world. */
     public boolean containsResolved(Location location) {
-        return inConfiguredWorld(location) && cachedRegion != null
-                && cachedRegion.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        if (!inConfiguredWorld(location) || !fullyResolved()) return false;
+        int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
+        if (!outer.contains(x, y, z)) return false;
+        for (ProtectedRegion excluded : exclusions.values())
+            if (excluded.contains(x, y, z)) return false;
+        return true;
+    }
+
+    public boolean insideOuterResolved(Location location) {
+        return inConfiguredWorld(location) && outer != null
+                && outer.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+    }
+
+    public String exclusionAt(Location location) {
+        if (!inConfiguredWorld(location)) return null;
+        for (Map.Entry<String, ProtectedRegion> entry : exclusions.entrySet())
+            if (entry.getValue().contains(location.getBlockX(), location.getBlockY(), location.getBlockZ()))
+                return entry.getKey();
+        return null;
     }
 
     public boolean inConfiguredWorld(Location location) {
@@ -81,17 +129,23 @@ public final class WarzoneRegionService {
     private void reportStatusChange(String nextStatus) {
         if (logger == null || Objects.equals(nextStatus, resolutionStatus)) return;
         if ("resolved".equals(nextStatus)) {
-            if (!"not checked".equals(resolutionStatus)) logger.info("Warzone region '" + settings.id()
-                    + "' in world '" + settings.world() + "' is resolved again.");
+            if (!"not checked".equals(resolutionStatus))
+                logger.info("Warzone effective scope is resolved again.");
         } else {
-            logger.warning("Warzone region '" + settings.id() + "' in world '" + settings.world()
-                    + "' is unresolved (" + nextStatus + "); restrictions fail closed in that world.");
+            logger.warning("Warzone effective scope is unresolved; restrictions and positive behavior are disabled "
+                    + "rather than broadened beyond WorldGuard geometry.");
         }
     }
 
     public boolean worldLoaded() { return cachedWorld != null; }
-    public boolean regionResolved() { return cachedRegion != null; }
+    public boolean regionResolved() { return outer != null; }
+    public boolean fullyResolved() {
+        return outer != null && settings.excludedRegionIds().stream().allMatch(exclusions::containsKey);
+    }
     public String resolutionStatus() { return resolutionStatus; }
+    public String outerResolutionStatus() { return outerStatus; }
+    public Map<String, String> exclusionResolutionStatuses() { return Map.copyOf(exclusionStatuses); }
     public String worldName() { return settings.world(); }
     public String regionId() { return settings.id(); }
+    public java.util.List<String> excludedRegionIds() { return settings.excludedRegionIds(); }
 }
