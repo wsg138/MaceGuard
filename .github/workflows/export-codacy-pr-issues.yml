@@ -33,7 +33,8 @@ jobs:
           cat <<'CHECKSUMS' | sha256sum --check --strict
           bad2f1855c6177fd2e71fe7f8583462654c935e9ac53e48fe468b41d2c9ab5d7  .github/codacy-fix-bundle.part00
           19e8cbcc19849f865df9261ad55bf5265f484065cf81aff5d962e3379b16f33f  .github/codacy-fix-bundle.part01
-          d51d59d6a33103a70ce9a54fb9c6b6e4e73032411433a5ec919a272cade6b2f7  .github/codacy-fix-bundle.part02
+          b2a889a6720d1ee40e8f25be8e250164812af13a83dcea21e27fd49a4f11aa8c  .github/codacy-fix-bundle.part02a
+          bdd402e2dc75c0194e4d165362c9370072c8d0b1df13c082545d21d18d448ce5  .github/codacy-fix-bundle.part02b
           ae6f5dc67e15d5598d38a5e3285c1297007622c13777515b014864b7f23ba81f  .github/codacy-fix-bundle.part03
           5b6e74592202f74a984314b6697081686156cd86791edb7b570564879259f09d  .github/codacy-fix-bundle.part04
           CHECKSUMS
