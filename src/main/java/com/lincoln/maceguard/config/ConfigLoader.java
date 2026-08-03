@@ -213,7 +213,7 @@ public final class ConfigLoader {
                 result.addAll(groups.get(value));
                 continue;
             }
-            Material material = Material.matchMaterial(value);
+            Material material = strictMaterial(value);
             if (material == null) errors.add(path + "[" + index + "] has invalid material or group '"
                     + raw.get(index) + "'");
             else result.add(material);
@@ -225,11 +225,19 @@ public final class ConfigLoader {
         Set<Material> result = new LinkedHashSet<>();
         for (int index = 0; index < values.size(); index++) {
             String raw = values.get(index);
-            Material material = Material.matchMaterial(raw.trim().toUpperCase(Locale.ROOT));
+            Material material = strictMaterial(raw);
             if (material == null) errors.add(path + "[" + index + "] has invalid material '" + raw + "'");
             else result.add(material);
         }
         return Set.copyOf(result);
+    }
+
+    private Material strictMaterial(String raw) {
+        String normalized = raw == null ? "" : raw.trim().toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty() || normalized.indexOf(':') >= 0 || normalized.indexOf(' ') >= 0)
+            return null;
+        try { return Material.valueOf(normalized); }
+        catch (IllegalArgumentException ex) { return null; }
     }
 
     private void validateFluids(Set<Material> materials, String path, Set<String> errors) {
