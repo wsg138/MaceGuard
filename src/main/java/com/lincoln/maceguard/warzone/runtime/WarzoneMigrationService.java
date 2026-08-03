@@ -78,26 +78,15 @@ public final class WarzoneMigrationService {
 
         Path backup = timestampedBackup(config, "warzone-v" + version);
         if (version == 4) {
-            YamlConfiguration migrated = bundledDefaults();
-            migrated.set("config-version", WarzoneConfigLoader.VERSION);
-            migrated.set("enabled", old.getBoolean("enabled", false));
-            copyPath(old, migrated, "region.world");
-            copyPath(old, migrated, "region.id");
-            copyPath(old, migrated, "region.excluded-region-ids");
-            copyPath(old, migrated, "rotation.schedule");
-            copyPath(old, migrated, "rotation.warning-times");
-            copyPath(old, migrated, "messages");
-            copyPath(old, migrated, "cobwebs");
-            mergeSections(old, migrated, "restriction-targets");
-            mergeSections(old, migrated, "conflict-groups");
-            preserveModifierDefinitions(old, migrated);
+            YamlConfiguration migrated = migrateSchema4(old, bundledDefaults());
             saveValidatedAtomically(migrated, config);
             report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
             report.add("Migrated to schema-" + WarzoneConfigLoader.VERSION
                     + " while preserving enabled state, scope IDs, schedule, messages, cobweb settings, "
-                    + "restriction policies, and compatible modifier text/restrictions.");
-            report.add("Added independent enabled/weight values, count weights, Pearl/Wind outcomes, "
-                    + "and Elytra special-rule defaults.");
+                    + "restriction policies, built-in modifiers, valid custom modifiers, and conflict groups.");
+            report.add("Custom schema-4 modifiers receive enabled: true and weight: 10 only when those fields "
+                    + "were absent; invalid custom definitions abort migration without replacing the original file.");
+            report.add("Added count weights, Pearl/Wind outcomes, and Elytra special-rule defaults.");
             report.add("Existing weekly state was retained; disabled or invalid persisted IDs reroll "
                     + "without moving their stored transition boundary.");
             return;
@@ -109,6 +98,23 @@ public final class WarzoneMigrationService {
         report.add("The replacement remains disabled by default; old short sequential rotations were not reinterpreted.");
     }
 
+    static YamlConfiguration migrateSchema4(YamlConfiguration old,
+                                             YamlConfiguration migrated) {
+        migrated.set("config-version", WarzoneConfigLoader.VERSION);
+        migrated.set("enabled", old.getBoolean("enabled", false));
+        copyPath(old, migrated, "region.world");
+        copyPath(old, migrated, "region.id");
+        copyPath(old, migrated, "region.excluded-region-ids");
+        copyPath(old, migrated, "rotation.schedule");
+        copyPath(old, migrated, "rotation.warning-times");
+        copyPath(old, migrated, "messages");
+        copyPath(old, migrated, "cobwebs");
+        mergeSections(old, migrated, "restriction-targets");
+        preserveModifierDefinitions(old, migrated);
+        mergeSections(old, migrated, "conflict-groups");
+        return migrated;
+    }
+
     private YamlConfiguration bundledDefaults() throws IOException {
         InputStream stream = plugin.getResource("warzone.yml");
         if (stream == null) throw new IOException("Bundled warzone.yml is missing.");
@@ -117,28 +123,34 @@ public final class WarzoneMigrationService {
         }
     }
 
-    private void preserveModifierDefinitions(YamlConfiguration old, YamlConfiguration migrated) {
+    static void preserveModifierDefinitions(YamlConfiguration old,
+                                            YamlConfiguration migrated) {
         ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
         if (modifiers == null) return;
         for (String id : modifiers.getKeys(false)) {
             String base = "modifiers." + id;
-            if (!migrated.contains(base)) continue;
+            boolean bundledModifier = migrated.contains(base);
             migrated.set(base + ".enabled", old.getBoolean(base + ".enabled", true));
-            if (old.contains(base + ".weight"))
+            if (old.contains(base + ".weight")) {
                 copyPath(old, migrated, base + ".weight");
+            } else if (!bundledModifier) {
+                migrated.set(base + ".weight", 10);
+            }
             for (String field : SAFE_MODIFIER_FIELDS)
                 copyPath(old, migrated, base + "." + field);
         }
     }
 
-    private void mergeSections(YamlConfiguration source, YamlConfiguration target, String path) {
+    private static void mergeSections(YamlConfiguration source,
+                                      YamlConfiguration target, String path) {
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) return;
         for (String key : section.getKeys(false))
             copyPath(source, target, path + "." + key);
     }
 
-    private void copyPath(YamlConfiguration source, YamlConfiguration target, String path) {
+    private static void copyPath(YamlConfiguration source,
+                                 YamlConfiguration target, String path) {
         if (!source.contains(path)) return;
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) {
@@ -149,8 +161,8 @@ public final class WarzoneMigrationService {
         copySection(section, target, path);
     }
 
-    private void copySection(ConfigurationSection source, YamlConfiguration target,
-                             String targetPath) {
+    private static void copySection(ConfigurationSection source,
+                                    YamlConfiguration target, String targetPath) {
         for (String key : source.getKeys(false)) {
             String childPath = targetPath + "." + key;
             ConfigurationSection child = source.getConfigurationSection(key);
@@ -159,7 +171,8 @@ public final class WarzoneMigrationService {
         }
     }
 
-    private void saveValidatedAtomically(YamlConfiguration yaml, Path target) throws IOException {
+    static void saveValidatedAtomically(YamlConfiguration yaml, Path target)
+            throws IOException {
         Files.createDirectories(target.getParent());
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(temporary, yaml.saveToString(), StandardCharsets.UTF_8);
