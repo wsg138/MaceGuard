@@ -41,8 +41,9 @@ public final class ItemRestrictionListener implements Listener {
     private final WarzoneMessageService messages;
     private final Supplier<WarzoneConfig.ActiveSet> activeSet;
     private final LungeVelocityGate lungeGate;
+    private final ProjectileLaunchTracker projectileLaunches =
+            new ProjectileLaunchTracker();
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
-    private final Map<UUID, PendingProjectile> pendingProjectiles = new HashMap<>();
     private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
     public ItemRestrictionListener(RestrictionService restrictions, CooldownService cooldowns,
@@ -83,9 +84,9 @@ public final class ItemRestrictionListener implements Listener {
     public void onAcceptedPlayerLaunch(PlayerLaunchProjectileEvent event) {
         RestrictionDecision decision = materialDecision(event.getPlayer(), event.getItemStack().getType(), false);
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.PROJECTILE))
-            pendingProjectiles.put(event.getProjectile().getUniqueId(),
-                    new PendingProjectile(event.getPlayer().getUniqueId(), decision,
-                            System.nanoTime() + 5_000_000_000L));
+            projectileLaunches.record(event.getProjectile().getUniqueId(),
+                    event.getPlayer().getUniqueId(), decision,
+                    System.nanoTime() + 5_000_000_000L);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -136,17 +137,18 @@ public final class ItemRestrictionListener implements Listener {
         if (!(event.getEntity() instanceof Player player) || event.getBow() == null) return;
         RestrictionDecision decision = materialDecision(player, event.getBow().getType(), false);
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.PROJECTILE))
-            pendingProjectiles.put(event.getProjectile().getUniqueId(),
-                    new PendingProjectile(player.getUniqueId(), decision,
-                            System.nanoTime() + 5_000_000_000L));
+            projectileLaunches.record(event.getProjectile().getUniqueId(),
+                    player.getUniqueId(), decision,
+                    System.nanoTime() + 5_000_000_000L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onProjectileLaunchFinalized(ProjectileLaunchEvent event) {
-        PendingProjectile pending = pendingProjectiles.remove(event.getEntity().getUniqueId());
-        if (pending == null || event.isCancelled()) return;
-        completeSuccess(pending.playerId(),
-                event.getEntity().getServer().getPlayer(pending.playerId()), pending.decision());
+        projectileLaunches.finalizeLaunch(event.getEntity().getUniqueId(),
+                        event.isCancelled())
+                .ifPresent(completion -> completeSuccess(completion.playerId(),
+                        event.getEntity().getServer().getPlayer(completion.playerId()),
+                        completion.decision()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -277,15 +279,14 @@ public final class ItemRestrictionListener implements Listener {
     public void clearTransientState() {
         lungeGate.clear();
         acceptedLunges.clear();
-        pendingProjectiles.clear();
+        projectileLaunches.clear();
         visualInsideState.clear();
     }
 
     public void clear() { clearTransientState(); }
 
     public void cleanup() {
-        long now = System.nanoTime();
-        pendingProjectiles.values().removeIf(pending -> pending.deadlineNanos() <= now);
+        projectileLaunches.cleanup(System.nanoTime());
         lungeGate.cleanup();
         visualCooldowns.cleanup();
     }
@@ -327,6 +328,4 @@ public final class ItemRestrictionListener implements Listener {
                 && from.getBlockY() == to.getBlockY()
                 && from.getBlockZ() == to.getBlockZ();
     }
-
-    private record PendingProjectile(UUID playerId, RestrictionDecision decision, long deadlineNanos) { }
 }
