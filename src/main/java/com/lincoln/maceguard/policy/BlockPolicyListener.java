@@ -23,17 +23,18 @@ import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 public final class BlockPolicyListener implements Listener {
-    private final MaceGuardConfig config;
-    private final WorldGuardQueryService worldGuard;
+    private final BlockPolicyResolver resolver;
 
     public BlockPolicyListener(MaceGuardConfig config, WorldGuardQueryService worldGuard) {
-        this.config = config;
-        this.worldGuard = worldGuard;
+        this(new BlockPolicyResolver(config, worldGuard));
+    }
+
+    public BlockPolicyListener(BlockPolicyResolver resolver) {
+        this.resolver = resolver;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -64,8 +65,8 @@ public final class BlockPolicyListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onFlow(BlockFromToEvent event) {
-        Resolution source = resolve(event.getBlock().getLocation());
-        Resolution target = resolve(event.getToBlock().getLocation());
+        BlockPolicyResolver.Resolution source = resolve(event.getBlock().getLocation());
+        BlockPolicyResolver.Resolution target = resolve(event.getToBlock().getLocation());
         boolean createsInfiniteWater = event.getBlock().getType() == Material.WATER
                 && createsInfiniteSource(event.getToBlock());
         if (flowDenied(source, target, createsInfiniteWater)) event.setCancelled(true);
@@ -73,7 +74,7 @@ public final class BlockPolicyListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onIceMelt(BlockFadeEvent event) {
-        Resolution resolution = resolve(event.getBlock().getLocation());
+        BlockPolicyResolver.Resolution resolution = resolve(event.getBlock().getLocation());
         if (!resolution.referenced()) return;
         if (resolution.policy() == null) {
             event.setCancelled(true);
@@ -111,14 +112,8 @@ public final class BlockPolicyListener implements Listener {
         if (blocksAutomation(event.getBlock().getLocation())) event.setCancelled(true);
     }
 
-    public Resolution resolve(Location location) {
-        if (!config.enabled() || !config.validSchema()) return Resolution.none();
-        WorldGuardQueryService.BlockPolicyReference reference =
-                worldGuard.effectiveBlockPolicyReference(location);
-        if (reference == null || reference.policyName().isBlank()) return Resolution.none();
-        String name = reference.policyName().trim().toLowerCase(Locale.ROOT);
-        String scopeId = reference.regionId().trim().toLowerCase(Locale.ROOT);
-        return new Resolution(scopeId, name, config.blockPolicies().get(name), true);
+    public BlockPolicyResolver.Resolution resolve(Location location) {
+        return resolver.resolve(location);
     }
 
     private boolean pistonTouchesPolicy(Block piston, BlockFace direction,
@@ -146,27 +141,28 @@ public final class BlockPolicyListener implements Listener {
         return automationDenied(resolve(location));
     }
 
-    static boolean placeAllowed(Resolution resolution, Material material) {
+    static boolean placeAllowed(BlockPolicyResolver.Resolution resolution, Material material) {
         return !resolution.referenced() || resolution.policy() != null
                 && resolution.policy().place().allows(material);
     }
 
-    static boolean breakAllowed(Resolution resolution, Material material) {
+    static boolean breakAllowed(BlockPolicyResolver.Resolution resolution, Material material) {
         return !resolution.referenced() || resolution.policy() != null
                 && resolution.policy().breakRule().allows(material);
     }
 
-    static boolean bucketEmptyAllowed(Resolution resolution, Material fluid) {
+    static boolean bucketEmptyAllowed(BlockPolicyResolver.Resolution resolution, Material fluid) {
         return !resolution.referenced() || resolution.policy() != null
                 && resolution.policy().buckets().empty().contains(fluid);
     }
 
-    static boolean bucketFillAllowed(Resolution resolution, Material fluid) {
+    static boolean bucketFillAllowed(BlockPolicyResolver.Resolution resolution, Material fluid) {
         return !resolution.referenced() || resolution.policy() != null
                 && resolution.policy().buckets().fill().contains(fluid);
     }
 
-    static boolean flowDenied(Resolution source, Resolution target,
+    static boolean flowDenied(BlockPolicyResolver.Resolution source,
+                              BlockPolicyResolver.Resolution target,
                               boolean createsInfiniteWaterSource) {
         if (source.referenced()) {
             if (source.policy() == null) return true;
@@ -183,12 +179,13 @@ public final class BlockPolicyListener implements Listener {
         return false;
     }
 
-    static boolean automationDenied(Resolution resolution) {
+    static boolean automationDenied(BlockPolicyResolver.Resolution resolution) {
         return resolution.referenced()
                 && (resolution.policy() == null || !resolution.policy().allowNonPlayerSources());
     }
 
-    static boolean samePolicyScope(Resolution first, Resolution second) {
+    static boolean samePolicyScope(BlockPolicyResolver.Resolution first,
+                                   BlockPolicyResolver.Resolution second) {
         return first.referenced() && second.referenced()
                 && first.scopeId().equals(second.scopeId())
                 && first.name().equals(second.name())
@@ -217,8 +214,4 @@ public final class BlockPolicyListener implements Listener {
     }
 
     private record BlockKey(UUID worldId, int x, int y, int z) { }
-
-    public record Resolution(String scopeId, String name, BlockPolicy policy, boolean referenced) {
-        public static Resolution none() { return new Resolution("", "", null, false); }
-    }
 }
