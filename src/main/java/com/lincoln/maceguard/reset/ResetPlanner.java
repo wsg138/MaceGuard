@@ -18,7 +18,11 @@ public final class ResetPlanner {
                           Predicate<SnapshotBlock> excluded, int batchSize) {
         ResetProfile.Mode mode;
         try { mode = ResetProfile.Mode.valueOf(snapshot.resetMode()); }
-        catch (IllegalArgumentException ex) { mode = ResetProfile.Mode.FULL_SNAPSHOT; }
+        catch (RuntimeException ex) { mode = ResetProfile.Mode.FULL_SNAPSHOT; }
+        if (mode == ResetProfile.Mode.FILTERED_SNAPSHOT) {
+            throw new IllegalArgumentException(
+                    "filtered snapshots require the profile-aware plan overload");
+        }
         ResetProfile profile = new ResetProfile(snapshot.resetProfile(), mode, 0,
                 Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
                 java.util.Set.of(), java.util.Set.of(),
@@ -49,7 +53,7 @@ public final class ResetPlanner {
 
             if (profile.mode() == ResetProfile.Mode.FILTERED_SNAPSHOT) {
                 Material currentMaterial;
-                try { currentMaterial = material(current.blockData()); }
+                try { currentMaterial = BlockDataMaterials.of(current.blockData()); }
                 catch (RuntimeException ex) {
                     conflicts++;
                     continue;
@@ -61,7 +65,7 @@ public final class ResetPlanner {
             }
 
             changes.add(new ResetPlan.Change(target.x(), target.y(), target.z(), current, target));
-            if (isAir(target.blockData())) air++; else nonAir++;
+            if (BlockDataMaterials.isAir(target.blockData())) air++; else nonAir++;
             if (target.blockEntity() != null) entities++;
         }
         String canonical = snapshot.regionId() + "|" + snapshot.geometryHash() + "|"
@@ -82,21 +86,6 @@ public final class ResetPlanner {
             return "would set " + plan.airChanges()
                     + " blocks to air; configured maximum is " + maxAir;
         return null;
-    }
-
-    private Material material(String blockData) {
-        String key = blockData;
-        int properties = key.indexOf('[');
-        if (properties >= 0) key = key.substring(0, properties);
-        int namespace = key.indexOf(':');
-        if (namespace >= 0) key = key.substring(namespace + 1);
-        Material material = Material.matchMaterial(key.toUpperCase(java.util.Locale.ROOT));
-        if (material == null) throw new IllegalArgumentException("unknown material");
-        return material;
-    }
-
-    private boolean isAir(String value) {
-        return value.equals("minecraft:air") || value.startsWith("minecraft:air[");
     }
 
     private String sha256(String value) {
