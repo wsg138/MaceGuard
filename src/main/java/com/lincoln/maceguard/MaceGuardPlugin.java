@@ -44,10 +44,10 @@ public final class MaceGuardPlugin extends JavaPlugin {
     @Override public void onEnable() {
         if (!getDataFolder().exists()) getDataFolder().mkdirs();
         if (!new java.io.File(getDataFolder(), "config.yml").exists()) saveDefaultConfig();
+        new LegacyMigrationReporter(this).inspect();
         new MainConfigMigrationService(this).prepare();
         reloadConfig();
         startRuntime();
-        runtime.io().execute(() -> new LegacyMigrationReporter(this).inspect());
         if (!Compat.isMaceSupported())
             getLogger().warning("Material.MACE is unavailable; mace durability behavior is inactive.");
     }
@@ -62,6 +62,13 @@ public final class MaceGuardPlugin extends JavaPlugin {
     public void reloadPlugin(org.bukkit.command.CommandSender feedback) {
         if (runtime != null && runtime.resets().hasActiveOperation()) {
             feedback.sendMessage("Reload refused while a capture or restore is active.");
+            return;
+        }
+        try {
+            new MainConfigMigrationService(this).prepare();
+        } catch (RuntimeException ex) {
+            getLogger().severe("Reload migration failed: " + ex.getMessage());
+            feedback.sendMessage("Reload rejected; configuration migration failed. Check the console.");
             return;
         }
         Validation validation = validateReload();
