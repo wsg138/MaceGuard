@@ -18,6 +18,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class RotationManagerTest {
     @TempDir Path directory;
 
+    @Test void freshStateRecordsActualActivationAndCurrentWeekBoundary() {
+        Instant now = Instant.parse("2026-08-03T09:00:00Z");
+        MutableClock clock = new MutableClock(now.toEpochMilli());
+        RotationManager manager = manager(store(), clock, 1L);
+
+        assertEquals(now.toEpochMilli(), manager.state().activatedAtMillis());
+        assertEquals(Instant.parse("2026-08-02T08:00:00Z").toEpochMilli(),
+                manager.state().weeklyBoundaryMillis());
+        assertEquals(Instant.parse("2026-08-09T08:00:00Z").toEpochMilli(),
+                manager.state().transitionAtMillis());
+    }
+
     @Test void restartDuringWeekPreservesSelectionAndTransition() {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-03T09:00:00Z").toEpochMilli());
         WarzoneStateStore store = store();
@@ -40,6 +52,9 @@ class RotationManagerTest {
                 directory.resolve("state.yml"), Logger.getLogger("test"), Runnable::run),
                 clock, 3L);
         assertTrue(restored.advancedDuringRestore());
+        assertEquals(clock.millis(), restored.state().activatedAtMillis());
+        assertEquals(Instant.parse("2026-08-09T08:00:00Z").toEpochMilli(),
+                restored.state().weeklyBoundaryMillis());
         assertTrue(restored.state().transitionAtMillis() > clock.millis());
 
         RotationManager secondRestart = manager(new WarzoneStateStore(
