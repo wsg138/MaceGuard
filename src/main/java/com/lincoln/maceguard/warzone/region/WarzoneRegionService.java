@@ -15,14 +15,8 @@ import java.util.Objects;
 import java.util.logging.Logger;
 
 public final class WarzoneRegionService {
-    private WarzoneConfig.Region settings;
     private final Logger logger;
-    private World cachedWorld;
-    private ProtectedRegion outer;
-    private final Map<String, ProtectedRegion> exclusions = new LinkedHashMap<>();
-    private final Map<String, String> exclusionStatuses = new LinkedHashMap<>();
-    private String outerStatus = "not checked";
-    private String resolutionStatus = "not checked";
+    private volatile ResolvedState state;
 
     public WarzoneRegionService(WarzoneConfig.Region settings) {
         this(settings, null);
@@ -30,63 +24,66 @@ public final class WarzoneRegionService {
 
     public WarzoneRegionService(WarzoneConfig.Region settings, Logger logger) {
         this.logger = logger;
-        apply(settings);
-    }
-
-    public void apply(WarzoneConfig.Region settings) {
-        this.settings = settings;
+        this.state = unchecked(settings);
         refresh();
     }
 
-    public boolean refresh() {
+    public synchronized void apply(WarzoneConfig.Region settings) {
+        ResolvedState previous = state;
+        publish(resolve(settings), previous.resolutionStatus());
+    }
+
+    public synchronized boolean refresh() {
+        ResolvedState previous = state;
+        publish(resolve(previous.settings()), previous.resolutionStatus());
+        return state.fullyResolved();
+    }
+
+    private ResolvedState resolve(WarzoneConfig.Region settings) {
         World world = Bukkit.getWorld(settings.world());
-        ProtectedRegion resolvedOuter = null;
-        Map<String, ProtectedRegion> resolvedExclusions = new LinkedHashMap<>();
-        Map<String, String> nextExclusionStatuses = new LinkedHashMap<>();
-        String nextOuterStatus;
+        ProtectedRegion outer = null;
+        Map<String, ProtectedRegion> exclusions = new LinkedHashMap<>();
+        Map<String, String> exclusionStatuses = new LinkedHashMap<>();
+        String outerStatus;
 
         if (world == null) {
-            nextOuterStatus = "world not loaded";
+            outerStatus = "world not loaded";
             for (String id : settings.excludedRegionIds())
-                nextExclusionStatuses.put(id, "world not loaded");
+                exclusionStatuses.put(id, "world not loaded");
         } else {
-            RegionManager manager = WorldGuard.getInstance().getPlatform().getRegionContainer()
-                    .get(BukkitAdapter.adapt(world));
+            RegionManager manager = WorldGuard.getInstance().getPlatform()
+                    .getRegionContainer().get(BukkitAdapter.adapt(world));
             if (manager == null) {
-                nextOuterStatus = "WorldGuard region manager unavailable";
+                outerStatus = "WorldGuard region manager unavailable";
                 for (String id : settings.excludedRegionIds())
-                    nextExclusionStatuses.put(id, "WorldGuard region manager unavailable");
+                    exclusionStatuses.put(id, "WorldGuard region manager unavailable");
             } else {
-                resolvedOuter = manager.getRegion(settings.id());
-                nextOuterStatus = resolvedOuter == null ? "region not found" : "resolved";
+                outer = manager.getRegion(settings.id());
+                outerStatus = outer == null ? "region not found" : "resolved";
                 for (String id : settings.excludedRegionIds()) {
                     ProtectedRegion excluded = manager.getRegion(id);
-                    if (excluded == null) nextExclusionStatuses.put(id, "region not found");
-                    else {
-                        resolvedExclusions.put(id, excluded);
-                        nextExclusionStatuses.put(id, "resolved");
+                    if (excluded == null) {
+                        exclusionStatuses.put(id, "region not found");
+                    } else {
+                        exclusions.put(id, excluded);
+                        exclusionStatuses.put(id, "resolved");
                     }
                 }
             }
         }
 
-        cachedWorld = world;
-        outer = resolvedOuter;
-        exclusions.clear();
-        exclusions.putAll(resolvedExclusions);
-        exclusionStatuses.clear();
-        exclusionStatuses.putAll(nextExclusionStatuses);
-        outerStatus = nextOuterStatus;
-        String nextStatus = fullyResolved(nextOuterStatus, nextExclusionStatuses)
+        boolean fullyResolved = "resolved".equals(outerStatus)
+                && exclusionStatuses.values().stream().allMatch("resolved"::equals);
+        String resolutionStatus = fullyResolved
                 ? "resolved" : "unresolved; effective scope disabled";
-        reportStatusChange(nextStatus);
-        resolutionStatus = nextStatus;
-        return fullyResolved();
+        return new ResolvedState(settings, world, outer, Map.copyOf(exclusions),
+                Map.copyOf(exclusionStatuses), outerStatus, resolutionStatus,
+                fullyResolved);
     }
 
-    private boolean fullyResolved(String candidateOuter, Map<String, String> candidateExclusions) {
-        return "resolved".equals(candidateOuter)
-                && candidateExclusions.values().stream().allMatch("resolved"::equals);
+    private void publish(ResolvedState next, String previousStatus) {
+        reportStatusChange(previousStatus, next.resolutionStatus());
+        state = next;
     }
 
     /**
@@ -98,57 +95,87 @@ public final class WarzoneRegionService {
     }
 
     public boolean containsResolved(Location location) {
-        boolean configuredWorld = inConfiguredWorld(location);
+        ResolvedState live = state;
+        boolean configuredWorld = inConfiguredWorld(location, live);
         int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
-        boolean outerResolved = outer != null;
-        boolean exclusionsResolved = settings.excludedRegionIds().stream().allMatch(exclusions::containsKey);
-        boolean insideOuter = outerResolved && outer.contains(x, y, z);
-        boolean insideExcluded = exclusions.values().stream()
+        boolean outerResolved = live.outer() != null;
+        boolean exclusionsResolved = live.fullyResolved() && outerResolved;
+        boolean insideOuter = outerResolved && live.outer().contains(x, y, z);
+        boolean insideExcluded = live.exclusions().values().stream()
                 .anyMatch(excluded -> excluded.contains(x, y, z));
-        return EffectiveScopeDecision.contains(configuredWorld, outerResolved, exclusionsResolved,
-                insideOuter, insideExcluded);
+        return EffectiveScopeDecision.contains(configuredWorld, outerResolved,
+                exclusionsResolved, insideOuter, insideExcluded);
     }
 
     public boolean insideOuterResolved(Location location) {
-        return inConfiguredWorld(location) && outer != null
-                && outer.contains(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        ResolvedState live = state;
+        return inConfiguredWorld(location, live) && live.outer() != null
+                && live.outer().contains(location.getBlockX(), location.getBlockY(),
+                location.getBlockZ());
     }
 
     public String exclusionAt(Location location) {
-        if (!inConfiguredWorld(location)) return null;
-        for (Map.Entry<String, ProtectedRegion> entry : exclusions.entrySet())
-            if (entry.getValue().contains(location.getBlockX(), location.getBlockY(), location.getBlockZ()))
-                return entry.getKey();
+        ResolvedState live = state;
+        if (!inConfiguredWorld(location, live)) return null;
+        for (Map.Entry<String, ProtectedRegion> entry : live.exclusions().entrySet()) {
+            if (entry.getValue().contains(location.getBlockX(), location.getBlockY(),
+                    location.getBlockZ())) return entry.getKey();
+        }
         return null;
     }
 
     public boolean inConfiguredWorld(Location location) {
-        World locationWorld = location.getWorld();
-        if (locationWorld == null) return false;
-        if (cachedWorld != null) return locationWorld.getUID().equals(cachedWorld.getUID());
-        return locationWorld.getName().equals(settings.world());
+        return inConfiguredWorld(location, state);
     }
 
-    private void reportStatusChange(String nextStatus) {
-        if (logger == null || Objects.equals(nextStatus, resolutionStatus)) return;
+    private boolean inConfiguredWorld(Location location, ResolvedState live) {
+        World locationWorld = location.getWorld();
+        if (locationWorld == null) return false;
+        if (live.world() != null)
+            return locationWorld.getUID().equals(live.world().getUID());
+        return locationWorld.getName().equals(live.settings().world());
+    }
+
+    private void reportStatusChange(String previousStatus, String nextStatus) {
+        if (logger == null || Objects.equals(nextStatus, previousStatus)) return;
         if ("resolved".equals(nextStatus)) {
-            if (!"not checked".equals(resolutionStatus))
+            if (!"not checked".equals(previousStatus))
                 logger.info("Warzone effective scope is resolved again.");
         } else {
-            logger.warning("Warzone effective scope is unresolved; restrictions and positive behavior are disabled "
-                    + "rather than broadened beyond WorldGuard geometry.");
+            logger.warning("Warzone effective scope is unresolved; restrictions and positive "
+                    + "behavior are disabled rather than broadened beyond WorldGuard geometry.");
         }
     }
 
-    public boolean worldLoaded() { return cachedWorld != null; }
-    public boolean regionResolved() { return outer != null; }
-    public boolean fullyResolved() {
-        return outer != null && settings.excludedRegionIds().stream().allMatch(exclusions::containsKey);
+    public boolean worldLoaded() { return state.world() != null; }
+    public boolean regionResolved() { return state.outer() != null; }
+    public boolean fullyResolved() { return state.fullyResolved(); }
+    public String resolutionStatus() { return state.resolutionStatus(); }
+    public String outerResolutionStatus() { return state.outerStatus(); }
+    public Map<String, String> exclusionResolutionStatuses() {
+        return state.exclusionStatuses();
     }
-    public String resolutionStatus() { return resolutionStatus; }
-    public String outerResolutionStatus() { return outerStatus; }
-    public Map<String, String> exclusionResolutionStatuses() { return Map.copyOf(exclusionStatuses); }
-    public String worldName() { return settings.world(); }
-    public String regionId() { return settings.id(); }
-    public java.util.List<String> excludedRegionIds() { return settings.excludedRegionIds(); }
+    public String worldName() { return state.settings().world(); }
+    public String regionId() { return state.settings().id(); }
+    public java.util.List<String> excludedRegionIds() {
+        return state.settings().excludedRegionIds();
+    }
+
+    private static ResolvedState unchecked(WarzoneConfig.Region settings) {
+        Map<String, String> statuses = new LinkedHashMap<>();
+        for (String id : settings.excludedRegionIds()) statuses.put(id, "not checked");
+        return new ResolvedState(settings, null, null, Map.of(), Map.copyOf(statuses),
+                "not checked", "not checked", false);
+    }
+
+    private record ResolvedState(
+            WarzoneConfig.Region settings,
+            World world,
+            ProtectedRegion outer,
+            Map<String, ProtectedRegion> exclusions,
+            Map<String, String> exclusionStatuses,
+            String outerStatus,
+            String resolutionStatus,
+            boolean fullyResolved
+    ) { }
 }
