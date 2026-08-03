@@ -10,6 +10,7 @@ import com.lincoln.maceguard.end.EndRestrictionListener;
 import com.lincoln.maceguard.explosive.ExplosiveControlListener;
 import com.lincoln.maceguard.mace.MaceDurabilityListener;
 import com.lincoln.maceguard.policy.BlockPolicyListener;
+import com.lincoln.maceguard.policy.BlockPolicyResolver;
 import com.lincoln.maceguard.reset.ResetCoordinator;
 import com.lincoln.maceguard.reset.SparseOriginalListener;
 import com.lincoln.maceguard.storage.ArmStateRepository;
@@ -97,6 +98,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         });
         Path data = getDataFolder().toPath();
         WorldGuardQueryService queries = new WorldGuardQueryService(flags);
+        BlockPolicyResolver policyResolver = new BlockPolicyResolver(settings, queries, getLogger());
         WorldGuardRegionService regions = new WorldGuardRegionService();
         ResetCoordinator resets = new ResetCoordinator(this, settings, flags, regions,
                 new SnapshotRepository(data.resolve("snapshots-v1")),
@@ -112,8 +114,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
                         temporary.discardMatching(entry ->
                                 entry.worldUuid().equals(world.getUID().toString())
                                         && region.contains(entry.x(), entry.y(), entry.z()))));
-        WarzoneModule warzone = new WarzoneModule(this, temporary, io);
-        runtime = new PluginRuntime(settings, queries, resets, temporary, warzone, io);
+        WarzoneModule warzone = new WarzoneModule(this, temporary, io, policyResolver);
+        runtime = new PluginRuntime(settings, queries, policyResolver, resets, temporary,
+                warzone, io);
         warzone.start();
         getServer().getScheduler().runTaskTimer(this,
                 resets::tickAutomaticResets, 1200L, 1200L);
@@ -122,9 +125,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(durabilityListener, this);
         getServer().getPluginManager().registerEvents(temporary, this);
         getServer().getPluginManager().registerEvents(
-                new BlockPolicyListener(settings, queries), this);
+                new BlockPolicyListener(policyResolver), this);
         getServer().getPluginManager().registerEvents(
-                new CobwebListener(queries, warzone, temporary, settings), this);
+                new CobwebListener(queries, warzone, temporary, settings, policyResolver), this);
         getServer().getPluginManager().registerEvents(
                 new SparseOriginalListener(resets), this);
         getServer().getPluginManager().registerEvents(
