@@ -56,7 +56,9 @@ rotation:
       unrestricted-mace-chance-percent: 90
 ```
 
-This makes Elytra uncommon and leaves Maces unrestricted in most Elytra weeks. Setting Elytra `enabled: false` overrides the inclusion percentage.
+`rotation.special-rules` supports only `elytra-no-rockets`. An inclusion chance from 1 through 99 requires at least one feasible Elytra combination and at least one feasible non-Elytra combination whose size has a configured count weight. Any positive unrestricted-Mace chance also requires at least one feasible Elytra combination without a modifier that restricts the `MACE` target. Validation rejects an impossible branch rather than silently changing its effective probability.
+
+This makes Elytra uncommon and leaves Maces unrestricted in most Elytra weeks. Setting Elytra `enabled: false` overrides the inclusion percentage and still requires a feasible non-Elytra branch.
 
 ## Disabling outcomes safely
 
@@ -172,42 +174,55 @@ The Warzone schema migration never captures, arms, or schedules any reset profil
 4. Disable one currently persisted modifier, reload, and confirm it rerolls without moving the established boundary.
 5. Set count weights to force one, two, and three outcomes in separate staging runs and confirm each count is selected deterministically.
 6. Confirm a disabled outcome never appears in random rolls, tab completion, or `/warzone set`.
-7. Confirm the Mace, Pearl, and Wind Charge conflict groups never produce two modes from the same group.
-8. Set Elytra inclusion to `0`, `100`, and the default `8`; confirm the expected deterministic behavior.
-9. Set Elytra unrestricted-Mace chance to `100` and confirm no Elytra week contains either Mace restriction; set it to `0` and confirm no extra exclusion is applied.
+7. Confirm the Mace, Pearl, and Wind Charge conflict groups never produce two incompatible modes from the same group.
+8. Set Elytra inclusion to `0`, `1`, `8`, `50`, `99`, and `100`; confirm valid configurations preserve those branches and impossible Elytra or non-Elytra branches are rejected by `/warzone validate`.
+9. Set Elytra unrestricted-Mace chance to `0`, `1`, `90`, and `100`; confirm every positive value is rejected when no Mace-unrestricted Elytra combination exists.
+10. Add a custom modifier ID that restricts `MACE` and confirm the unrestricted-Mace rule recognizes it by target rather than by bundled ID.
+11. Add a `rotation.special-rules` entry for another known modifier and confirm validation rejects it as unsupported.
+12. Test fresh startup, invalid-state restoration, `force`, and a natural weekly transition after every valid branch configuration.
 
 ### Runtime restrictions
 
-10. Test `mace-disabled` and `mace-cooldown` separately. Cancelled or zero-damage attacks must not start a cooldown.
-11. Test all three Ender Pearl modes. A disabled launch must be cancelled without consumption; successful cooldown launches must start the configured five- or ten-second cooldown; cancelled launches must not start one.
-12. Test all three Wind Charge modes with the same successful/cancelled-launch checks.
-13. Confirm `no-lunge` blocks only correlated Lunge velocity and does not block holding, swapping, normal attacks, throwing, or unrelated velocity.
-14. Confirm `elytra-no-rockets` allows gliding, blocks actual boosts, does not block moving or holding rockets, and does not consume a rejected rocket.
-15. Confirm the bypass permission remains unrestricted for every new mode.
+13. Test `mace-disabled` and `mace-cooldown` separately. Cancelled or zero-damage attacks must not start a cooldown.
+14. Test all three Ender Pearl modes from main hand and offhand. A disabled launch must be cancelled without consumption; successful cooldown launches must start the configured five- or ten-second cooldown exactly once; cancellation at either projectile event must not start one.
+15. Test all three Wind Charge modes from main hand and offhand with the same successful/cancelled-launch checks.
+16. During `wind-charge-disabled`, fire Wind Charges from dispensers inside the effective scope, outside pointing inward, and inside pointing outward. The dispense or finalized projectile launch must be cancelled. During either cooldown outcome, dispensers must remain allowed because no player owns the cooldown.
+17. Confirm `no-lunge` blocks only correlated Lunge velocity and does not block holding, swapping, normal attacks, throwing, or unrelated velocity.
+18. Confirm `elytra-no-rockets` allows gliding, blocks actual boosts, does not block moving or holding rockets, and does not consume a rejected rocket.
+19. Confirm the bypass permission remains unrestricted for every player-driven mode.
+20. Repeat player projectile checks from a Geyser/Bedrock client.
 
 ### Scope and exclusions
 
-16. Enter `spawn` and `market` from every warzone edge and confirm all restrictions and cooldown overlays disappear.
-17. Remove or rename the outer region, then each exclusion in turn; verify attacks, projectiles, Lunge, Elytra, rockets, cooldowns, overlays, and warzone cobweb behavior remain unrestricted everywhere.
-18. Recreate each region and confirm exact membership returns without restarting.
-19. Verify the human-readable status placeholders return `Inactive` whenever required scope geometry is unresolved.
-20. Verify machine-readable booleans return `false` and cooldown seconds return `0` while scope is inactive.
+21. Enter `spawn` and `market` from every warzone edge and confirm all restrictions and cooldown overlays disappear.
+22. Remove or rename the outer region, then each exclusion in turn; verify attacks, projectiles, Lunge, Elytra, rockets, cooldowns, overlays, dispenser Wind Charges, and warzone cobweb behavior remain unrestricted everywhere.
+23. Recreate each region and confirm exact membership returns without restarting.
+24. Verify the human-readable status placeholders return `Inactive` whenever required scope geometry is unresolved.
+25. Verify machine-readable booleans return `false` and cooldown seconds return `0` while scope is inactive.
+
+### Migration
+
+26. Migrate the default schema-4 file and confirm the schema-5 result validates.
+27. Migrate customized built-in modifiers and confirm their compatible fields and explicit enabled/weight values are preserved.
+28. Migrate a valid custom modifier and custom conflict group; confirm the custom modifier receives only missing `enabled: true` and `weight: 10` defaults.
+29. Make the custom modifier invalid and confirm migration leaves the original active file unchanged, removes the temporary output, and retains the backup and error report.
+30. Confirm an existing weekly state and transition boundary survive migration or a required invalid-ID reroll without schedule drift.
 
 ### Placeholders and diagnostics
 
-21. Exercise every new status placeholder in allowed, disabled, cooldown, inactive, and Elytra-active states.
-22. Confirm `%warzone_restrictions%` lists Pearl and Wind Charge restrictions.
-23. Confirm `/warzone modifiers` reports each enabled state, weight, conflict group, count weights, and Elytra percentages.
-24. Confirm `/warzone items` matches actual runtime enforcement.
+31. Exercise every new status placeholder in allowed, disabled, cooldown, inactive, and Elytra-active states.
+32. Confirm `%warzone_restrictions%` lists Pearl and Wind Charge restrictions.
+33. Confirm `/warzone modifiers` reports each enabled state, weight, conflict group, count weights, and Elytra percentages.
+34. Confirm `/warzone items` matches actual runtime enforcement.
 
 ### Existing block and reset safety
 
-25. Confirm `cobweb-box` works only when both `maceguard-block-policy cobweb-box` and `maceguard-cobwebs allow` are effective.
-26. Deliberately invalidate the main schema and verify cobweb placement is not cancelled or tracked by MaceGuard and no TTL is written.
-27. Test block placement/breaking, water fill/empty, boundary flow, ice melt, infinite sources, pistons, and dispensers.
-28. Capture and reset bounded profiles with loaded and deliberately unloaded chunks; unloaded chunks must be refused, never force-loaded.
-29. Put a normal solid structure block at a filtered coordinate and confirm preflight skips/reports it and reset does not overwrite it.
-30. Interrupt a staged restore and confirm the journal locks further destructive work for administrator review.
+35. Confirm `cobweb-box` works only when both `maceguard-block-policy cobweb-box` and `maceguard-cobwebs allow` are effective.
+36. Deliberately invalidate the main schema and verify cobweb placement is not cancelled or tracked by MaceGuard and no TTL is written.
+37. Test block placement/breaking, water fill/empty, boundary flow, ice melt, infinite sources, pistons, and dispensers.
+38. Capture and reset bounded profiles with loaded and deliberately unloaded chunks; unloaded chunks must be refused, never force-loaded.
+39. Put a normal solid structure block at a filtered coordinate and confirm preflight skips/reports it and reset does not overwrite it.
+40. Interrupt a staged restore and confirm the journal locks further destructive work for administrator review.
 
 ## Emergency operator mitigation
 
