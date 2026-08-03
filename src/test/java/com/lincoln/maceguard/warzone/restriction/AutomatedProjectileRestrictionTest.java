@@ -21,20 +21,23 @@ class AutomatedProjectileRestrictionTest {
                         RestrictionMode.DISABLED, null));
 
         assertTrue(AutomatedProjectileRestriction.blocksWindCharge(
-                disabled, true, false));
+                disabled, true, false), "source inside, actual spawn outside");
         assertTrue(AutomatedProjectileRestriction.blocksWindCharge(
-                disabled, false, true));
+                disabled, false, true), "source outside, actual spawn inside");
         assertTrue(AutomatedProjectileRestriction.blocksWindCharge(
                 disabled, true, true));
     }
 
-    @Test void unresolvedOrOutsideScopeDoesNotBroadenTheRestriction() {
+    @Test void bothLocationsOutsideOrInsideAnExclusionRemainAllowed() {
         WarzoneConfig.ActiveSet disabled = active(
                 new WarzoneConfig.Restriction(WIND_CHARGE,
                         RestrictionMode.DISABLED, null));
 
         assertFalse(AutomatedProjectileRestriction.blocksWindCharge(
                 disabled, false, false));
+        assertFalse(AutomatedProjectileRestriction.blocksWindCharge(
+                disabled, false, false),
+                "spawn and market exclusions are outside the effective scope");
     }
 
     @Test void automatedSourcesIgnorePlayerCooldownModes() {
@@ -49,6 +52,16 @@ class AutomatedProjectileRestrictionTest {
                 cooldown, true, true));
         assertFalse(AutomatedProjectileRestriction.blocksWindCharge(
                 unrestricted, true, true));
+        assertFalse(AutomatedProjectileRestriction.windChargeDisabled(cooldown));
+    }
+
+    @Test void onlyNullShooterDefaultSpawnsUsePendingCorrelation() {
+        assertTrue(AutomatedProjectileRestriction.canCorrelatePending(true, true),
+                "vanilla dispenser source is unavailable during launch");
+        assertFalse(AutomatedProjectileRestriction.canCorrelatePending(false, true),
+                "player and plugin-owned projectiles must not consume pending dispenser state");
+        assertFalse(AutomatedProjectileRestriction.canCorrelatePending(true, false),
+                "custom spawn reasons must not consume pending dispenser state");
     }
 
     private WarzoneConfig.ActiveSet active(WarzoneConfig.Restriction restriction) {
