@@ -98,12 +98,15 @@ public final class WarzoneRegionService {
     }
 
     public boolean containsResolved(Location location) {
-        if (!inConfiguredWorld(location) || !fullyResolved()) return false;
+        boolean configuredWorld = inConfiguredWorld(location);
         int x = location.getBlockX(), y = location.getBlockY(), z = location.getBlockZ();
-        if (!outer.contains(x, y, z)) return false;
-        for (ProtectedRegion excluded : exclusions.values())
-            if (excluded.contains(x, y, z)) return false;
-        return true;
+        boolean outerResolved = outer != null;
+        boolean exclusionsResolved = settings.excludedRegionIds().stream().allMatch(exclusions::containsKey);
+        boolean insideOuter = outerResolved && outer.contains(x, y, z);
+        boolean insideExcluded = exclusions.values().stream()
+                .anyMatch(excluded -> excluded.contains(x, y, z));
+        return EffectiveScopeDecision.contains(configuredWorld, outerResolved, exclusionsResolved,
+                insideOuter, insideExcluded);
     }
 
     public boolean insideOuterResolved(Location location) {
