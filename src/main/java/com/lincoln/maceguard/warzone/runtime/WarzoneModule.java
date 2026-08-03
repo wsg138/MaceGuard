@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.runtime;
 
+import com.lincoln.maceguard.policy.BlockPolicyResolver;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.command.WarzoneCommand;
 import com.lincoln.maceguard.warzone.config.ValidationResult;
@@ -11,7 +12,6 @@ import com.lincoln.maceguard.warzone.integration.PlaceholderHookFactory;
 import com.lincoln.maceguard.warzone.integration.WarzonePlaceholderHook;
 import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -32,17 +32,30 @@ public final class WarzoneModule {
     private final Path messagesFile;
     private final WarzoneStateStore stateStore;
     private final Clock clock;
+    private final BlockPolicyResolver blockPolicies;
     private volatile WarzoneRuntime runtime;
     private WarzonePlaceholderHook placeholder;
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC());
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), null);
     }
 
-    WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io, Clock clock) {
+    public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                         BlockPolicyResolver blockPolicies) {
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies);
+    }
+
+    WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                  Clock clock) {
+        this(plugin, temporaryBlocks, io, clock, null);
+    }
+
+    WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                  Clock clock, BlockPolicyResolver blockPolicies) {
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
         this.clock = clock;
+        this.blockPolicies = blockPolicies;
         this.configFile = plugin.getDataFolder().toPath().resolve("warzone.yml");
         this.messagesFile = plugin.getDataFolder().toPath().resolve("warzone-messages.yml");
         this.stateStore = new WarzoneStateStore(plugin.getDataFolder().toPath().resolve("state")
@@ -63,11 +76,10 @@ public final class WarzoneModule {
                 runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.config(),
                         prepared.messages(), stateStore, clock);
                 runtime.start();
-                if (!runtime.region().fullyResolved())
-                    plugin.getLogger().warning("Warzone effective scope is not currently resolved.");
                 plugin.getLogger().info("Integrated weekly warzone module started with "
-                        + prepared.config().modifiers().size() + " modifiers; active set is "
-                        + runtime.rotations().active().modifierIds() + ".");
+                        + prepared.config().modifiers().size() + " modifiers; selected set is "
+                        + runtime.rotations().active().modifierIds() + "; gameplay scope is "
+                        + (runtime.gameplayScopeActive() ? "active" : "inactive") + ".");
             } else {
                 plugin.getLogger().severe("Integrated warzone module is inactive; "
                         + "the rest of MaceGuard remains enabled.");
@@ -132,9 +144,9 @@ public final class WarzoneModule {
     public void validate(CommandSender sender) {
         Prepared prepared = validateFiles(true);
         log(prepared);
-        if (prepared.valid()) send(sender, "<green>Warzone configuration is valid ("
+        if (prepared.valid()) send(sender, "<green>Warzone configuration and effective scope are valid ("
                 + prepared.config().modifiers().size() + " modifiers).");
-        else send(sender, "<red>Warzone configuration is invalid. Check the console for path-specific errors.");
+        else send(sender, "<red>Warzone validation failed. Check the console for the exact unresolved world, region, or configuration path.");
     }
 
     public Prepared validateFiles(boolean validateResolvedRegion) {
@@ -145,15 +157,22 @@ public final class WarzoneModule {
         errors.addAll(messages.errors());
         List<String> warnings = new ArrayList<>(config.warnings());
         warnings.addAll(messages.warnings());
-        if (validateResolvedRegion && config.valid()
-                && Bukkit.getWorld(config.value().region().world()) != null) {
+        if (validateResolvedRegion && config.valid()) {
             var region = new com.lincoln.maceguard.warzone.region.WarzoneRegionService(
                     config.value().region());
-            if (!region.fullyResolved())
-                errors.add("region.id or a required excluded-region-id is unresolved in loaded world '"
-                        + config.value().region().world() + "'.");
+            if (!region.worldLoaded())
+                errors.add("region.world '" + region.worldName() + "' is not loaded.");
+            if (!region.regionResolved())
+                errors.add("region.id '" + region.regionId() + "' is unresolved: "
+                        + region.outerResolutionStatus() + ".");
+            region.exclusionResolutionStatuses().forEach((id, status) -> {
+                if (!"resolved".equals(status))
+                    errors.add("required excluded region '" + id + "' is unresolved: "
+                            + status + ".");
+            });
         }
-        return new Prepared(config.value(), messages.value(), List.copyOf(errors), List.copyOf(warnings));
+        return new Prepared(config.value(), messages.value(), List.copyOf(errors),
+                List.copyOf(warnings));
     }
 
     public WarzoneRuntime.CobwebDecision cobwebDecision(Player player, Location location) {
@@ -162,8 +181,7 @@ public final class WarzoneModule {
     }
 
     public boolean appliesAt(Location location) {
-        return runtime != null && runtime.config().enabled()
-                && runtime.region().contains(location);
+        return runtime != null && runtime.appliesAt(location);
     }
 
     public void successfulCobweb(Player player, RestrictionDecision decision) {
@@ -183,6 +201,7 @@ public final class WarzoneModule {
     public boolean enabled() { return runtime != null && runtime.config().enabled(); }
     public boolean placeholderActive() { return placeholder != null && placeholder.active(); }
     public int temporaryCobwebCount() { return temporaryBlocks.count(); }
+    public BlockPolicyResolver blockPolicies() { return blockPolicies; }
 
     public void send(CommandSender sender, String template) {
         if (runtime != null) runtime.messages().send(sender, template);
