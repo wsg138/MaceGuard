@@ -21,6 +21,17 @@ class AutomatedProjectileLaunchTrackerTest {
         assertEquals(attempt, match.orElseThrow().attemptId());
     }
 
+    @Test void sourceScopeSurvivesCorrelation() {
+        AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
+        UUID world = UUID.randomUUID();
+        tracker.record(world, 10, 64, 10, 110, true,
+                vec(1, 0, 0), 2_000L);
+
+        assertTrue(tracker.match(world, 110,
+                vec(11.2, 64.5, 10.5), vec(1, 0, 0), 1_000L)
+                .orElseThrow().sourceInside());
+    }
+
     @Test void finalModifiedVelocityIsUsedWithoutAssumingItChangedSpawnPosition() {
         AutomatedProjectileLaunchTracker tracker = new AutomatedProjectileLaunchTracker();
         UUID world = UUID.randomUUID();
