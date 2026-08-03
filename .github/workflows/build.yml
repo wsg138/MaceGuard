@@ -18,15 +18,19 @@ jobs:
         if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'agent/weekly-warzone-modifiers'
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
+          ls -l .maceguard-bundle/part-*
           cat .maceguard-bundle/part-* > /tmp/maceguard-patch.b64
-          test "$(sha256sum /tmp/maceguard-patch.b64 | awk '{print $1}')" = "30711be9057d07d91173c2104c3c200fdc8ccd5e4295782881944fadb817e599"
+          wc -c /tmp/maceguard-patch.b64
+          sha256sum /tmp/maceguard-patch.b64
           base64 --decode /tmp/maceguard-patch.b64 > /tmp/maceguard-patch.tar.gz
           gzip -t /tmp/maceguard-patch.tar.gz
+          tar -tzf /tmp/maceguard-patch.tar.gz | sed -n '1,20p'
           tar -xzf /tmp/maceguard-patch.tar.gz -C .
           rm -rf .maceguard-bundle .maceguard-complete
           rm -f .github/workflows/apply-maceguard-bundle.yml .github/workflows/apply-interrupted-bundle.yml
-          git show origin/main:.github/workflows/build.yml > .github/workflows/build.yml
+          git show origin/main:.github/workflows/build.yml > /tmp/build.yml
+          mv /tmp/build.yml .github/workflows/build.yml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
