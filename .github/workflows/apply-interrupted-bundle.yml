@@ -1,20 +1,22 @@
-name: Apply interrupted implementation bundle
+name: Apply verified implementation bundle
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [agent/weekly-warzone-modifiers]
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: ${{ !contains(github.event.head_commit.message, '[bundle-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: agent/weekly-warzone-modifiers
           fetch-depth: 0
-      - name: Reconstruct and apply bundle
+      - name: Verify and apply recovered implementation
         shell: bash
         run: |
           set -euo pipefail
