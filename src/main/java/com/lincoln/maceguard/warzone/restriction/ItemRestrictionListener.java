@@ -9,7 +9,9 @@ import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -26,6 +28,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.projectiles.BlockProjectileSource;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
@@ -99,6 +102,17 @@ public final class ItemRestrictionListener implements Listener {
             launch.add(velocity.clone().normalize().multiply(0.75));
         if (!AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
                 region.contains(source), region.contains(launch))) return;
+        event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAutomatedWindChargeLaunch(ProjectileLaunchEvent event) {
+        Projectile projectile = event.getEntity();
+        if (projectile.getType() != EntityType.WIND_CHARGE
+                || !(projectile.getShooter() instanceof BlockProjectileSource source)) return;
+        Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        if (!AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
+                region.contains(sourceLocation), region.contains(projectile.getLocation()))) return;
         event.setCancelled(true);
     }
 
