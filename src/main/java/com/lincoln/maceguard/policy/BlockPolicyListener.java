@@ -22,7 +22,10 @@ import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 
 public final class BlockPolicyListener implements Listener {
     private final MaceGuardConfig config;
@@ -109,6 +112,7 @@ public final class BlockPolicyListener implements Listener {
     }
 
     public Resolution resolve(Location location) {
+        if (!config.enabled() || !config.validSchema()) return Resolution.none();
         WorldGuardQueryService.BlockPolicyReference reference =
                 worldGuard.effectiveBlockPolicyReference(location);
         if (reference == null || reference.policyName().isBlank()) return Resolution.none();
@@ -119,15 +123,23 @@ public final class BlockPolicyListener implements Listener {
 
     private boolean pistonTouchesPolicy(Block piston, BlockFace direction,
                                          Iterable<? extends Block> movedBlocks) {
-        if (blocksAutomation(piston.getLocation())
-                || blocksAutomation(piston.getRelative(direction).getLocation())) return true;
+        Map<BlockKey, Boolean> cache = new HashMap<>();
+        if (blocksAutomation(piston.getLocation(), cache)
+                || blocksAutomation(piston.getRelative(direction).getLocation(), cache)) return true;
         BlockFace opposite = direction.getOppositeFace();
         for (Block moved : movedBlocks) {
-            if (blocksAutomation(moved.getLocation())
-                    || blocksAutomation(moved.getRelative(direction).getLocation())
-                    || blocksAutomation(moved.getRelative(opposite).getLocation())) return true;
+            if (blocksAutomation(moved.getLocation(), cache)
+                    || blocksAutomation(moved.getRelative(direction).getLocation(), cache)
+                    || blocksAutomation(moved.getRelative(opposite).getLocation(), cache)) return true;
         }
         return false;
+    }
+
+    private boolean blocksAutomation(Location location, Map<BlockKey, Boolean> cache) {
+        UUID worldId = location.getWorld() == null ? null : location.getWorld().getUID();
+        BlockKey key = new BlockKey(worldId, location.getBlockX(),
+                location.getBlockY(), location.getBlockZ());
+        return cache.computeIfAbsent(key, ignored -> automationDenied(resolve(location)));
     }
 
     private boolean blocksAutomation(Location location) {
@@ -203,6 +215,8 @@ public final class BlockPolicyListener implements Listener {
         if (bucket == Material.LAVA_BUCKET) return Material.LAVA;
         return bucket;
     }
+
+    private record BlockKey(UUID worldId, int x, int y, int z) { }
 
     public record Resolution(String scopeId, String name, BlockPolicy policy, boolean referenced) {
         public static Resolution none() { return new Resolution("", "", null, false); }
