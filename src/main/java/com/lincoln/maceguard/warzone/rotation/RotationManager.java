@@ -131,8 +131,9 @@ public final class RotationManager {
             ModifierSelector.SelectionResult selected = selector.select(
                     proposed, Set.copyOf(state.activeModifierIds()));
             active = selected.activeSet();
-            state = new RotationState(active.modifierIds(), clock.millis(), currentBoundary,
-                    proposedNextBoundary, Set.of(), state.selectionSequence() + 1);
+            state = new RotationState(active.modifierIds(), clock.millis(),
+                    state.weeklyBoundaryMillis(), state.transitionAtMillis(),
+                    Set.of(), state.selectionSequence() + 1);
             replaced = true;
         }
         store.update(state);
@@ -155,12 +156,13 @@ public final class RotationManager {
         long now = clock.millis();
         if (loaded.isPresent()) {
             RotationState candidate = loaded.get();
-            try {
-                WarzoneConfig.ActiveSet restored = selector.compose(
-                        config, candidate.activeModifierIds());
-                if (candidate.activatedAtMillis() > 0
-                        && candidate.transitionAtMillis() > candidate.activatedAtMillis()
-                        && candidate.weeklyBoundaryMillis() > 0) {
+            boolean validTiming = candidate.activatedAtMillis() > 0
+                    && candidate.transitionAtMillis() > candidate.activatedAtMillis()
+                    && candidate.weeklyBoundaryMillis() > 0;
+            if (validTiming) {
+                try {
+                    WarzoneConfig.ActiveSet restored = selector.compose(
+                            config, candidate.activeModifierIds());
                     state = candidate;
                     active = restored;
                     if (now >= state.transitionAtMillis()) {
@@ -168,9 +170,17 @@ public final class RotationManager {
                         advancedDuringRestore = true;
                     }
                     return;
+                } catch (IllegalArgumentException ignored) {
+                    if (now < candidate.transitionAtMillis()) {
+                        ModifierSelector.SelectionResult selected = selector.select(
+                                config, Set.copyOf(candidate.activeModifierIds()));
+                        active = selected.activeSet();
+                        state = new RotationState(active.modifierIds(), now,
+                                candidate.weeklyBoundaryMillis(), candidate.transitionAtMillis(),
+                                Set.of(), candidate.selectionSequence() + 1);
+                        return;
+                    }
                 }
-            } catch (IllegalArgumentException ignored) {
-                // Invalid or stale state is replaced with a fresh current-week selection.
             }
         }
         Instant current = clock.instant();
