@@ -78,6 +78,7 @@ public final class ConfigLoader {
         Map<String, BlockPolicy> result = new LinkedHashMap<>();
         if (root == null) return result;
         for (String name : root.getKeys(false)) {
+            int errorCountBeforePolicy = errors.size();
             String base = "block-policies." + name;
             ConfigurationSection section = root.getConfigurationSection(name);
             if (section == null) {
@@ -104,11 +105,13 @@ public final class ConfigLoader {
             boolean infinite = liquids != null
                     && liquids.getBoolean("block-infinite-water-sources", true);
             boolean nonPlayer = section.getBoolean("allow-non-player-sources", false);
-            if (place != null && breakRule != null && buckets != null && liquids != null)
+            if (errors.size() == errorCountBeforePolicy
+                    && place != null && breakRule != null && buckets != null && liquids != null) {
                 result.put(name.toLowerCase(Locale.ROOT),
                         new BlockPolicy(name.toLowerCase(Locale.ROOT), place, breakRule,
                                 new BlockPolicy.BucketRule(empty, fill),
                                 new BlockPolicy.LiquidRule(confine, infinite), nonPlayer));
+            }
         }
         return result;
     }
