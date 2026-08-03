@@ -1,9 +1,9 @@
 name: Export Codacy PR Issues
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/expanded-warzone-rotations
+      - main
 
 permissions:
   contents: read
