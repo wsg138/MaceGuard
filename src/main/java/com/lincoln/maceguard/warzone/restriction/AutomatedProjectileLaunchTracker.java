@@ -45,9 +45,8 @@ final class AutomatedProjectileLaunchTracker {
         double bestScore = Double.POSITIVE_INFINITY;
 
         for (Pending candidate : pending.values()) {
-            if (!candidate.worldId().equals(worldId)) continue;
-            long tickDelta = serverTick - candidate.serverTick();
-            if (tickDelta < 0 || tickDelta > 1) continue;
+            if (!candidate.worldId().equals(worldId)
+                    || candidate.serverTick() != serverTick) continue;
 
             Vec3 displacement = launchLocation.subtract(candidate.sourceCenter());
             double sourceDistanceSquared = displacement.lengthSquared();
@@ -80,12 +79,11 @@ final class AutomatedProjectileLaunchTracker {
         var iterator = pending.values().iterator();
         while (iterator.hasNext()) {
             Pending candidate = iterator.next();
-            long tickDelta = serverTick - candidate.serverTick();
             if (candidate.worldId().equals(worldId)
                     && candidate.blockX() == blockX
                     && candidate.blockY() == blockY
                     && candidate.blockZ() == blockZ
-                    && tickDelta >= 0 && tickDelta <= 1) {
+                    && candidate.serverTick() == serverTick) {
                 iterator.remove();
                 return Optional.of(candidate.match());
             }
@@ -98,7 +96,7 @@ final class AutomatedProjectileLaunchTracker {
     }
 
     void cleanup(long serverTick, long nowNanos) {
-        pending.values().removeIf(value -> serverTick - value.serverTick() > 1
+        pending.values().removeIf(value -> value.serverTick() != serverTick
                 || nowNanos >= value.deadlineNanos());
     }
 
