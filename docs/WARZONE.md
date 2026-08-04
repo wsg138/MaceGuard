@@ -183,7 +183,27 @@ Machine-readable values:
 %warzone_firework_boost_blocked%
 ```
 
-Boolean placeholders return `true` or `false`. Cooldown placeholders return `0` or the configured number of seconds. Existing generic placeholders remain backward compatible and `%warzone_restrictions%` includes all new restriction targets.
+Boolean placeholders return `true` or `false`. Cooldown placeholders return `0` or the configured number of seconds.
+
+The currently selected weekly modifiers are also available by ordered position:
+
+| Position | Display name | Internal ID | Configured description |
+| ---: | --- | --- | --- |
+| 1 | `%warzone_modifier_1%` | `%warzone_modifier_1_id%` | `%warzone_modifier_1_description%` |
+| 2 | `%warzone_modifier_2%` | `%warzone_modifier_2_id%` | `%warzone_modifier_2_description%` |
+| 3 | `%warzone_modifier_3%` | `%warzone_modifier_3_id%` | `%warzone_modifier_3_description%` |
+
+These placeholders follow the active weekly modifier list in its stored order and do not perform alphabetical sorting. Display names and descriptions use the plain-text form of the active runtime configuration; IDs are returned exactly as stored. A position beyond the current modifier count returns an empty string. The values continue to describe the selected week when gameplay scope is inactive, while all nine return an empty string if no active selection or Warzone runtime is available.
+
+Existing generic placeholders remain backward compatible, including:
+
+```text
+%warzone_current_modifiers%
+%warzone_current_modifier_ids%
+%warzone_description%
+```
+
+`%warzone_restrictions%` continues to include all restriction targets.
 
 ## Example weeks
 
