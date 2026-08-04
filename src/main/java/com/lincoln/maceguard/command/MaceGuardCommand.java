@@ -1,6 +1,7 @@
 package com.lincoln.maceguard.command;
 
 import com.lincoln.maceguard.MaceGuardPlugin;
+import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -29,10 +30,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
         }
         if (sub.equals("temporary")) {
             if (!sender.hasPermission("maceguard.admin")) return denied(sender);
-            sender.sendMessage("Temporary blocks: "
-                    + plugin.runtime().temporaryBlocks().count()
-                    + ", persistence="
-                    + plugin.runtime().temporaryBlocks().persistenceHealthy());
+            sendTemporaryStatus(sender, args);
             return true;
         }
         if (sub.equals("reload")) {
@@ -87,6 +85,40 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private void sendTemporaryStatus(CommandSender sender, String[] args) {
+        var temporary = plugin.runtime().temporaryBlocks();
+        long now = System.currentTimeMillis();
+        var diagnostics = temporary.diagnostics(now);
+        sender.sendMessage("tracked=" + diagnostics.tracked()
+                + " expired=" + diagnostics.expired()
+                + " pending-clear=" + diagnostics.pendingClear()
+                + " persistence="
+                + (diagnostics.persistenceHealthy() ? "healthy" : "failed")
+                + " capacity=" + diagnostics.capacityCurrent() + "/"
+                + diagnostics.capacityMaximum());
+        if (args.length <= 1 || !args[1].equalsIgnoreCase("debug")) return;
+
+        sender.sendMessage("temporary-removal-reasons=" + temporary.terminalReasonCounts());
+        for (TemporaryBlockService.ActiveDiagnostic entry
+                : temporary.activeDiagnostics(now, 10)) {
+            sender.sendMessage("temporary-active status=" + entry.status()
+                    + " world=" + entry.worldUuid() + " xyz=" + entry.x() + ","
+                    + entry.y() + "," + entry.z() + " expected="
+                    + entry.expectedBlockData() + " current=" + entry.currentBlockData()
+                    + " original=" + entry.originalBlockData() + " expires="
+                    + entry.expiresAt() + " pending-clear=" + entry.pendingClear());
+        }
+        for (TemporaryBlockService.TraceEvent entry : temporary.recentTrace(10)) {
+            sender.sendMessage("temporary-trace reason=" + entry.reason()
+                    + " world=" + entry.worldUuid() + " xyz=" + entry.x() + ","
+                    + entry.y() + "," + entry.z() + " expected="
+                    + entry.expectedBlockData() + " current=" + entry.currentBlockData()
+                    + " original=" + entry.originalBlockData() + " expires="
+                    + entry.expiresAt() + " pending-clear=" + entry.pendingClear()
+                    + " observed=" + entry.observedAt());
+        }
+    }
+
     private boolean here(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Players only.");
@@ -135,7 +167,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
     private void help(CommandSender sender) {
         sender.sendMessage("/maceguard here|status <region>|capture <region>|validate <region>|"
                 + "plan <region>|arm <region>|disarm <region>|schedule <region> <on|off>|"
-                + "reset <region> <token>|recover|temporary|reload");
+                + "reset <region> <token>|recover|temporary [debug]|reload");
     }
 
     @Override public List<String> onTabComplete(CommandSender sender, Command command,
@@ -144,6 +176,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
             return List.of("here", "status", "capture", "validate", "plan", "arm",
                     "disarm", "filler", "restore", "schedule", "reset", "recover",
                     "temporary", "reload");
+        if (args.length == 2 && args[0].equalsIgnoreCase("temporary")) return List.of("debug");
         if (args.length == 3 && (args[0].equalsIgnoreCase("filler")
                 || args[0].equalsIgnoreCase("restore")
                 || args[0].equalsIgnoreCase("schedule")))

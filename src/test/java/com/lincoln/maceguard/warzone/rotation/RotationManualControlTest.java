@@ -44,7 +44,7 @@ class RotationManualControlTest {
                 ZoneId.of("UTC"));
         WarzoneConfig base = ModifierSelectorTest.config(1, 1);
         WarzoneConfig single = new WarzoneConfig(base.version(), base.enabled(),
-                base.region(), base.schedule(), base.selection(), base.warningTimes(),
+                base.region(), base.schedule(), base.selection(), Map.of(), base.warningTimes(),
                 base.messages(), base.cobwebs(), base.targetPolicies(),
                 Map.of("cobwebs", base.modifiers().get("cobwebs")), Map.of());
         WarzoneStateStore store = new WarzoneStateStore(

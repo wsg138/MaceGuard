@@ -11,30 +11,53 @@ MaceGuard 5 provides WorldGuard-scoped weekly warzone modifiers, strict temporar
 
 ## Weekly warzone modifiers
 
-`warzone.yml` version 4 selects one to three compatible modifiers at the configured weekly calendar boundary. The default transition is Sunday at 04:00 in `America/Indiana/Indianapolis`. The selected modifier IDs, activation time, weekly boundary, effective transition, warning state, and sequence are persisted atomically. Restarting does not reroll the current week, and an offline server advances to the current calendar week when it returns.
+`warzone.yml` schema 5 selects one to three compatible modifiers at the configured weekly calendar boundary. The default transition remains Sunday at 04:00 in `America/Indiana/Indianapolis`. Selection, activation, the weekly boundary, effective transition, warning state, and sequence persist atomically. Restarting does not reroll a valid current week.
 
-Bundled modifiers are:
+Modifier count is selected from `rotation.selection.count-weights` (defaults: one `35`, two `45`, three `20`). Enabled modifiers are then selected without replacement by their relative `weight`, while conflict groups and special rules are enforced. `enabled: false` removes one outcome from both random and manual selection without deleting its configuration.
 
-- `cobwebs`: temporary tracked cobweb placement in the effective warzone.
-- `no-lunge`: disables only the correlated `SPEAR_LUNGE` effect.
-- `mace-disabled`: disables mace use.
-- `mace-cooldown`: starts a cooldown only after an uncancelled applied mace attack.
-- `elytra-no-rockets`: permits elytra gliding while blocking actual firework boosts.
+Bundled outcomes and default weights:
 
-The effective scope is the configured outer `warzone` region minus every configured exclusion. The default exclusions are `spawn` and `market`. It is active only when the module is enabled, the configuration is valid, the configured world is loaded, the outer region resolves, and every required exclusion resolves. A missing world or region makes the effective gameplay scope inactive: no restriction, positive effect, cooldown overlay, warzone cobweb behavior, or warzone-only broadcast is applied. It never broadens to the configured world.
+| Modifier | Weight | Effect |
+| --- | ---: | --- |
+| `cobwebs` | 10 | Enables temporary tracked cobweb placement. |
+| `no-lunge` | 8 | Disables only `SPEAR_LUNGE`. |
+| `mace-disabled` | 4 | Disables Maces. |
+| `mace-cooldown` | 8 | Ten-second cooldown after a successful Mace hit. |
+| `ender-pearl-disabled` | 3 | Disables Ender Pearls. |
+| `ender-pearl-cooldown-5` | 9 | Five-second cooldown after a successful Pearl launch. |
+| `ender-pearl-cooldown-10` | 6 | Ten-second cooldown after a successful Pearl launch. |
+| `wind-charge-disabled` | 3 | Disables player and dispenser Wind Charges in scope. |
+| `wind-charge-cooldown-5` | 9 | Five-second cooldown after a successful player Wind Charge launch. |
+| `wind-charge-cooldown-10` | 6 | Ten-second cooldown after a successful player Wind Charge launch. |
+| `elytra-no-rockets` | 1 | Allows gliding while blocking firework boosts. |
 
-Fresh installations ship with `enabled: false`. Set up the scope in this order:
+Only one Mace, Pearl, or Wind Charge mode may be active at once. Leaving every outcome for one item disabled leaves that item unrestricted every week. Automated Wind Charge sources have no player cooldown owner, so cooldown outcomes allow dispensers while the disabled outcome cancels them in the exact effective scope.
 
-1. Create and review `warzone`.
-2. Create and review `spawn`.
-3. Create and review `market`.
-4. Verify the configured world and region IDs.
-5. Run `/warzone validate`.
-6. Change `enabled` to `true`.
-7. Reload or restart.
-8. Run `/warzone debug`.
+To disable one outcome:
 
-Existing schema-4 configurations preserve their explicit `enabled` value. An unresolved geometry state still makes gameplay scope inactive while preserving the selected weekly state for diagnostics and recovery.
+```yaml
+modifiers:
+  ender-pearl-disabled:
+    enabled: false
+```
+
+To disable an entire item category, set every outcome for that item to `enabled: false`. Do not delete sections.
+
+Elytra has an explicit default 8% weekly inclusion chance. When selected, a second deterministic rule has a 90% chance to require a combination without any modifier that restricts the `MACE` target. Configuration validation proves every branch that can be rolled has a feasible count-weighted combination. Inclusion values from 1 through 99 therefore require both Elytra and non-Elytra branches, and any positive unrestricted-Mace chance requires an Elytra branch with Maces unrestricted. Invalid branches are rejected rather than silently ignored or renormalized.
+
+Example valid weeks include:
+
+```text
+Cobwebs + 5s Pearl Cooldown
+No Lunge + 10s Wind Charge Cooldown
+Mace Cooldown + No Ender Pearls
+Elytra, No Rockets + Cobwebs
+Elytra, No Rockets + 5s Pearl Cooldown
+```
+
+The effective scope is the configured outer `warzone` region minus every configured exclusion. The defaults remain `spawn` and `market`. Missing required geometry makes gameplay scope inactive and never broadens enforcement to the whole world.
+
+Fresh installations ship with `enabled: false`. Create and review `warzone`, `spawn`, and `market`, run `/warzone validate`, then enable and reload the module.
 
 Commands:
 
@@ -52,68 +75,68 @@ Commands:
 /warzone debug
 ```
 
-`skip`, `force`, and `set` change the selected state without moving the effective transition time. `extend` delays the next effective transition once; after that transition, later changes return to the configured weekly calendar schedule. `/warzone next` reports the transition time but does not reveal an unselected future random combination.
+`skip`, `force`, and `set` preserve the current effective transition. Persisted selections that become disabled or invalid are rerolled while retaining their established weekly boundary.
+
+Status placeholders:
+
+```text
+%warzone_mace_status%
+%warzone_ender_pearl_status%
+%warzone_wind_charge_status%
+%warzone_spear_lunge_status%
+%warzone_elytra_status%
+```
+
+Machine-readable placeholders:
+
+```text
+%warzone_mace_disabled%
+%warzone_mace_cooldown_seconds%
+%warzone_ender_pearl_disabled%
+%warzone_ender_pearl_cooldown_seconds%
+%warzone_wind_charge_disabled%
+%warzone_wind_charge_cooldown_seconds%
+%warzone_spear_lunge_disabled%
+%warzone_elytra_gliding_allowed%
+%warzone_firework_boost_blocked%
+```
+
+Ordered selected-modifier placeholders:
+
+```text
+%warzone_modifier_1%
+%warzone_modifier_2%
+%warzone_modifier_3%
+%warzone_modifier_1_id%
+%warzone_modifier_2_id%
+%warzone_modifier_3_id%
+%warzone_modifier_1_description%
+%warzone_modifier_2_description%
+%warzone_modifier_3_description%
+```
+
+Positions follow the active weekly modifier list without additional sorting. Name and description values use the plain-text form of the active runtime configuration, ID values use the exact internal IDs, and missing positions return an empty string. These selected-week values remain available when gameplay scope is inactive; all nine return an empty string when no active selection or Warzone runtime is available.
+
+Existing `%warzone_*%` placeholders remain supported, and `%warzone_restrictions%` includes Pearl and Wind Charge restrictions.
 
 ## Block policies
 
 The WorldGuard string flag `maceguard-block-policy` associates a region with a named policy from `config.yml`. WorldGuard must first allow the action; MaceGuard only adds restrictions and never un-cancels another plugin's event.
 
-The bundled `cobweb-box` policy permits players to place and break cobwebs and ice, use and collect water, confines liquids to the region, blocks infinite-water source creation, and denies unlisted materials. Pistons, dispensers, fluid flow, and non-player block sources are checked explicitly. Missing named policies fail closed only when a valid main schema contains an explicit effective flag reference. Disabled MaceGuard, an invalid main schema, an unavailable custom flag, or no effective flag value means no active policy.
-
-The intended configuration is:
-
-```text
-/rg flag cobweb-box maceguard-block-policy cobweb-box
-```
-
-The flag should normally remain unset on `__global__`, `warzone`, `spawn`, `market`, and `war-pit`. An explicit `__global__` value is separate operator configuration and can intentionally apply the policy throughout the world. MaceGuard reports and warns about that source but never removes or changes the flag.
-
-The block policy decides whether cobweb is an allowed material. The separate `maceguard-cobwebs allow` flag explicitly enables temporary tracked cobweb behavior and its TTL. Both are required in a policy-controlled cobweb box. An invalid main schema disables both cobweb handlers before cancellation, tracking, TTL persistence, or weekly behavior.
+The bundled `cobweb-box` policy permits players to place and break cobwebs and ice, use and collect water, confines liquids to the region, blocks infinite-water source creation, and denies unlisted materials. Pistons, dispensers, fluid flow, and non-player block sources are checked explicitly.
 
 ## Reset profiles
 
-MaceGuard supports:
-
-- `FULL_SNAPSHOT` for bounded areas such as `war-pit` and `cobweb-box`.
-- `FILTERED_SNAPSHOT` for a large, vertically limited `warzone-reset` cuboid. Only explicitly configured fragile block data is persisted and restored.
-
-Filtered restoration may replace only configured air variants, liquids, or fragile materials. A normal solid block at a captured coordinate is skipped and reported; it is never overwritten. Excluded regions are applied during capture, preflight, and restore. Capture and restore run in bounded main-thread batches, do not force-load chunks, and share one destructive-operation lock.
-
-Every production reset uses the existing lifecycle:
-
-```text
-/maceguard capture <region>
-/maceguard validate <region>
-/maceguard plan <region>
-/maceguard arm <region>
-/maceguard reset <region> <one-use-plan-token>
-/maceguard schedule <region> <on|off>
-```
-
-Snapshot checksums, exact geometry, exclusions, arming records, confirmation tokens, restore journals, atomic persistence, and interrupted-operation lockout remain authoritative. MaceGuard never automatically captures, arms, or enables a reset schedule.
+MaceGuard supports `FULL_SNAPSHOT` for bounded areas and `FILTERED_SNAPSHOT` for a large, vertically limited reset cuboid. Capture, preflight, and restore preserve the existing fail-closed lifecycle, batching, exclusions, journals, checksums, arming, and one-use confirmation tokens. MaceGuard never automatically captures, arms, or enables a reset schedule.
 
 ## Explosion behavior
 
 `maceguard-explosives deny` remains intentionally broad. It blocks end crystals, respawn anchors, TNT, TNT minecarts, beds, creepers, and other block or entity explosions at the effective WorldGuard location.
 
-## Production incident distinction
-
-MaceGuard 4.0.1 could treat the entire configured world as inside the warzone when the outer `warzone` region was unresolved. MaceGuard 5.0.0 never uses that fallback. Missing outer or exclusion geometry makes the effective gameplay scope inactive. An explicitly configured WorldGuard `__global__` custom flag is independent operator configuration and remains effective until an operator unsets it.
-
-Before upgrading or responding to an incident, review:
-
-```text
-/version MaceGuard
-/rg info warzone
-/rg flags warzone
-/rg flags __global__
-/warzone validate
-/warzone debug
-/maceguard here
-```
-
 ## Migration
 
-Main configuration schema is version 8; warzone configuration schema is version 4. Existing older files are backed up and receive a review report. The plugin does not silently reinterpret old short sequential rotations as weekly random modifiers, create WorldGuard regions, capture snapshots, arm profiles, or enable schedules. The standalone `plugins/WarzoneRotator` directory is left intact for rollback.
+Main configuration schema remains version 8; warzone configuration schema is version 5. Schema-4 `warzone.yml` files are backed up and migrated while preserving the explicit module enabled value, world and region IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, built-in settings, valid custom modifier definitions, custom conflict groups, and persisted weekly state. Custom modifiers receive `enabled: true` and `weight: 10` only when absent. The complete migrated file is validated before replacement; an invalid custom migration leaves the original file unchanged.
 
-See [deployment and staging](docs/DEPLOYMENT.md) and [migration behavior](docs/MIGRATION.md).
+The migration never creates or changes WorldGuard regions, enables the module automatically, captures snapshots, arms profiles, or enables reset schedules. The standalone `plugins/WarzoneRotator` directory remains untouched for rollback.
+
+See [warzone configuration](docs/WARZONE.md), [deployment and staging](docs/DEPLOYMENT.md), and [migration behavior](docs/MIGRATION.md).

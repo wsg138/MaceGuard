@@ -1,141 +1,235 @@
-# Integrated warzone configuration
+# Integrated weekly Warzone configuration
 
-MaceGuard 4.0.0 contains the WarzoneRotator runtime. Use only the MaceGuard JAR after migration; retain the standalone WarzoneRotator directory until the integrated build has passed live-server testing.
+MaceGuard 5 uses `plugins/MaceGuard/warzone.yml` schema 5. The module remains disabled on fresh installations until the configured WorldGuard scope validates. WorldGuard owns all region geometry; MaceGuard never creates or alters `warzone`, `spawn`, or `market`.
 
-## Files and validation
+## Effective scope and schedule
 
-`plugins/MaceGuard/warzone.yml` is version 3. It is independent of the reset/mace settings in `config.yml`. `warzone-messages.yml` holds MiniMessage templates, and `state/warzone-state.yml` is managed by the plugin.
+The default effective scope is:
 
-Both configuration loaders reject duplicate YAML keys, wrong scalar/list/mapping types, unknown paths, malformed material names, undeclared targets, unsupported modes, non-positive durations, duplicate warnings, policy bypasses, and cooldowns above their global maximum.
-
-`/warzone reload` validates the proposed warzone config, messages, and a target region when its world is loaded. On failure, the active config, rotation, timestamps, cooldown service, listeners, scheduler, and placeholders stay unchanged. `/maceguard reload` performs the same validation together with `config.yml` and remains refused while a capture/restore is active.
-
-## Restriction targets and policies
-
-Every target used by a rotation must be declared under `restriction-targets`.
-
-```yaml
-restriction-targets:
-  ENDER_PEARL:
-    can-disable: true
-    can-cooldown: true
-    maximum-cooldown: 60s
-  SPEAR:
-    can-disable: true
-    can-cooldown: false
-  SPEAR_LUNGE:
-    can-disable: true
-    can-cooldown: true
-    maximum-cooldown: 60s
+```text
+warzone - spawn - market
 ```
 
-Normal targets must be exact Bukkit material enum names such as `MACE`, `ENDER_PEARL`, or `DIAMOND_SWORD`.
+All required regions must resolve in the configured world. Missing the outer region or either exclusion makes gameplay scope inactive instead of falling back to the whole world.
 
-- `SPEAR` matches every material whose name ends in `_SPEAR`.
-- `SPEAR_LUNGE` matches only the Lunge effect and never the spear item.
-- `DISABLED` needs `can-disable: true`.
-- `COOLDOWN` needs `can-cooldown: true`, a positive `cooldown`, and a positive `maximum-cooldown` policy.
-- `COOLDOWN` is accepted only for targets with a reliable success event: supported projectiles, direct-attack weapons, `SPEAR`, and `SPEAR_LUNGE`.
-- Arbitrary unsupported materials remain valid `DISABLED` targets but are rejected in `COOLDOWN` mode rather than starting cooldowns from ambiguous right-clicks.
-- Omitting a target from a rotation means unrestricted.
+The weekly boundary remains Sunday at 04:00 in `America/Indiana/Indianapolis`. One to three outcomes are selected, persisted, and restored across restart. Manual rerolls and a reroll caused by newly disabled persisted IDs preserve the established transition boundary.
 
-Invalid requests are rejected. MaceGuard does not clamp a cooldown or silently change its mode.
-
-## Rotation example
+## Restriction targets
 
 ```yaml
-config-version: 3
-enabled: true
-region:
-  world: world
-  id: warzone
-rotation:
-  warning-times: [10m, 5m, 1m, 30s, 10s, 5s, 4s, 3s, 2s, 1s]
-messages:
-  blocked-message-cooldown: 2s
-  warning-audience: global
-  transition-audience: global
-cobwebs:
-  clear-after: 60s
-  clear-on-meta-change: true
-  clear-on-disable: true
 restriction-targets:
   MACE:
     can-disable: true
-    can-cooldown: false
+    can-cooldown: true
+    maximum-cooldown: 60s
   ENDER_PEARL:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  WIND_CHARGE:
     can-disable: true
     can-cooldown: true
     maximum-cooldown: 60s
   SPEAR_LUNGE:
     can-disable: true
-    can-cooldown: true
-    maximum-cooldown: 60s
-rotations:
-  limited-mobility:
-    display-name: "<gold>Limited Mobility"
-    description: "<gray>Pearls and Lunge use longer cooldowns."
-    duration: 90m
-    cobwebs-allowed: false
-    restrictions:
-      ENDER_PEARL:
-        mode: COOLDOWN
-        cooldown: 15s
-      SPEAR_LUNGE:
-        mode: COOLDOWN
-        cooldown: 10s
-    start-message: "<gold>The warzone meta changed to <white>Limited Mobility<gold>."
+    can-cooldown: false
 ```
 
-Rotation IDs define the configured order. State restoration advances through every deadline elapsed while the server was offline and retains already-emitted warning thresholds.
+A cooldown starts only after a real successful player action. Pearl and Wind Charge decisions are made during `PlayerLaunchProjectileEvent`, then committed only after an uncancelled final projectile launch. Cancelled launches, failed spawn attempts, and actions cancelled by another plugin do not start cooldowns. Mace cooldowns start only after uncancelled applied damage.
 
-## Cooldown and Lunge behavior
+The `wind-charge-disabled` outcome also cancels a dispenser firing a Wind Charge when the dispenser source or projected launch point is inside the exact effective scope. Automated sources have no player cooldown owner, so Wind Charge cooldown outcomes intentionally allow dispensers.
 
-The first allowed pearl/projectile use is decided once in `PlayerLaunchProjectileEvent`. A rejected launch is cancelled with item consumption disabled. An allowed cooldown action is committed only after an uncancelled `ProjectileLaunchEvent` monitor confirms that no later plugin cancelled the actual launch; that second event does not repeat the restriction decision.
+## Enabled outcomes and weights
 
-Other supported complete-item cooldowns begin only after their corresponding uncancelled projectile or applied direct-damage event. A non-cancelled `PlayerInteractEvent` is never treated as proof that an item was used. The UUID/target cooldown service is authoritative, periodically removes expired records, and retains unexpired records through logout/reconnect.
+Every modifier has:
 
-Material targets such as `ENDER_PEARL` and `WIND_CHARGE` receive a Bukkit cooldown overlay while the player is inside the configured warzone. The overlay is removed when the player leaves, restored when they enter or reconnect inside, and never replaces the authoritative UUID cooldown. MaceGuard does not shorten a stronger cooldown installed by vanilla or another plugin and restores a pre-existing shorter cooldown when removing its own overlay. `SPEAR_LUNGE` is effect-only and never receives a material overlay.
+```yaml
+enabled: true
+weight: 10
+```
 
-Paper/Leaf 1.21.11 does not expose a dedicated cancellable Lunge event. For this target version, MaceGuard uses a 250 ms compatibility gate armed only by a real `PrePlayerAttackEntityEvent` with a Lunge-enchanted spear. Generic arm swings do not arm it. Only one bounded horizontal velocity delta aligned with the horizontal view direction is treated as the vanilla Lunge propulsion; backward/perpendicular movement, unrelated velocity, oversized impulses, and expired attempts are ignored. Vertical fall velocity is ignored rather than used to reject a valid horizontal Lunge.
+An enabled modifier requires a positive integer weight. A disabled modifier is ignored by random selection, rejected by `/warzone set`, and may retain its previous weight.
 
-`SPEAR_LUNGE: DISABLED` cancels only the correlated Lunge velocity. `SPEAR_LUNGE: COOLDOWN` allows the first correlated movement, starts the cooldown only if that velocity event remains uncancelled, and cancels only later correlated Lunge movement. Ordinary spear damage, throwing, holding, slot changes, and hand swaps are never cancelled by the effect-only target. Direct boundary attacks preserve both attacker and target region membership in the short-lived correlation record.
+Default outcomes:
 
-## Region resolution and cobweb cleanup
+| ID | Weight |
+| --- | ---: |
+| `cobwebs` | 10 |
+| `no-lunge` | 8 |
+| `mace-disabled` | 4 |
+| `mace-cooldown` | 8 |
+| `ender-pearl-disabled` | 3 |
+| `ender-pearl-cooldown-5` | 9 |
+| `ender-pearl-cooldown-10` | 6 |
+| `wind-charge-disabled` | 3 |
+| `wind-charge-cooldown-5` | 9 |
+| `wind-charge-cooldown-10` | 6 |
+| `elytra-no-rockets` | 1 |
 
-The configured WorldGuard world and region are re-resolved by ID every five seconds. This recovers from a late-loaded world or region manager and from a region that is deleted, recreated, or replaced. While the configured world is loaded but the region cannot be resolved, integrated restrictions fail closed in that world. Destructive cobweb selection always requires an exactly resolved region and is never broadened to the entire world. `/warzone debug` reports the current resolution status.
+Disable one outcome without affecting the others:
 
-A forced cobweb clear restores matching entries immediately when their chunks are loaded. Entries in unloaded chunks are persisted with `pendingClear: true` and restored when those chunks load, without force-loading them. If the expected temporary block was already changed, MaceGuard removes the stale record without overwriting the newer block. The pending state survives restart, and legacy records without that field load as not pending.
+```yaml
+modifiers:
+  ender-pearl-disabled:
+    enabled: false
+```
 
-## Commands, permissions, and placeholders
+This still permits both Pearl cooldown outcomes. Disable all three Pearl outcomes to leave Pearls unrestricted every week. The same rule applies to Wind Charges and both Mace outcomes.
 
-Commands and aliases remain `/warzone`, `/warzonerotator`, and `/wzr`. Subcommands are `info`, `items`, `next`, `skip`, `force`, `set`, `extend`, `reload`, `validate`, and `debug`.
+## Weighted selection
 
-Permissions remain:
+```yaml
+rotation:
+  selection:
+    mode: WEIGHTED_RANDOM_MODIFIERS
+    minimum: 1
+    maximum: 3
+    prevent-identical-repeat: true
+    count-weights:
+      1: 35
+      2: 45
+      3: 20
+```
 
-- `warzonerotator.admin`
-- `warzonerotator.command.info`
-- `warzonerotator.command.items`
-- `warzonerotator.command.next`
-- `warzonerotator.command.skip`
-- `warzonerotator.command.force`
-- `warzonerotator.command.set`
-- `warzonerotator.command.extend`
-- `warzonerotator.command.reload`
-- `warzonerotator.command.validate`
-- `warzonerotator.command.debug`
-- `warzonerotator.bypass`
+Selection performs bounded work:
 
-Existing `%warzone_*%` identifiers are retained. New identifiers are `%warzone_cooldown_items%`, `%warzone_cooldown_items_count%`, and `%warzone_restrictions%`. The disabled placeholders include only complete `DISABLED` targets; effect-only restrictions are represented by the combined restrictions placeholder.
+1. Validate every probability branch that can be rolled.
+2. Roll among feasible configured modifier counts using `count-weights`.
+3. Select enabled modifiers without replacement using their relative weights.
+4. Keep only choices that can still complete a valid combination.
+5. Enforce conflict groups and conditional rules.
+6. Avoid the exact previous combination when an alternative exists.
 
-## Migration
+A combination is feasible only when its modifier count has a positive configured count weight. Configuration validation rejects any enabled probability branch that has no feasible combination; startup, reload, force, restore, and natural transition never rely on a silent fallback.
 
-Migration runs only into missing targets:
+## Conflict groups
 
-1. Convert a valid `plugins/WarzoneRotator/config.yml` to `plugins/MaceGuard/warzone.yml`.
-2. Convert legacy `disabled-items` entries to `mode: DISABLED`.
-3. Copy a valid old messages file to `warzone-messages.yml`.
-4. Import active/next IDs, start/end timestamps, and emitted warnings into `state/warzone-state.yml`.
-5. Leave the entire old directory unchanged.
+```yaml
+conflict-groups:
+  mace-mode:
+    - mace-disabled
+    - mace-cooldown
+  ender-pearl-mode:
+    - ender-pearl-disabled
+    - ender-pearl-cooldown-5
+    - ender-pearl-cooldown-10
+  wind-charge-mode:
+    - wind-charge-disabled
+    - wind-charge-cooldown-5
+    - wind-charge-cooldown-10
+```
 
-Legacy temporary-cobweb entries are not imported. If conversion is unsafe, MaceGuard logs the exact error, leaves the old file untouched, and keeps only the integrated warzone module inactive.
+No week or manual set can contain multiple modes for the same item.
+
+## Elytra rarity
+
+`rotation.special-rules` currently supports only the `elytra-no-rockets` entry:
+
+```yaml
+rotation:
+  special-rules:
+    elytra-no-rockets:
+      weekly-inclusion-chance-percent: 8
+      unrestricted-mace-chance-percent: 90
+```
+
+The inclusion chance controls whether Elytra is selected for that week. When selected, gliding is allowed and firework boosting is blocked. The default unrestricted-Mace roll selects only Elytra combinations without any modifier that restricts the `MACE` target 90% of the time; the remaining rolls apply no extra Mace exclusion.
+
+Values must be from 0 through 100:
+
+- inclusion `0`: at least one feasible non-Elytra combination must exist;
+- inclusion `100`: at least one feasible Elytra combination must exist;
+- inclusion `1` through `99`: both a feasible Elytra branch and a feasible non-Elytra branch must exist;
+- modifier `enabled: false`: overrides any inclusion percentage and requires a feasible non-Elytra branch;
+- unrestricted-Mace greater than `0`: at least one feasible Elytra combination without a `MACE` restriction must exist;
+- unrestricted-Mace `100`: every selected Elytra combination is Mace-unrestricted;
+- unrestricted-Mace `0`: no additional Mace preference.
+
+A custom modifier that restricts the `MACE` target counts as a Mace restriction even when its ID is not one of the bundled Mace IDs. Invalid branches are rejected by configuration validation rather than renormalized or silently ignored.
+
+All rolls use the injected random source, including tests.
+
+## Commands and diagnostics
+
+`/warzone items` displays the effective state of Maces, Ender Pearls, Wind Charges, Spear Lunge, Elytra, and Cobwebs.
+
+`/warzone modifiers` and `/warzone debug` display configured enabled states, weights, conflict groups, count weights, Elytra percentages, current selected IDs, and effective gameplay state.
+
+`/warzone validate` reports invalid modifier weights, all outcomes disabled, impossible probability branches, invalid count weights, invalid percentages, unsupported special-rule IDs, unknown conflict references, and unsupported cooldown modes.
+
+## Placeholders
+
+Human-readable status placeholders return `Allowed`, `Disabled`, `<n>s cooldown`, `Inactive`, or `Gliding allowed; rockets disabled`:
+
+```text
+%warzone_mace_status%
+%warzone_ender_pearl_status%
+%warzone_wind_charge_status%
+%warzone_spear_lunge_status%
+%warzone_elytra_status%
+```
+
+Machine-readable values:
+
+```text
+%warzone_mace_disabled%
+%warzone_mace_cooldown_seconds%
+%warzone_ender_pearl_disabled%
+%warzone_ender_pearl_cooldown_seconds%
+%warzone_wind_charge_disabled%
+%warzone_wind_charge_cooldown_seconds%
+%warzone_spear_lunge_disabled%
+%warzone_elytra_gliding_allowed%
+%warzone_firework_boost_blocked%
+```
+
+Boolean placeholders return `true` or `false`. Cooldown placeholders return `0` or the configured number of seconds.
+
+The currently selected weekly modifiers are also available by ordered position:
+
+| Position | Display name | Internal ID | Configured description |
+| ---: | --- | --- | --- |
+| 1 | `%warzone_modifier_1%` | `%warzone_modifier_1_id%` | `%warzone_modifier_1_description%` |
+| 2 | `%warzone_modifier_2%` | `%warzone_modifier_2_id%` | `%warzone_modifier_2_description%` |
+| 3 | `%warzone_modifier_3%` | `%warzone_modifier_3_id%` | `%warzone_modifier_3_description%` |
+
+These placeholders follow the active weekly modifier list in its stored order and do not perform alphabetical sorting. Display names and descriptions use the plain-text form of the active runtime configuration; IDs are returned exactly as stored. A position beyond the current modifier count returns an empty string. The values continue to describe the selected week when gameplay scope is inactive, while all nine return an empty string if no active selection or Warzone runtime is available.
+
+Existing generic placeholders remain backward compatible, including:
+
+```text
+%warzone_current_modifiers%
+%warzone_current_modifier_ids%
+%warzone_description%
+```
+
+`%warzone_restrictions%` continues to include all restriction targets.
+
+## Example weeks
+
+The indexed placeholders expose the same stored order for every supported weekly count:
+
+```text
+One modifier:   Cobwebs
+Two modifiers:  Cobwebs + 5s Pearl Cooldown
+Three modifiers: No Lunge + Cobwebs + 5s Pearl Cooldown
+```
+
+Additional valid combinations include:
+
+```text
+No Lunge + 10s Wind Charge Cooldown
+Mace Cooldown + No Ender Pearls
+Elytra, No Rockets + Cobwebs
+Elytra, No Rockets + 5s Pearl Cooldown
+```
+
+With the default Elytra rule, most Elytra weeks leave Maces fully unrestricted.
+
+## Schema-4 migration
+
+Before rewriting a schema-4 file, MaceGuard creates a timestamped backup. It then preserves the explicit enabled value, scope IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, built-in modifier settings, valid custom modifier definitions, conflict groups, and weekly state. New bundled fields and outcomes receive defaults.
+
+A custom schema-4 modifier receives `enabled: true` and `weight: 10` only when those fields were absent. If a custom definition or conflict group makes the migrated schema invalid, migration stops before replacing the original `warzone.yml`; the backup and validation error remain available for manual correction.
+
+If a persisted active ID is disabled or invalid after migration, a valid replacement is selected without moving its stored weekly transition boundary. Migration never creates WorldGuard regions, enables the module automatically, captures or arms reset profiles, or changes reset schedules.

@@ -63,12 +63,12 @@ public final class WarzoneModule {
     }
 
     public void start() {
-        WarzoneCommand handler = new WarzoneCommand(this);
-        var command = Objects.requireNonNull(plugin.getCommand("warzone"),
-                "warzone command missing from plugin.yml");
-        command.setExecutor(handler);
-        command.setTabCompleter(handler);
         try {
+            WarzoneCommand handler = new WarzoneCommand(this);
+            var command = Objects.requireNonNull(plugin.getCommand("warzone"),
+                    "warzone command missing from plugin.yml");
+            command.setExecutor(handler);
+            command.setTabCompleter(handler);
             new WarzoneMigrationService(plugin).prepare();
             Prepared prepared = validateFiles(false);
             log(prepared);

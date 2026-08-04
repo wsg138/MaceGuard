@@ -9,12 +9,16 @@ import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockDispenseEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
@@ -25,6 +29,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.projectiles.BlockProjectileSource;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
@@ -40,8 +45,11 @@ public final class ItemRestrictionListener implements Listener {
     private final WarzoneMessageService messages;
     private final Supplier<WarzoneConfig.ActiveSet> activeSet;
     private final LungeVelocityGate lungeGate;
+    private final ProjectileLaunchTracker projectileLaunches =
+            new ProjectileLaunchTracker();
+    private final AutomatedProjectileLaunchTracker automatedLaunches =
+            new AutomatedProjectileLaunchTracker();
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
-    private final Map<UUID, PendingProjectile> pendingProjectiles = new HashMap<>();
     private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
     public ItemRestrictionListener(RestrictionService restrictions, CooldownService cooldowns,
@@ -82,9 +90,79 @@ public final class ItemRestrictionListener implements Listener {
     public void onAcceptedPlayerLaunch(PlayerLaunchProjectileEvent event) {
         RestrictionDecision decision = materialDecision(event.getPlayer(), event.getItemStack().getType(), false);
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.PROJECTILE))
-            pendingProjectiles.put(event.getProjectile().getUniqueId(),
-                    new PendingProjectile(event.getPlayer().getUniqueId(), decision,
-                            System.nanoTime() + 5_000_000_000L));
+            projectileLaunches.record(event.getProjectile().getUniqueId(),
+                    event.getPlayer().getUniqueId(), decision,
+                    System.nanoTime() + 5_000_000_000L);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onWindChargeDispense(BlockDispenseEvent event) {
+        if (event.getItem().getType() != Material.WIND_CHARGE
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+        Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        if (region.contains(source)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onWindChargeDispenseFinalized(BlockDispenseEvent event) {
+        if (event.isCancelled() || event.getItem().getType() != Material.WIND_CHARGE
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+        Location source = event.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        automatedLaunches.record(event.getBlock().getWorld().getUID(),
+                event.getBlock().getX(), event.getBlock().getY(), event.getBlock().getZ(),
+                org.bukkit.Bukkit.getCurrentTick(),
+                region.contains(source), automatedVec(event.getVelocity()),
+                System.nanoTime() + 250_000_000L);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAutomatedWindChargeLaunch(ProjectileLaunchEvent event) {
+        Projectile projectile = event.getEntity();
+        if (projectile.getType() != EntityType.WIND_CHARGE
+                || !AutomatedProjectileRestriction.windChargeDisabled(activeSet.get())) return;
+
+        Location launch = projectile.getLocation();
+        if (launch.getWorld() == null) return;
+        long tick = projectile.getServer().getCurrentTick();
+        long now = System.nanoTime();
+        Object shooter = projectile.getShooter();
+
+        if (shooter instanceof BlockProjectileSource source) {
+            handleAssignedBlockSource(event, source, launch, tick, now);
+            return;
+        }
+
+        boolean defaultSpawnReason = projectile.getEntitySpawnReason()
+                == CreatureSpawnEvent.SpawnReason.DEFAULT;
+        if (!AutomatedProjectileRestriction.canCorrelatePending(
+                shooter == null, defaultSpawnReason)) return;
+        handlePendingBlockSource(event, projectile, launch, tick, now);
+    }
+
+    private void handleAssignedBlockSource(ProjectileLaunchEvent event,
+                                           BlockProjectileSource source,
+                                           Location launch, long tick,
+                                           long now) {
+        automatedLaunches.consumeExactSource(source.getBlock().getWorld().getUID(),
+                source.getBlock().getX(), source.getBlock().getY(),
+                source.getBlock().getZ(), tick, now);
+        Location sourceLocation = source.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        if (AutomatedProjectileRestriction.blocksWindCharge(activeSet.get(),
+                region.contains(sourceLocation), region.contains(launch)))
+            event.setCancelled(true);
+    }
+
+    private void handlePendingBlockSource(ProjectileLaunchEvent event,
+                                          Projectile projectile,
+                                          Location launch, long tick,
+                                          long now) {
+        var match = automatedLaunches.match(launch.getWorld().getUID(), tick,
+                automatedVec(launch), automatedVec(projectile.getVelocity()), now);
+        if (match.isEmpty()) return;
+        boolean blocked = AutomatedProjectileRestriction.blocksWindCharge(
+                activeSet.get(), match.orElseThrow().sourceInside(),
+                region.contains(launch));
+        if (blocked) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -122,17 +200,18 @@ public final class ItemRestrictionListener implements Listener {
         if (!(event.getEntity() instanceof Player player) || event.getBow() == null) return;
         RestrictionDecision decision = materialDecision(player, event.getBow().getType(), false);
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.PROJECTILE))
-            pendingProjectiles.put(event.getProjectile().getUniqueId(),
-                    new PendingProjectile(player.getUniqueId(), decision,
-                            System.nanoTime() + 5_000_000_000L));
+            projectileLaunches.record(event.getProjectile().getUniqueId(),
+                    player.getUniqueId(), decision,
+                    System.nanoTime() + 5_000_000_000L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onProjectileLaunchFinalized(ProjectileLaunchEvent event) {
-        PendingProjectile pending = pendingProjectiles.remove(event.getEntity().getUniqueId());
-        if (pending == null || event.isCancelled()) return;
-        completeSuccess(pending.playerId(),
-                event.getEntity().getServer().getPlayer(pending.playerId()), pending.decision());
+        projectileLaunches.finalizeLaunch(event.getEntity().getUniqueId(),
+                        event.isCancelled())
+                .ifPresent(completion -> completeSuccess(completion.playerId(),
+                        event.getEntity().getServer().getPlayer(completion.playerId()),
+                        completion.decision()));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -263,7 +342,8 @@ public final class ItemRestrictionListener implements Listener {
     public void clearTransientState() {
         lungeGate.clear();
         acceptedLunges.clear();
-        pendingProjectiles.clear();
+        projectileLaunches.clear();
+        automatedLaunches.clear();
         visualInsideState.clear();
     }
 
@@ -271,7 +351,8 @@ public final class ItemRestrictionListener implements Listener {
 
     public void cleanup() {
         long now = System.nanoTime();
-        pendingProjectiles.values().removeIf(pending -> pending.deadlineNanos() <= now);
+        projectileLaunches.cleanup(now);
+        automatedLaunches.cleanup(org.bukkit.Bukkit.getCurrentTick(), now);
         lungeGate.cleanup();
         visualCooldowns.cleanup();
     }
@@ -306,6 +387,16 @@ public final class ItemRestrictionListener implements Listener {
         return new LungeVelocityGate.Vec3(vector.getX(), vector.getY(), vector.getZ());
     }
 
+    private AutomatedProjectileLaunchTracker.Vec3 automatedVec(Vector vector) {
+        return new AutomatedProjectileLaunchTracker.Vec3(
+                vector.getX(), vector.getY(), vector.getZ());
+    }
+
+    private AutomatedProjectileLaunchTracker.Vec3 automatedVec(Location location) {
+        return new AutomatedProjectileLaunchTracker.Vec3(
+                location.getX(), location.getY(), location.getZ());
+    }
+
     private boolean sameBlock(Location from, Location to) {
         return from.getWorld() != null && to.getWorld() != null
                 && from.getWorld().getUID().equals(to.getWorld().getUID())
@@ -313,6 +404,4 @@ public final class ItemRestrictionListener implements Listener {
                 && from.getBlockY() == to.getBlockY()
                 && from.getBlockZ() == to.getBlockZ();
     }
-
-    private record PendingProjectile(UUID playerId, RestrictionDecision decision, long deadlineNanos) { }
 }

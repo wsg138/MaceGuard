@@ -22,7 +22,9 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 public final class WarzoneConfigLoader {
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
+    private static final int PERCENT_MAX = 100;
+    private static final String MODE_KEY = "mode";
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9_-]*");
 
     public ValidationResult<WarzoneConfig> load(Path file) {
@@ -50,11 +52,12 @@ public final class WarzoneConfigLoader {
         if (excluded.contains(regionId)) errors.add("region.excluded-region-ids must not include region.id.");
 
         Map<String, Object> rotationRaw = map(root.get("rotation"), "rotation", errors);
-        keys(rotationRaw, "rotation", Set.of("schedule", "selection", "warning-times"), errors);
+        keys(rotationRaw, "rotation", Set.of("schedule", "selection", "special-rules", "warning-times"), errors);
         WarzoneConfig.Schedule schedule = parseSchedule(map(rotationRaw.get("schedule"),
                 "rotation.schedule", errors), errors);
         WarzoneConfig.Selection selection = parseSelection(map(rotationRaw.get("selection"),
                 "rotation.selection", errors), errors);
+        Object specialRulesRaw = rotationRaw.getOrDefault("special-rules", Map.of());
         List<Duration> warningTimes = durationList(rotationRaw.getOrDefault("warning-times", List.of()),
                 "rotation.warning-times", errors);
         if (new LinkedHashSet<>(warningTimes).size() != warningTimes.size())
@@ -89,22 +92,29 @@ public final class WarzoneConfigLoader {
                 parsePolicies(map(root.get("restriction-targets"), "restriction-targets", errors), errors, warnings);
         Map<String, WarzoneConfig.Modifier> modifiers =
                 parseModifiers(map(root.get("modifiers"), "modifiers", errors), policies, errors);
+        Map<String, WarzoneConfig.SpecialRule> specialRules =
+                parseSpecialRules(specialRulesRaw, modifiers.keySet(), errors);
         Map<String, Set<String>> conflicts =
                 parseConflictGroups(map(root.getOrDefault("conflict-groups", Map.of()),
                         "conflict-groups", errors), modifiers.keySet(), errors);
 
         if (modifiers.isEmpty()) errors.add("modifiers must contain at least one modifier.");
-        if (selection.maximum() > modifiers.size())
-            errors.add("rotation.selection.maximum must not exceed the number of configured modifiers.");
+        long enabledModifiers = modifiers.values().stream().filter(WarzoneConfig.Modifier::enabled).count();
+        if (!modifiers.isEmpty() && enabledModifiers == 0)
+            errors.add("All modifiers are disabled; at least one modifier must be enabled.");
 
         WarzoneConfig config = new WarzoneConfig(VERSION, enabled,
-                new WarzoneConfig.Region(world, regionId, excluded), schedule, selection, warningTimes,
+                new WarzoneConfig.Region(world, regionId, excluded), schedule, selection, specialRules, warningTimes,
                 new WarzoneConfig.Messages(blocked, warningAudience, transitionAudience), cobwebs,
                 policies, modifiers, conflicts);
         if (errors.isEmpty()) {
             try {
-                if (new ModifierSelector(new java.util.Random(0L)).validCombinations(config).isEmpty())
-                    errors.add("No valid modifier combination satisfies selection limits and conflict groups.");
+                List<List<String>> combinations =
+                        new ModifierSelector(new java.util.Random(0L)).selectableCombinations(config);
+                if (combinations.isEmpty())
+                    errors.add("No valid modifier combination satisfies the configured minimum, enabled outcomes, and conflict groups.");
+                else if (combinations.stream().noneMatch(value -> selection.countWeights().containsKey(value.size())))
+                    errors.add("No valid modifier combination has a positive configured count weight.");
             } catch (RuntimeException ex) {
                 errors.add("Modifier selection is invalid: " + ex.getMessage());
             }
@@ -138,11 +148,13 @@ public final class WarzoneConfigLoader {
     }
 
     private WarzoneConfig.Selection parseSelection(Map<String, Object> raw, List<String> errors) {
-        keys(raw, "rotation.selection", Set.of("mode", "minimum", "maximum", "prevent-identical-repeat"), errors);
-        WarzoneConfig.Selection.Mode mode = WarzoneConfig.Selection.Mode.RANDOM_MODIFIERS;
-        Object modeRaw = raw.get("mode");
-        if (!(modeRaw instanceof String text) || !text.trim().equalsIgnoreCase("RANDOM_MODIFIERS"))
-            errors.add("rotation.selection.mode must be RANDOM_MODIFIERS.");
+        keys(raw, "rotation.selection", Set.of(MODE_KEY, "minimum", "maximum", "prevent-identical-repeat",
+                "count-weights"), errors);
+        WarzoneConfig.Selection.Mode mode = WarzoneConfig.Selection.Mode.WEIGHTED_RANDOM_MODIFIERS;
+        Object modeRaw = raw.get(MODE_KEY);
+        if (!(modeRaw instanceof String text)
+                || !text.trim().equalsIgnoreCase("WEIGHTED_RANDOM_MODIFIERS"))
+            errors.add("rotation.selection.mode must be WEIGHTED_RANDOM_MODIFIERS.");
         int minimum = integer(raw.get("minimum"), "rotation.selection.minimum", errors, 1);
         int maximum = integer(raw.get("maximum"), "rotation.selection.maximum", errors, 1);
         if (minimum < 1) errors.add("rotation.selection.minimum must be at least 1.");
@@ -150,7 +162,83 @@ public final class WarzoneConfigLoader {
         if (maximum > 16) errors.add("rotation.selection.maximum must not exceed 16.");
         boolean prevent = bool(raw.getOrDefault("prevent-identical-repeat", Boolean.TRUE),
                 "rotation.selection.prevent-identical-repeat", errors, true);
-        return new WarzoneConfig.Selection(mode, minimum, maximum, prevent);
+        Map<Integer, Integer> countWeights = parseCountWeights(raw.get("count-weights"),
+                minimum, maximum, errors);
+        return new WarzoneConfig.Selection(mode, minimum, maximum, prevent, countWeights);
+    }
+
+    private Map<Integer, Integer> parseCountWeights(Object value, int minimum, int maximum,
+                                                     List<String> errors) {
+        if (!(value instanceof Map<?, ?> raw)) {
+            errors.add("rotation.selection.count-weights must be a mapping.");
+            return Map.of();
+        }
+        // Method-local and insertion ordered for deterministic validation output.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
+        Map<Integer, Integer> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            parseCountWeightEntry(entry, minimum, maximum, result, errors);
+        }
+        if (result.isEmpty()) errors.add("rotation.selection.count-weights must contain at least one entry.");
+        return Map.copyOf(result);
+    }
+
+    private void parseCountWeightEntry(Map.Entry<?, ?> entry, int minimum,
+                                       int maximum, Map<Integer, Integer> result,
+                                       List<String> errors) {
+        String path = "rotation.selection.count-weights." + entry.getKey();
+        Integer count = modifierCount(entry.getKey(), path, errors);
+        if (count == null) return;
+        if (count < minimum || count > maximum)
+            errors.add(path + " must be between rotation.selection.minimum and maximum.");
+        int weight = integer(entry.getValue(), path, errors, 0);
+        if (weight <= 0) errors.add(path + " must be a positive integer.");
+        if (result.putIfAbsent(count, weight) != null)
+            errors.add(path + " duplicates modifier count " + count + ".");
+    }
+
+    private Integer modifierCount(Object raw, String path, List<String> errors) {
+        try {
+            return Integer.parseInt(String.valueOf(raw));
+        } catch (NumberFormatException ex) {
+            errors.add(path + " must use an integer modifier count.");
+            return null;
+        }
+    }
+
+    private Map<String, WarzoneConfig.SpecialRule> parseSpecialRules(
+            Object value, Set<String> modifiers, List<String> errors) {
+        Map<String, Object> raw = map(value, "rotation.special-rules", errors);
+        // Method-local and insertion ordered for deterministic validation output.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
+        Map<String, WarzoneConfig.SpecialRule> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : raw.entrySet()) {
+            String id = entry.getKey().trim().toLowerCase(Locale.ROOT);
+            String path = "rotation.special-rules." + id;
+            if (!ID.matcher(id).matches()) errors.add(path + " has an invalid modifier ID.");
+            if (!modifiers.contains(id)) errors.add(path + " references unknown modifier '" + id + "'.");
+            Map<String, Object> section = map(entry.getValue(), path, errors);
+            keys(section, path, Set.of("weekly-inclusion-chance-percent",
+                    "unrestricted-mace-chance-percent"), errors);
+            int inclusion = integer(section.getOrDefault("weekly-inclusion-chance-percent", 0),
+                    path + ".weekly-inclusion-chance-percent", errors, 0);
+            int unrestricted = integer(section.getOrDefault("unrestricted-mace-chance-percent", 0),
+                    path + ".unrestricted-mace-chance-percent", errors, 0);
+            percentage(inclusion, path + ".weekly-inclusion-chance-percent", errors);
+            percentage(unrestricted, path + ".unrestricted-mace-chance-percent", errors);
+            result.put(id, specialRule(inclusion, unrestricted));
+        }
+        return Map.copyOf(result);
+    }
+
+    private void percentage(int value, String path, List<String> errors) {
+        if (value < 0 || value > PERCENT_MAX)
+            errors.add(path + " must be from 0 through " + PERCENT_MAX + ".");
+    }
+
+    private WarzoneConfig.SpecialRule specialRule(int inclusion,
+                                                   int unrestricted) {
+        return new WarzoneConfig.SpecialRule(inclusion, unrestricted);
     }
 
     private Map<RestrictionTarget, WarzoneConfig.TargetPolicy> parsePolicies(
@@ -189,27 +277,38 @@ public final class WarzoneConfigLoader {
         Map<String, WarzoneConfig.Modifier> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : raw.entrySet()) {
             String id = entry.getKey();
-            String path = "modifiers." + id;
-            if (!ID.matcher(id).matches()) errors.add(path + " has an invalid ID.");
-            Map<String, Object> section = map(entry.getValue(), path, errors);
-            keys(section, path, Set.of("display-name", "description", "effects", "restrictions",
-                    "start-message", "end-message", "warning-message"), errors);
-            String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
-            String description = nonBlank(section.get("description"), path + ".description", errors);
-            Set<WarzoneConfig.Effect> effects = effectSet(section.getOrDefault("effects", List.of()),
-                    path + ".effects", errors);
-            Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions = parseRestrictions(
-                    map(section.getOrDefault("restrictions", Map.of()), path + ".restrictions", errors),
-                    path + ".restrictions", policies, errors);
-            String start = optionalString(section.get("start-message"), path + ".start-message", errors);
-            String end = optionalString(section.get("end-message"), path + ".end-message", errors);
-            String warning = optionalString(section.get("warning-message"), path + ".warning-message", errors);
-            if (effects.isEmpty() && restrictions.isEmpty())
-                errors.add(path + " must define at least one effect or restriction.");
-            result.put(id, new WarzoneConfig.Modifier(id, display, description, effects,
-                    restrictions, start, end, warning));
+            result.put(id, parseModifier(id, entry.getValue(), policies, errors));
         }
         return Map.copyOf(result);
+    }
+
+    private WarzoneConfig.Modifier parseModifier(
+            String id, Object raw,
+            Map<RestrictionTarget, WarzoneConfig.TargetPolicy> policies,
+            List<String> errors) {
+        String path = "modifiers." + id;
+        if (!ID.matcher(id).matches()) errors.add(path + " has an invalid ID.");
+        Map<String, Object> section = map(raw, path, errors);
+        keys(section, path, Set.of("enabled", "weight", "display-name", "description", "effects",
+                "restrictions", "start-message", "end-message", "warning-message"), errors);
+        boolean enabled = bool(section.getOrDefault("enabled", Boolean.TRUE),
+                path + ".enabled", errors, true);
+        int weight = integer(section.getOrDefault("weight", 10), path + ".weight", errors, 10);
+        if (enabled && weight <= 0) errors.add(path + ".weight must be a positive integer while enabled.");
+        String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
+        String description = nonBlank(section.get("description"), path + ".description", errors);
+        Set<WarzoneConfig.Effect> effects = effectSet(section.getOrDefault("effects", List.of()),
+                path + ".effects", errors);
+        Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions = parseRestrictions(
+                map(section.getOrDefault("restrictions", Map.of()), path + ".restrictions", errors),
+                path + ".restrictions", policies, errors);
+        String start = optionalString(section.get("start-message"), path + ".start-message", errors);
+        String end = optionalString(section.get("end-message"), path + ".end-message", errors);
+        String warning = optionalString(section.get("warning-message"), path + ".warning-message", errors);
+        if (effects.isEmpty() && restrictions.isEmpty())
+            errors.add(path + " must define at least one effect or restriction.");
+        return new WarzoneConfig.Modifier(id, enabled, weight, display,
+                description, effects, restrictions, start, end, warning);
     }
 
     private Map<RestrictionTarget, WarzoneConfig.Restriction> parseRestrictions(
@@ -226,8 +325,8 @@ public final class WarzoneConfigLoader {
             WarzoneConfig.TargetPolicy policy = policies.get(target);
             if (policy == null) errors.add(path + " is not declared in restriction-targets.");
             Map<String, Object> section = map(entry.getValue(), path, errors);
-            keys(section, path, Set.of("mode", "cooldown"), errors);
-            RestrictionMode mode = mode(section.get("mode"), path + ".mode", errors);
+            keys(section, path, Set.of(MODE_KEY, "cooldown"), errors);
+            RestrictionMode mode = mode(section.get(MODE_KEY), path + ".mode", errors);
             Duration cooldown = section.containsKey("cooldown")
                     ? duration(section.get("cooldown"), path + ".cooldown", errors) : null;
             if (mode == RestrictionMode.DISABLED && cooldown != null)
@@ -399,7 +498,8 @@ public final class WarzoneConfigLoader {
     }
 
     private int integer(Object value, String path, List<String> errors, int fallback) {
-        if (value instanceof Number number) return number.intValue();
+        if (value instanceof Number number && number.doubleValue() == Math.rint(number.doubleValue()))
+            return number.intValue();
         errors.add(path + " must be an integer.");
         return fallback;
     }

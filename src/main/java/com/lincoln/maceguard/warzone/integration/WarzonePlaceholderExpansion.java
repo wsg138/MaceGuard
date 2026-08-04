@@ -11,6 +11,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
@@ -36,7 +37,16 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
         var active = live.rotations().active();
         var remaining = live.rotations().remaining();
         boolean scopeActive = live.gameplayScopeActive();
-        return switch (params.toLowerCase(java.util.Locale.ROOT)) {
+        String parameter = params.toLowerCase(Locale.ROOT);
+        String modifierValue = WarzoneStatusValues.resolveModifier(
+                parameter, live.config().modifiers(), active);
+        if (modifierValue != null) {
+            return parameter.endsWith("_id")
+                    ? modifierValue : live.messages().plain(modifierValue);
+        }
+        String statusValue = WarzoneStatusValues.resolve(parameter, scopeActive, active);
+        if (statusValue != null) return statusValue;
+        return switch (parameter) {
             case "current_meta", "current_modifiers" -> live.messages().plain(active.displayName());
             case "current_meta_id", "current_modifier_ids" -> active.id();
             case "description" -> live.messages().plain(active.description());
@@ -58,10 +68,6 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
             case "restrictions" -> scopeActive ? all(active) : "None";
             case "gameplay_scope_active" -> Boolean.toString(scopeActive);
             case "cobwebs_allowed" -> Boolean.toString(scopeActive && active.cobwebsAllowed());
-            case "elytra_gliding_allowed" -> Boolean.toString(
-                    scopeActive && active.elytraGlidingAllowed());
-            case "firework_boost_blocked" -> Boolean.toString(
-                    scopeActive && active.fireworkBoostBlocked());
             case "cobweb_clear_time" -> DurationFormatter.words(live.config().cobwebs().clearAfter());
             case "inside_effective_scope" -> Boolean.toString(player instanceof Player online
                     && live.appliesAt(online.getLocation()));

@@ -1,6 +1,6 @@
 # Weekly, calendar-based, composable warzone modifiers.
 # Fresh installs remain inactive until the configured WorldGuard scope passes /warzone validate.
-config-version: 4
+config-version: 5
 enabled: false
 
 region:
@@ -16,10 +16,18 @@ rotation:
     time: "04:00"
     timezone: America/Indiana/Indianapolis
   selection:
-    mode: RANDOM_MODIFIERS
+    mode: WEIGHTED_RANDOM_MODIFIERS
     minimum: 1
     maximum: 3
     prevent-identical-repeat: true
+    count-weights:
+      1: 35
+      2: 45
+      3: 20
+  special-rules:
+    elytra-no-rockets:
+      weekly-inclusion-chance-percent: 8
+      unrestricted-mace-chance-percent: 90
   warning-times:
     - 1h
     - 30m
@@ -43,6 +51,14 @@ restriction-targets:
     can-disable: true
     can-cooldown: true
     maximum-cooldown: 60s
+  ENDER_PEARL:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  WIND_CHARGE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
   SPEAR_LUNGE:
     can-disable: true
     can-cooldown: false
@@ -51,9 +67,19 @@ conflict-groups:
   mace-mode:
     - mace-disabled
     - mace-cooldown
+  ender-pearl-mode:
+    - ender-pearl-disabled
+    - ender-pearl-cooldown-5
+    - ender-pearl-cooldown-10
+  wind-charge-mode:
+    - wind-charge-disabled
+    - wind-charge-cooldown-5
+    - wind-charge-cooldown-10
 
 modifiers:
   cobwebs:
+    enabled: true
+    weight: 10
     display-name: "<white>Cobwebs"
     description: "<gray>Temporary cobweb placement is available in the effective warzone."
     effects:
@@ -63,6 +89,8 @@ modifiers:
     end-message: "<gray>The weekly warzone cobweb modifier has ended."
 
   no-lunge:
+    enabled: true
+    weight: 8
     display-name: "<red>No Lunge"
     description: "<gray>The Spear Lunge effect is disabled without blocking normal spear use."
     effects: []
@@ -70,8 +98,11 @@ modifiers:
       SPEAR_LUNGE:
         mode: DISABLED
     start-message: "<red>Spear Lunge is disabled in the warzone this week."
+    end-message: "<gray>Spear Lunge is allowed in the warzone again."
 
   mace-disabled:
+    enabled: true
+    weight: 4
     display-name: "<dark_red>No Maces"
     description: "<gray>Mace use is disabled in the effective warzone."
     effects: []
@@ -79,8 +110,11 @@ modifiers:
       MACE:
         mode: DISABLED
     start-message: "<dark_red>Maces are disabled in the warzone this week."
+    end-message: "<gray>The No Maces modifier has ended."
 
   mace-cooldown:
+    enabled: true
+    weight: 8
     display-name: "<gold>Mace Cooldown"
     description: "<gray>Successful mace attacks receive a ten-second cooldown."
     effects: []
@@ -89,11 +123,91 @@ modifiers:
         mode: COOLDOWN
         cooldown: 10s
     start-message: "<gold>Successful mace attacks now have a ten-second warzone cooldown."
+    end-message: "<gray>The weekly Mace cooldown has ended."
+
+  ender-pearl-disabled:
+    enabled: true
+    weight: 3
+    display-name: "<dark_purple>No Ender Pearls"
+    description: "<gray>Ender Pearls are disabled in the effective warzone."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: DISABLED
+    start-message: "<dark_purple>Ender Pearls are disabled in the warzone this week."
+    end-message: "<gray>Ender Pearls are allowed in the warzone again."
+
+  ender-pearl-cooldown-5:
+    enabled: true
+    weight: 9
+    display-name: "<light_purple>5s Pearl Cooldown"
+    description: "<gray>Successful Ender Pearls receive a five-second cooldown."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: COOLDOWN
+        cooldown: 5s
+    start-message: "<light_purple>Successful Ender Pearls now have a five-second warzone cooldown."
+    end-message: "<gray>The five-second Ender Pearl cooldown has ended."
+
+  ender-pearl-cooldown-10:
+    enabled: true
+    weight: 6
+    display-name: "<light_purple>10s Pearl Cooldown"
+    description: "<gray>Successful Ender Pearls receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<light_purple>Successful Ender Pearls now have a ten-second warzone cooldown."
+    end-message: "<gray>The ten-second Ender Pearl cooldown has ended."
+
+  wind-charge-disabled:
+    enabled: true
+    weight: 3
+    display-name: "<blue>No Wind Charges"
+    description: "<gray>Wind Charges are disabled in the effective warzone."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: DISABLED
+    start-message: "<blue>Wind Charges are disabled in the warzone this week."
+    end-message: "<gray>Wind Charges are allowed in the warzone again."
+
+  wind-charge-cooldown-5:
+    enabled: true
+    weight: 9
+    display-name: "<aqua>5s Wind Charge Cooldown"
+    description: "<gray>Successful Wind Charges receive a five-second cooldown."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: COOLDOWN
+        cooldown: 5s
+    start-message: "<aqua>Successful Wind Charges now have a five-second warzone cooldown."
+    end-message: "<gray>The five-second Wind Charge cooldown has ended."
+
+  wind-charge-cooldown-10:
+    enabled: true
+    weight: 6
+    display-name: "<aqua>10s Wind Charge Cooldown"
+    description: "<gray>Successful Wind Charges receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<aqua>Successful Wind Charges now have a ten-second warzone cooldown."
+    end-message: "<gray>The ten-second Wind Charge cooldown has ended."
 
   elytra-no-rockets:
+    enabled: true
+    weight: 1
     display-name: "<aqua>Elytra, No Rockets"
     description: "<gray>Elytra gliding is allowed, but actual firework boosting is blocked."
     effects:
       - ELYTRA_NO_ROCKETS
     restrictions: {}
     start-message: "<aqua>Elytra gliding is active in the warzone this week; firework boosting is disabled."
+    end-message: "<gray>The weekly Elytra modifier has ended."
