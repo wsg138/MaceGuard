@@ -25,6 +25,8 @@ Emergency rollback is intentionally different from healthy TTL cleanup:
 - A failed restoration remains tracked and is retried.
 - A changed physical block is terminal and is never overwritten.
 
+Recovery and journal snapshots use ordered `LinkedHashMap` copies confined to the writer or Bukkit thread that creates them. They are not shared mutable maps; the published recovery state is immutable.
+
 If the emergency journal itself cannot be written, MaceGuard logs the failure and continues bounded physical rollback for as long as the runtime remains available. It never treats the failed journal write as permission to discard in-memory recovery state.
 
 ## Reload and shutdown
