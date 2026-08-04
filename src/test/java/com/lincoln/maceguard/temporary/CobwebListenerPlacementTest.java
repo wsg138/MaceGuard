@@ -91,9 +91,10 @@ class CobwebListenerPlacementTest {
         when(placed.getZ()).thenReturn(0);
         when(placed.getBlockData()).thenReturn(cobwebData);
 
+        BlockData airData = data(Material.AIR, "minecraft:air");
         BlockState replaced = mock(BlockState.class);
         when(replaced.getType()).thenReturn(Material.AIR);
-        when(replaced.getBlockData()).thenReturn(data(Material.AIR, "minecraft:air"));
+        when(replaced.getBlockData()).thenReturn(airData);
 
         BlockPlaceEvent event = mock(BlockPlaceEvent.class);
         when(event.getPlayer()).thenReturn(player);
