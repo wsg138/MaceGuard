@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -76,7 +77,7 @@ class CobwebListenerPlacementTest {
 
         verify(event).setCancelled(true);
         verify(harness.temporary, never())
-                .track(any(Block.class), anyString(), anyLong(), any(Boolean.class));
+                .track(any(Block.class), anyString(), anyLong(), anyBoolean());
     }
 
     @Test
@@ -91,7 +92,7 @@ class CobwebListenerPlacementTest {
         verify(event, never()).setCancelled(true);
         verify(placed, never()).setBlockData(any(BlockData.class), eq(false));
         verify(harness.temporary, never())
-                .track(any(Block.class), anyString(), anyLong(), any(Boolean.class));
+                .track(any(Block.class), anyString(), anyLong(), anyBoolean());
     }
 
     private Harness harness(boolean trackResult, boolean warzoneApplies) {
