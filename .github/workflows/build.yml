@@ -27,6 +27,15 @@ jobs:
             !target/**
           include-hidden-files: true
           retention-days: 1
+      - name: Upload temporary Maven cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-cache
+          path: |
+            ~/.m2/wrapper/dists/**
+            ~/.m2/repository/**
+          include-hidden-files: true
+          retention-days: 1
       - uses: actions/upload-artifact@v4
         with:
           name: MaceGuard
