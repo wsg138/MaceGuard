@@ -57,7 +57,7 @@ public final class TemporaryBlockService implements Listener {
     private volatile Map<String, TemporaryBlock> emergencyRecovery = Map.of();
     private volatile boolean persistenceHealthy = true;
     private volatile boolean emergencyJournalHealthy = true;
-    private volatile boolean emergencyJournalCommitted;
+    private volatile boolean emergencyJournalDirty;
     private volatile boolean rollbackScheduled;
     private volatile boolean persistenceFailureLogged;
     private volatile boolean emergencyJournalFailureLogged;
@@ -117,7 +117,6 @@ public final class TemporaryBlockService implements Listener {
             Map<String, TemporaryBlock> recovered = emergencyRepository.load();
             if (recovered.isEmpty()) return;
             emergencyRecovery = Map.copyOf(recovered);
-            emergencyJournalCommitted = true;
             tracked.putAll(recovered);
             plugin.getLogger().warning("Loaded " + recovered.size()
                     + " temporary blocks from the emergency rollback journal; "
@@ -154,7 +153,12 @@ public final class TemporaryBlockService implements Listener {
     public int emergencyRecoveryCount() { return emergencyRecovery.size(); }
 
     public boolean acceptingNewTemporaryBlocks() {
-        return !shuttingDown && persistenceHealthy && emergencyRecovery.isEmpty();
+        return !shuttingDown && persistenceHealthy && emergencyJournalHealthy
+                && !emergencyJournalDirty && emergencyRecovery.isEmpty();
+    }
+
+    private boolean emergencyRecoveryPending() {
+        return emergencyJournalDirty || !emergencyRecovery.isEmpty();
     }
 
     public int countMatching(Predicate<TemporaryBlock> selected) {
@@ -216,7 +220,7 @@ public final class TemporaryBlockService implements Listener {
     public void shutdown() {
         shuttingDown = true;
         if (ticker != null) ticker.cancel();
-        if (persistenceHealthy && emergencyRecovery.isEmpty()) {
+        if (persistenceHealthy && !emergencyRecoveryPending()) {
             persist();
             return;
         }
@@ -229,7 +233,7 @@ public final class TemporaryBlockService implements Listener {
      * receives one additional bounded physical rollback pass before runtime memory is discarded.
      */
     public void finishShutdownRecovery() {
-        if (persistenceHealthy && emergencyRecovery.isEmpty()) return;
+        if (persistenceHealthy && !emergencyRecoveryPending()) return;
         rollbackUndurable();
         logEmergencyPendingIfNeeded(true);
     }
@@ -249,6 +253,7 @@ public final class TemporaryBlockService implements Listener {
             TemporaryBlock entry = trackedEntry.getValue();
             if (!selected.test(entry)) continue;
             affected++;
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
             World world = world(entry);
             if (world == null) {
                 if (!validWorldUuid(entry)) {
@@ -288,7 +293,9 @@ public final class TemporaryBlockService implements Listener {
         int removed = 0;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
+            TemporaryBlock entry = trackedEntry.getValue();
             World world = world(entry);
             if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
@@ -309,7 +316,9 @@ public final class TemporaryBlockService implements Listener {
         int removed = 0;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
+            TemporaryBlock entry = trackedEntry.getValue();
             if (!selected.test(entry)) continue;
             World world = world(entry);
             if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
@@ -328,7 +337,9 @@ public final class TemporaryBlockService implements Listener {
         int removed = 0;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
+            TemporaryBlock entry = trackedEntry.getValue();
             if (!selected.test(entry)) continue;
             remove(iterator, entry, TerminalReason.EXPLICIT_DISCARD, currentBlockData(entry));
             removed++;
@@ -339,7 +350,6 @@ public final class TemporaryBlockService implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChunkLoad(ChunkLoadEvent event) {
-        if (!emergencyRecovery.isEmpty()) rollbackUndurable();
         processAvailable(event.getWorld(), event.getChunk().getX(), event.getChunk().getZ(),
                 System.currentTimeMillis());
     }
@@ -353,7 +363,7 @@ public final class TemporaryBlockService implements Listener {
     private void expire() { expireNow(System.currentTimeMillis()); }
 
     void expireNow(long now) {
-        if (!emergencyRecovery.isEmpty()) rollbackUndurable();
+        if (emergencyRecoveryPending()) rollbackUndurable();
         if (expireEligibleEntries(now)) persist();
     }
 
@@ -361,7 +371,9 @@ public final class TemporaryBlockService implements Listener {
         boolean changed = false;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
+            TemporaryBlock entry = trackedEntry.getValue();
             if (isDue(entry, now)) changed |= expireEntry(iterator, entry);
         }
         return changed;
@@ -398,6 +410,7 @@ public final class TemporaryBlockService implements Listener {
     }
 
     void processAvailable(World world, int chunkX, int chunkZ, long now) {
+        if (emergencyRecoveryPending()) rollbackUndurable();
         if (restoreAvailableEntries(world, chunkX, chunkZ, now)) persist();
     }
 
@@ -405,7 +418,9 @@ public final class TemporaryBlockService implements Listener {
         boolean changed = false;
         var iterator = tracked.entrySet().iterator();
         while (iterator.hasNext()) {
-            TemporaryBlock entry = iterator.next().getValue();
+            Map.Entry<String, TemporaryBlock> trackedEntry = iterator.next();
+            if (emergencyRecovery.containsKey(trackedEntry.getKey())) continue;
+            TemporaryBlock entry = trackedEntry.getValue();
             if (availableInChunk(entry, world, chunkX, chunkZ, now))
                 changed |= restoreAndRemove(iterator, world, entry, restorationReason(entry));
         }
@@ -578,20 +593,22 @@ public final class TemporaryBlockService implements Listener {
     private void captureUndurableEntries(Map<String, TemporaryBlock> latestSnapshot) {
         Map<String, TemporaryBlock> recovery = new LinkedHashMap<>(emergencyRecovery);
         for (Map.Entry<String, TemporaryBlock> entry : latestSnapshot.entrySet()) {
-            if (!durableSnapshot.containsKey(entry.getKey()))
-                recovery.put(entry.getKey(), entry.getValue());
+            TemporaryBlock durable = durableSnapshot.get(entry.getKey());
+            if (!entry.getValue().equals(durable)) recovery.put(entry.getKey(), entry.getValue());
         }
         emergencyRecovery = Map.copyOf(recovery);
+        emergencyJournalDirty = true;
     }
 
     private boolean checkpointEmergencyJournal() {
         try {
-            emergencyRepository.save(emergencyRecovery);
+            emergencyRepository.saveAtomically(emergencyRecovery);
             emergencyJournalHealthy = true;
-            emergencyJournalCommitted = !emergencyRecovery.isEmpty();
+            emergencyJournalDirty = false;
             return true;
         } catch (IOException | RuntimeException ex) {
             emergencyJournalHealthy = false;
+            emergencyJournalDirty = true;
             logEmergencyJournalFailure("Emergency temporary-block journal could not be committed",
                     ex);
             return false;
@@ -630,7 +647,16 @@ public final class TemporaryBlockService implements Listener {
 
     private RecoveryPass beginRecoveryPass() {
         Map<String, TemporaryBlock> recovery = emergencyRecovery;
-        if (recovery.isEmpty()) return null;
+        if (recovery.isEmpty()) {
+            if (emergencyJournalDirty) {
+                if (checkpointEmergencyJournal())
+                    plugin.getLogger().info("Emergency temporary-block journal checkpoint "
+                            + "completed; new placements may resume when persistence is healthy.");
+                else
+                    logEmergencyPendingIfNeeded(false);
+            }
+            return null;
+        }
         logEmergencyRecoveryStarted(recovery.size());
         return createRecoveryPass(recovery);
     }
@@ -686,23 +712,20 @@ public final class TemporaryBlockService implements Listener {
     }
 
     private void finishRecoveryPass(RecoveryPass pass) {
-        emergencyRecovery = Map.copyOf(pass.remaining);
+        Map<String, TemporaryBlock> remaining = Map.copyOf(pass.remaining);
+        if (!remaining.equals(pass.originalRecovery)) emergencyJournalDirty = true;
+        emergencyRecovery = remaining;
         if (pass.removed > 0 && persistenceHealthy) persist();
-        if (!pass.remaining.isEmpty()) {
+        if (emergencyJournalDirty && !checkpointEmergencyJournal()) {
             logEmergencyPendingIfNeeded(false);
             return;
         }
-        clearCompletedEmergencyJournal(pass.originalRecovery);
-    }
-
-    private void clearCompletedEmergencyJournal(Map<String, TemporaryBlock> originalRecovery) {
-        if (checkpointEmergencyJournal()) {
+        if (remaining.isEmpty()) {
             plugin.getLogger().info("Emergency temporary-block rollback completed; "
                     + "the recovery journal is clear.");
-            return;
+        } else {
+            logEmergencyPendingIfNeeded(false);
         }
-        if (emergencyJournalCommitted) emergencyRecovery = originalRecovery;
-        logEmergencyPendingIfNeeded(false);
     }
 
     // Chunk insertion is isolated so the bounded scan loop performs no direct allocations.
@@ -791,11 +814,18 @@ public final class TemporaryBlockService implements Listener {
 
     private void logEmergencyPendingIfNeeded(boolean force) {
         int pending = emergencyRecovery.size();
-        if (pending == 0) return;
+        if (pending == 0 && !emergencyJournalDirty) return;
         long now = System.currentTimeMillis();
         if (!force && now - lastEmergencyPendingLog < EMERGENCY_PENDING_LOG_INTERVAL_MILLIS) return;
         lastEmergencyPendingLog = now;
-        String journal = emergencyJournalHealthy ? "durably journaled" : "not journaled";
+        if (pending == 0) {
+            plugin.getLogger().warning("Emergency temporary-block physical rollback is complete, "
+                    + "but the recovery journal checkpoint remains pending; new temporary blocks "
+                    + "remain disabled.");
+            return;
+        }
+        String journal = emergencyJournalHealthy && !emergencyJournalDirty
+                ? "durably journaled" : "journal checkpoint pending";
         plugin.getLogger().warning("Emergency temporary-block rollback remains pending for "
                 + pending + " entr" + (pending == 1 ? "y" : "ies") + " (" + journal
                 + "). Worlds or chunks will be retried without permanent force-loading.");
@@ -817,9 +847,8 @@ public final class TemporaryBlockService implements Listener {
         Map<String, TemporaryBlock> remaining = new LinkedHashMap<>(emergencyRecovery);
         remaining.remove(entryKey);
         emergencyRecovery = Map.copyOf(remaining);
-        if (remaining.isEmpty() && !checkpointEmergencyJournal()
-                && emergencyJournalCommitted)
-            emergencyRecovery = Map.of(entryKey, entry);
+        emergencyJournalDirty = true;
+        if (!checkpointEmergencyJournal()) logEmergencyPendingIfNeeded(false);
     }
 
     private void recordTrace(TemporaryBlock entry, String reason,
