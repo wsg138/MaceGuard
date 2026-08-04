@@ -79,10 +79,13 @@ class TemporaryBlockEmergencyJournalCheckpointTest {
 
         assertEquals(3, first.service.emergencyRecoveryCount());
         assertEquals(3, first.emergency.load().size());
-        assertEquals(Material.AIR, blocks.get(0).material);
-        assertEquals(Material.AIR, blocks.get(1).material);
+        assertEquals(2, blocks.stream().filter(block -> block.material == Material.AIR).count());
+        BlockHarness completed = blocks.stream()
+                .filter(block -> block.material == Material.AIR)
+                .findFirst()
+                .orElseThrow();
 
-        blocks.get(0).set(Material.COBWEB, COBWEB_DATA);
+        completed.set(Material.COBWEB, COBWEB_DATA);
         TemporaryBlockService restarted = service(first.primary, first.emergency, Runnable::run);
         assertEquals(3, restarted.count());
         assertEquals(3, restarted.emergencyRecoveryCount());
@@ -90,8 +93,8 @@ class TemporaryBlockEmergencyJournalCheckpointTest {
         restarted.rollbackUndurable();
         restarted.rollbackUndurable();
 
-        assertEquals(Material.COBWEB, blocks.get(0).material);
-        assertTrue(blocks.subList(1, blocks.size()).stream()
+        assertEquals(Material.COBWEB, completed.material);
+        assertTrue(blocks.stream().filter(block -> block != completed)
                 .allMatch(block -> block.material == Material.AIR));
         assertEquals(0, restarted.count());
         assertEquals(0, restarted.emergencyRecoveryCount());
