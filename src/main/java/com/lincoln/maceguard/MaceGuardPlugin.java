@@ -111,7 +111,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
                 io, settings.temporary().maxTrackedBlocks());
         resets.onSuccessfulReset((world, regionId) ->
                 regions.cuboid(world, regionId).ifPresent(region ->
-                        temporary.discardMatching(entry ->
+                        temporary.discardResetRestored(entry ->
                                 entry.worldUuid().equals(world.getUID().toString())
                                         && region.contains(entry.x(), entry.y(), entry.z()))));
         WarzoneModule warzone = new WarzoneModule(this, temporary, io, policyResolver);
@@ -154,6 +154,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
+            runtime.temporaryBlocks().rollbackUndurable();
         }
         durabilityListener = null;
         runtime = null;
