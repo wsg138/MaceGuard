@@ -23,6 +23,33 @@ jobs:
           path: target/MaceGuard.jar
           if-no-files-found: error
           retention-days: 14
+      - name: Export current Codacy findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues?status=new&limit=1000'
+          curl --fail --silent --show-error --location \
+            --header 'Accept: application/json' \
+            "$url" \
+            --output codacy-current.json
+          jq -e '.analyzed == true' codacy-current.json >/dev/null
+          jq -r '.data[] | [
+            (.commitIssue.toolInfo.name // ""),
+            (.commitIssue.patternInfo.id // ""),
+            (.commitIssue.patternInfo.severityLevel // .commitIssue.patternInfo.level // ""),
+            (.commitIssue.patternInfo.category // ""),
+            (.commitIssue.filePath // ""),
+            ((.commitIssue.lineNumber // 0) | tostring),
+            (.commitIssue.message // .commitIssue.patternInfo.title // "")
+          ] | @tsv' codacy-current.json | sort > codacy-current.tsv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codacy-current-issues
+          path: |
+            codacy-current.json
+            codacy-current.tsv
+          if-no-files-found: error
+          retention-days: 1
 
   publish-latest:
     if: github.event_name == 'push'
