@@ -12,6 +12,8 @@ final class WarzoneStatusValues {
     private static final RestrictionTarget MACE = target("MACE");
     private static final RestrictionTarget ENDER_PEARL = target("ENDER_PEARL");
     private static final RestrictionTarget WIND_CHARGE = target("WIND_CHARGE");
+    private static final RestrictionTarget SPEAR = RestrictionTarget.SPEAR;
+    private static final RestrictionTarget SPEAR_DAMAGE = RestrictionTarget.SPEAR_DAMAGE;
     private static final Pattern MODIFIER_VALUE = Pattern.compile(
             "^modifier_([1-3])(?:_(id|description))?$");
 
@@ -57,6 +59,8 @@ final class WarzoneStatusValues {
             case "mace_status" -> status(scopeActive, active, MACE);
             case "ender_pearl_status" -> status(scopeActive, active, ENDER_PEARL);
             case "wind_charge_status" -> status(scopeActive, active, WIND_CHARGE);
+            case "spear_status" -> status(scopeActive, active, SPEAR);
+            case "spear_damage_status" -> status(scopeActive, active, SPEAR_DAMAGE);
             case "spear_lunge_status" -> status(
                     scopeActive, active, RestrictionTarget.SPEAR_LUNGE);
             case "elytra_status" -> elytraStatus(scopeActive, active);
@@ -80,8 +84,14 @@ final class WarzoneStatusValues {
                     disabled(scopeActive, active, WIND_CHARGE));
             case "wind_charge_cooldown_seconds" -> Long.toString(
                     cooldownSeconds(scopeActive, active, WIND_CHARGE));
+            case "spear_disabled" -> Boolean.toString(
+                    disabled(scopeActive, active, SPEAR));
+            case "spear_damage_cooldown_seconds" -> Long.toString(
+                    cooldownSeconds(scopeActive, active, SPEAR_DAMAGE));
             case "spear_lunge_disabled" -> Boolean.toString(
                     disabled(scopeActive, active, RestrictionTarget.SPEAR_LUNGE));
+            case "spear_lunge_cooldown_seconds" -> Long.toString(
+                    cooldownSeconds(scopeActive, active, RestrictionTarget.SPEAR_LUNGE));
             default -> null;
         };
     }

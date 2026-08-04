@@ -7,6 +7,7 @@ import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Material;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.EntityType;
@@ -30,10 +31,14 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.projectiles.BlockProjectileSource;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -45,14 +50,20 @@ public final class ItemRestrictionListener implements Listener {
     private final WarzoneMessageService messages;
     private final Supplier<WarzoneConfig.ActiveSet> activeSet;
     private final LungeVelocityGate lungeGate;
+    private final NamespacedKey spearOwnerKey;
+    private final NamespacedKey spearMaterialKey;
+    private final NamespacedKey spearSourceInsideKey;
+    private final NamespacedKey spearBypassKey;
     private final ProjectileLaunchTracker projectileLaunches =
             new ProjectileLaunchTracker();
     private final AutomatedProjectileLaunchTracker automatedLaunches =
             new AutomatedProjectileLaunchTracker();
+    private final SpearProjectileTracker spearProjectiles = new SpearProjectileTracker();
     private final Map<UUID, RestrictionDecision> acceptedLunges = new HashMap<>();
     private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
-    public ItemRestrictionListener(RestrictionService restrictions, CooldownService cooldowns,
+    public ItemRestrictionListener(JavaPlugin plugin, RestrictionService restrictions,
+                                   CooldownService cooldowns,
                                    VisualCooldownService visualCooldowns, WarzoneRegionService region,
                                    WarzoneMessageService messages,
                                    Supplier<WarzoneConfig.ActiveSet> activeSet,
@@ -64,6 +75,10 @@ public final class ItemRestrictionListener implements Listener {
         this.messages = messages;
         this.activeSet = activeSet;
         this.lungeGate = lungeGate;
+        this.spearOwnerKey = new NamespacedKey(plugin, "spear-owner");
+        this.spearMaterialKey = new NamespacedKey(plugin, "spear-material");
+        this.spearSourceInsideKey = new NamespacedKey(plugin, "spear-source-inside");
+        this.spearBypassKey = new NamespacedKey(plugin, "spear-bypass");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -88,11 +103,21 @@ public final class ItemRestrictionListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onAcceptedPlayerLaunch(PlayerLaunchProjectileEvent event) {
-        RestrictionDecision decision = materialDecision(event.getPlayer(), event.getItemStack().getType(), false);
+        Material material = event.getItemStack().getType();
+        RestrictionDecision decision = materialDecision(event.getPlayer(), material, false);
+        long now = System.nanoTime();
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.PROJECTILE))
             projectileLaunches.record(event.getProjectile().getUniqueId(),
-                    event.getPlayer().getUniqueId(), decision,
-                    System.nanoTime() + 5_000_000_000L);
+                    event.getPlayer().getUniqueId(), decision, now + 5_000_000_000L);
+        if (RestrictionTarget.isSpear(material)) {
+            boolean sourceInside = region.contains(event.getPlayer().getLocation());
+            boolean bypass = bypass(event.getPlayer());
+            spearProjectiles.record(event.getProjectile().getUniqueId(),
+                    event.getPlayer().getUniqueId(), material, sourceInside, bypass,
+                    now + 120_000_000_000L);
+            persistSpearAttempt(event.getProjectile(), event.getPlayer().getUniqueId(),
+                    material, sourceInside, bypass);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -167,23 +192,91 @@ public final class ItemRestrictionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDirectDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player player)) return;
-        RestrictionDecision decision = materialDecision(player,
-                player.getInventory().getItemInMainHand().getType(),
-                region.contains(event.getEntity().getLocation()));
-        if (!decision.denied()) return;
+        if (event.getDamager() instanceof Player player) {
+            handlePlayerDamage(event, player);
+            return;
+        }
+        if (!(event.getDamager() instanceof Projectile projectile)) return;
+        spearAttempt(projectile, System.nanoTime())
+                .ifPresent(attempt -> handleSpearProjectileDamage(event, projectile, attempt));
+    }
+
+    private void handlePlayerDamage(EntityDamageByEntityEvent event, Player player) {
+        Material material = player.getInventory().getItemInMainHand().getType();
+        boolean targetInside = region.contains(event.getEntity().getLocation());
+        RestrictionDecision itemDecision = materialDecision(player, material, targetInside);
+        if (itemDecision.denied()) {
+            event.setCancelled(true);
+            messages.denial(player, itemDecision);
+            return;
+        }
+        if (!RestrictionTarget.isSpear(material)) return;
+        RestrictionDecision damageDecision = restrictions.spearDamage(player.getUniqueId(), bypass(player),
+                region.contains(player.getLocation()), targetInside);
+        if (!damageDecision.denied()) return;
         event.setCancelled(true);
-        messages.denial(player, decision);
+        messages.denial(player, damageDecision);
+    }
+
+    private void handleSpearProjectileDamage(EntityDamageByEntityEvent event, Projectile projectile,
+                                             SpearProjectileTracker.Attempt attempt) {
+        Player player = projectile.getServer().getPlayer(attempt.playerId());
+        boolean bypass = attempt.bypass() || player != null && bypass(player);
+        boolean targetInside = region.contains(event.getEntity().getLocation());
+        // The launch itself may have started a whole-spear cooldown. That cooldown must not
+        // cancel the damage from the already-authorized projectile, but a newly active DISABLED
+        // restriction must still stop an in-flight spear from dealing damage.
+        RestrictionDecision itemDecision = restrictions.materialDisableOnly(
+                attempt.playerId(), attempt.material(), bypass, attempt.sourceInside(), targetInside);
+        RestrictionDecision damageDecision = restrictions.spearDamage(attempt.playerId(), bypass,
+                attempt.sourceInside(), targetInside);
+        RestrictionDecision denial = itemDecision.denied() ? itemDecision
+                : damageDecision.denied() ? damageDecision : null;
+        if (denial == null) return;
+        event.setCancelled(true);
+        spearProjectiles.remove(projectile.getUniqueId(), System.nanoTime());
+        clearSpearAttempt(projectile);
+        if (player != null) messages.denial(player, denial);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSuccessfulDirectDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player player) || event.getFinalDamage() <= 0) return;
-        RestrictionDecision decision = materialDecision(player,
-                player.getInventory().getItemInMainHand().getType(),
-                region.contains(event.getEntity().getLocation()));
-        if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.DIRECT_ATTACK))
-            completeSuccess(player.getUniqueId(), player, decision);
+        if (event.getFinalDamage() <= 0) return;
+        if (event.getDamager() instanceof Player player) {
+            completePlayerDamage(player, event);
+            return;
+        }
+        if (!(event.getDamager() instanceof Projectile projectile)) return;
+        spearAttempt(projectile, System.nanoTime())
+                .ifPresent(attempt -> {
+                    spearProjectiles.remove(projectile.getUniqueId(), System.nanoTime());
+                    clearSpearAttempt(projectile);
+                    completeSpearProjectileDamage(projectile, event, attempt);
+                });
+    }
+
+    private void completePlayerDamage(Player player, EntityDamageByEntityEvent event) {
+        Material material = player.getInventory().getItemInMainHand().getType();
+        boolean targetInside = region.contains(event.getEntity().getLocation());
+        RestrictionDecision itemDecision = materialDecision(player, material, targetInside);
+        if (itemDecision.startsCooldownAfterSuccess()
+                && supports(itemDecision.target(), CooldownCapability.DIRECT_ATTACK))
+            completeSuccess(player.getUniqueId(), player, itemDecision);
+        if (!RestrictionTarget.isSpear(material)) return;
+        RestrictionDecision damageDecision = restrictions.spearDamage(player.getUniqueId(), bypass(player),
+                region.contains(player.getLocation()), targetInside);
+        if (damageDecision.startsCooldownAfterSuccess())
+            completeSuccess(player.getUniqueId(), player, damageDecision);
+    }
+
+    private void completeSpearProjectileDamage(Projectile projectile, EntityDamageByEntityEvent event,
+                                               SpearProjectileTracker.Attempt attempt) {
+        Player player = projectile.getServer().getPlayer(attempt.playerId());
+        boolean bypass = attempt.bypass() || player != null && bypass(player);
+        RestrictionDecision damageDecision = restrictions.spearDamage(attempt.playerId(), bypass,
+                attempt.sourceInside(), region.contains(event.getEntity().getLocation()));
+        if (damageDecision.startsCooldownAfterSuccess())
+            completeSuccess(attempt.playerId(), player, damageDecision);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -207,6 +300,10 @@ public final class ItemRestrictionListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onProjectileLaunchFinalized(ProjectileLaunchEvent event) {
+        if (event.isCancelled()) {
+            spearProjectiles.remove(event.getEntity().getUniqueId(), System.nanoTime());
+            clearSpearAttempt(event.getEntity());
+        }
         projectileLaunches.finalizeLaunch(event.getEntity().getUniqueId(),
                         event.isCancelled())
                 .ifPresent(completion -> completeSuccess(completion.playerId(),
@@ -276,7 +373,14 @@ public final class ItemRestrictionListener implements Listener {
         var attempt = lungeGate.consumeIfLunge(player.getUniqueId(), vec(event.getVelocity()));
         if (attempt.isEmpty()) return;
 
-        RestrictionDecision itemDecision = attempt.get().itemDecision();
+        boolean actorInside = attempt.get().actorInside() || region.contains(player.getLocation());
+        boolean bypass = bypass(player);
+        RestrictionDecision currentDisable = restrictions.materialDisableOnly(
+                player.getUniqueId(), Material.valueOf(attempt.get().materialName()), bypass,
+                actorInside, attempt.get().targetInside());
+        RestrictionDecision itemDecision = currentDisable.denied()
+                ? currentDisable : bypass ? RestrictionDecision.unrestricted()
+                : attempt.get().itemDecision();
         if (itemDecision.denied()) {
             event.setCancelled(true);
             acceptedLunges.remove(player.getUniqueId());
@@ -284,8 +388,7 @@ public final class ItemRestrictionListener implements Listener {
             return;
         }
 
-        boolean actorInside = attempt.get().actorInside() || region.contains(player.getLocation());
-        RestrictionDecision decision = restrictions.lunge(player.getUniqueId(), bypass(player),
+        RestrictionDecision decision = restrictions.lunge(player.getUniqueId(), bypass,
                 actorInside, attempt.get().targetInside());
         if (decision.denied()) {
             event.setCancelled(true);
@@ -344,6 +447,7 @@ public final class ItemRestrictionListener implements Listener {
         acceptedLunges.clear();
         projectileLaunches.clear();
         automatedLaunches.clear();
+        spearProjectiles.clear();
         visualInsideState.clear();
     }
 
@@ -353,8 +457,50 @@ public final class ItemRestrictionListener implements Listener {
         long now = System.nanoTime();
         projectileLaunches.cleanup(now);
         automatedLaunches.cleanup(org.bukkit.Bukkit.getCurrentTick(), now);
+        spearProjectiles.cleanup(now);
         lungeGate.cleanup();
         visualCooldowns.cleanup();
+    }
+
+    private Optional<SpearProjectileTracker.Attempt> spearAttempt(Projectile projectile,
+                                                                    long nowNanos) {
+        Optional<SpearProjectileTracker.Attempt> tracked =
+                spearProjectiles.find(projectile.getUniqueId(), nowNanos);
+        if (tracked.isPresent()) return tracked;
+        PersistentDataContainer data = projectile.getPersistentDataContainer();
+        String owner = data.get(spearOwnerKey, PersistentDataType.STRING);
+        String materialName = data.get(spearMaterialKey, PersistentDataType.STRING);
+        Byte sourceInside = data.get(spearSourceInsideKey, PersistentDataType.BYTE);
+        Byte bypass = data.get(spearBypassKey, PersistentDataType.BYTE);
+        if (owner == null || materialName == null || sourceInside == null || bypass == null)
+            return Optional.empty();
+        try {
+            UUID playerId = UUID.fromString(owner);
+            Material material = Material.valueOf(materialName);
+            if (!RestrictionTarget.isSpear(material)) return Optional.empty();
+            return Optional.of(new SpearProjectileTracker.Attempt(playerId, material,
+                    sourceInside != 0, bypass != 0, Long.MAX_VALUE));
+        } catch (IllegalArgumentException ex) {
+            clearSpearAttempt(projectile);
+            return Optional.empty();
+        }
+    }
+
+    private void persistSpearAttempt(Projectile projectile, UUID playerId, Material material,
+                                     boolean sourceInside, boolean bypass) {
+        PersistentDataContainer data = projectile.getPersistentDataContainer();
+        data.set(spearOwnerKey, PersistentDataType.STRING, playerId.toString());
+        data.set(spearMaterialKey, PersistentDataType.STRING, material.name());
+        data.set(spearSourceInsideKey, PersistentDataType.BYTE, sourceInside ? (byte) 1 : (byte) 0);
+        data.set(spearBypassKey, PersistentDataType.BYTE, bypass ? (byte) 1 : (byte) 0);
+    }
+
+    private void clearSpearAttempt(Projectile projectile) {
+        PersistentDataContainer data = projectile.getPersistentDataContainer();
+        data.remove(spearOwnerKey);
+        data.remove(spearMaterialKey);
+        data.remove(spearSourceInsideKey);
+        data.remove(spearBypassKey);
     }
 
     private void completeSuccess(UUID playerId, Player player, RestrictionDecision decision) {

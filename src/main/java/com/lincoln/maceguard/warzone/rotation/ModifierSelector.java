@@ -73,10 +73,21 @@ public final class ModifierSelector {
     }
 
     public WarzoneConfig.ActiveSet compose(WarzoneConfig config, List<String> ids) {
-        List<String> normalized = ids.stream().distinct().sorted().toList();
+        return compose(config, ids, true, true);
+    }
+
+    /** Compose an exact scheduled, kit, or administrative set without random count limits. */
+    public WarzoneConfig.ActiveSet composeExact(WarzoneConfig config, List<String> ids) {
+        return compose(config, ids, false, false);
+    }
+
+    private WarzoneConfig.ActiveSet compose(WarzoneConfig config, List<String> ids,
+                                             boolean enforceCountLimits,
+                                             boolean applyRandomSpecialRules) {
+        List<String> normalized = new ArrayList<>(new LinkedHashSet<>(ids));
         int minimum = config.selection().minimum();
         int maximum = config.selection().maximum();
-        if (normalized.size() < minimum || normalized.size() > maximum) {
+        if (enforceCountLimits && (normalized.size() < minimum || normalized.size() > maximum)) {
             throw new IllegalArgumentException("Selected modifier count must be between "
                     + minimum + " and " + maximum + ".");
         }
@@ -103,11 +114,13 @@ public final class ModifierSelector {
                             + target.id() + ".");
             });
         }
-        if (!isConflictFree(config, normalized))
-            throw new IllegalArgumentException("Selected modifiers violate a mutual-exclusion or conditional rule.");
-        return new WarzoneConfig.ActiveSet(normalized,
-                String.join(" <gray>+ </gray>", displays),
-                String.join(" ", descriptions), effects, restrictions);
+        if (!isConflictFree(config, normalized, applyRandomSpecialRules))
+            throw new IllegalArgumentException("Selected modifiers violate a mutual-exclusion or contradictory rule.");
+        String display = displays.isEmpty() ? "<gray>No modifiers" :
+                String.join(" <gray>+ </gray>", displays);
+        String description = descriptions.isEmpty() ? "<gray>No Warzone modifiers are active." :
+                String.join(" ", descriptions);
+        return new WarzoneConfig.ActiveSet(normalized, display, description, effects, restrictions);
     }
 
     public List<List<String>> validCombinations(WarzoneConfig config) {
@@ -278,7 +291,7 @@ public final class ModifierSelector {
         int minimum = config.selection().minimum();
         int maximum = config.selection().maximum();
         if (current.size() >= minimum && current.size() <= maximum
-                && isConflictFree(config, current)) {
+                && isConflictFree(config, current, true)) {
             if (result.size() >= MAX_VALID_COMBINATIONS) {
                 throw new IllegalStateException("Modifier selection exceeds "
                         + MAX_VALID_COMBINATIONS + " valid combinations; reduce the modifier count "
@@ -289,13 +302,14 @@ public final class ModifierSelector {
         if (index >= ids.size() || current.size() >= maximum) return;
         for (int candidate = index; candidate < ids.size(); candidate++) {
             current.add(ids.get(candidate));
-            if (isConflictFree(config, current))
+            if (isConflictFree(config, current, true))
                 enumerate(config, ids, candidate + 1, current, result);
             current.removeLast();
         }
     }
 
-    private boolean isConflictFree(WarzoneConfig config, List<String> ids) {
+    private boolean isConflictFree(WarzoneConfig config, List<String> ids,
+                                   boolean applyRandomSpecialRules) {
         Set<String> selected = Set.copyOf(ids);
         for (Set<String> group : config.conflictGroups().values()) {
             int matches = 0;
@@ -303,7 +317,7 @@ public final class ModifierSelector {
                 if (selected.contains(id) && ++matches > 1) return false;
         }
         WarzoneConfig.SpecialRule elytraRule = config.specialRules().get(ELYTRA);
-        if (selected.contains(ELYTRA)) {
+        if (applyRandomSpecialRules && selected.contains(ELYTRA)) {
             if (elytraRule != null && elytraRule.weeklyInclusionChancePercent() == 0) return false;
             if (elytraRule != null
                     && elytraRule.unrestrictedMaceChancePercent() == PERCENT_MAX

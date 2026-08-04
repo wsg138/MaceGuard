@@ -67,6 +67,18 @@ public final class VisualCooldownService {
         }
     }
 
+    /** Reconciles overlays only for restriction targets whose policy changed. */
+    public void clearOwned(java.util.Set<RestrictionTarget> targets) {
+        if (targets.isEmpty()) return;
+        for (Key key : java.util.Set.copyOf(owned.keySet())) {
+            boolean affected = targets.stream().anyMatch(target -> target.matches(key.material()));
+            if (!affected) continue;
+            Player player = server.getPlayer(key.playerId());
+            if (player != null) clearOwned(player, key.material());
+            else owned.remove(key);
+        }
+    }
+
     /** Reconciles only this player's overlays, used when they leave the configured region. */
     public void clearOwned(Player player) {
         for (Key key : java.util.Set.copyOf(owned.keySet())) {

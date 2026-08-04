@@ -1,147 +1,118 @@
-# MaceGuard 5 migration
+# MaceGuard 6 migration
+
+MaceGuard 6 introduces Warzone configuration schema 6 and a versioned automatic-slot/manual-override state model. Migration is backup-first and validates the complete replacement before it can replace the active file.
 
 ## Main configuration
 
-MaceGuard 5 requires `config-version: 8` for `config.yml`. When an older main configuration is found, MaceGuard:
+The existing main `config.yml`, WorldGuard regions and flags, reset profiles, snapshots, arming records, journals, and temporary-block files are not reinterpreted by the Warzone schema migration. Existing main-configuration migration behavior remains unchanged.
 
-1. copies the original file into the migration directory;
-2. writes a review report describing removed or unsupported fields;
-3. installs the clean bundled schema-8 example while preserving only explicitly safe settings that validate;
-4. does not create or modify WorldGuard regions;
-5. does not capture a snapshot, arm a profile, or enable a reset schedule.
+MaceGuard never creates or changes WorldGuard regions, captures snapshots, arms profiles, or enables reset schedules during this migration.
 
-## Warzone schema 4 to schema 5
+## Schema 5 to schema 6
 
-`warzone.yml` schema 5 adds independently enabled weighted outcomes, weighted modifier counts, Ender Pearl and Wind Charge modes, and explicit Elytra selection rules.
+Before rewriting `warzone.yml`, MaceGuard copies it to `plugins/MaceGuard/migration-backups/`. It then builds a schema-6 candidate from the bundled defaults and preserves the schema-5 values for:
 
-When a schema-4 Warzone configuration is found, MaceGuard first creates a timestamped backup under:
-
-```text
-plugins/MaceGuard/migration-backups/
-```
-
-It then starts from the bundled schema-5 defaults and preserves the following schema-4 values when present:
-
-- the top-level module `enabled` value;
-- `region.world`;
-- `region.id`;
-- every `region.excluded-region-ids` entry;
-- the weekly schedule day, time, and timezone;
-- warning times;
-- message audience and blocked-message cooldown settings;
-- cobweb cleanup settings;
+- top-level module enabled state;
+- configured world, outer region, and exclusions;
+- former weekday, local time, and timezone;
+- weighted random minimum, maximum, repeat prevention, and count weights;
+- special selection rules;
+- warning times and audiences;
+- messages and cobweb settings;
 - restriction-target policies;
-- existing conflict groups;
-- built-in modifier display names, descriptions, effects, restrictions, and start/end/warning messages;
-- valid custom modifier definitions, including custom IDs referenced by conflict groups;
-- explicit modifier `enabled` or `weight` values if an operator had already added them;
-- the existing persisted weekly state file.
+- bundled and custom modifier definitions;
+- conflict groups.
 
-New schema-5 fields receive bundled defaults:
+The former weekly schedule becomes an anchored one-entry repeating cycle:
 
 ```yaml
 rotation:
-  selection:
-    mode: WEIGHTED_RANDOM_MODIFIERS
-    minimum: 1
-    maximum: 3
-    prevent-identical-repeat: true
-    count-weights:
-      1: 35
-      2: 45
-      3: 20
-  special-rules:
-    elytra-no-rockets:
-      weekly-inclusion-chance-percent: 8
-      unrestricted-mace-chance-percent: 90
+  schedule:
+    enabled: true
+    timezone: <former timezone>
+    anchor-date: <a date on the former weekday>
+    time: <former local time>
+    cadence:
+      every: 1
+      unit: WEEKS
+    cycle:
+      - type: RANDOM
 ```
 
-Bundled modifiers retain their bundled schema-5 `enabled` and `weight` defaults unless schema 4 explicitly provided those fields. A custom schema-4 modifier receives `enabled: true` and `weight: 10` only when those fields were absent. New Pearl and Wind Charge outcomes, their restriction targets, and their conflict groups are added from the bundled schema.
+The anchor date is selected only to preserve the prior weekday phase. Calendar boundaries remain aligned to the former weekday, time, and timezone.
 
-The complete migrated file is validated before replacement. If a custom modifier, custom conflict group, restriction, count rule, or other preserved value does not validate under schema 5, migration deletes the temporary output and leaves the original `warzone.yml` active and unchanged. The timestamped backup and the validation error remain available for manual migration.
+New spear outcomes and the bundled spear kit are disabled during schema-5 migration unless the old file already defined those IDs. This prevents the existing random pool from changing silently. Operators may enable them after reviewing `SPEAR`, `SPEAR_DAMAGE`, `SPEAR_LUNGE`, and the new conflict groups.
 
-The migration does not automatically enable the Warzone module. A disabled schema-4 file remains disabled after migration.
+The candidate is parsed by the strict schema-6 loader. If any preserved custom modifier, restriction, conflict, kit, schedule, material icon, or selection rule is invalid, migration is rejected and the original file remains active.
 
-## Persisted weekly selection
+## Persisted schema-5 selection
 
-A valid persisted modifier combination remains active when every selected ID is still enabled and valid under schema 5.
+The schema-5 state structure is recognized:
 
-When a persisted selection contains a newly disabled, unknown, or conflicting ID, MaceGuard selects a valid replacement while preserving:
+```text
+selection.active-modifiers
+selection.activated-at
+selection.weekly-boundary
+selection.transition-at
+selection.emitted-warnings
+selection.sequence
+```
 
-- the stored weekly calendar boundary;
-- the stored effective transition time;
-- the current weekly period.
+It is interpreted as the current `RANDOM` result for the one-entry migrated cycle. When its stored boundary and transition match the currently due migrated slot, the exact modifier order and selection sequence are retained and the random result is not rerolled. The next successful state write versions it into the schema-6 state format.
 
-It does not shift the Sunday 04:00 schedule merely because configuration changed. The replacement selection and updated sequence are persisted atomically.
+If the old selection contains unknown, disabled, conflicting, out-of-range, or otherwise invalid random modifiers, it is rejected and a safe current-slot selection is generated. Invalid state is backed up and logged; it is never used to broaden gameplay scope.
 
-Legacy sequential state is different from weekly state. If the state file does not contain the weekly `selection.active-modifiers` structure, it is backed up and ignored rather than reinterpreted as a weekly selection. Corrupt state is also preserved as a backup before a fresh safe selection is created.
+## Schema 4 to schema 6
 
-## Older incompatible Warzone configurations
+Schema 4 migrates through the existing validated schema-5 representation and then through the schema-5-to-6 process. Existing schema-4 scope, weekly schedule, warnings, messages, cobweb settings, restrictions, modifier definitions, and conflict groups are preserved where valid.
 
-Schemas older than 4 are backed up but are not silently translated into schema 5 because ordered duration-based rotations do not have a safe one-to-one meaning in the weekly weighted model. MaceGuard installs a clean schema-5 example that remains disabled by default and records the decision in its migration report.
+A custom modifier receives `enabled: true` and `weight: 10` only when those fields were absent. Existing explicit values are retained.
 
-The standalone `plugins/WarzoneRotator` directory is never deleted or rewritten. Keep it through staging and rollback review.
+## Older or incompatible Warzone files
 
-## Safety boundaries
+Configurations older than schema 4 do not have a safe one-to-one meaning in the weighted schema-5 model. They are backed up and replaced with the clean bundled schema-6 example, which remains disabled by default. The migration report records that decision.
 
-Warzone migration never:
+The standalone `plugins/WarzoneRotator` directory is preserved unchanged for rollback. Sequential state that does not contain the recognized schema-5 selection structure is backed up and ignored rather than guessed into a cycle.
 
-- creates, deletes, resizes, or changes WorldGuard regions;
-- changes region priorities, parents, owners, members, or flags;
-- enables the Warzone module automatically;
-- broadens an unresolved scope to the whole world;
-- discards a valid custom schema-4 modifier silently;
-- replaces the original schema-4 file with an invalid migrated file;
-- captures a reset snapshot;
-- arms a reset profile;
-- enables or changes a reset schedule;
-- alters restore journals or confirmation tokens.
+## Versioned schema-6 state
 
-The effective gameplay scope remains inactive whenever the configured world, outer region, or any required exclusion is unresolved.
+`state/warzone-state.yml` now records:
+
+- state version;
+- automatic slot identity, absolute index, cycle position, and phase offset;
+- persisted schedule enable override;
+- automatic slot start/end and activation time;
+- automatic source type, source ID, and ordered modifier IDs;
+- optional manual source type, source ID, ordered modifier IDs, duration mode, activation time, and expiration;
+- emitted warning thresholds;
+- selection sequence.
+
+Writes remain atomic and ordered through the existing storage executor. A matching `RANDOM` automatic result is reused after restart. Exact scheduled kits or modifier collections are recomputed from the current validated configuration, while a manual override retains its confirmed exact modifier set and expiration.
 
 ## Post-migration review
 
-After startup:
+After migration:
 
-```text
-/version MaceGuard
-/warzone validate
-/warzone debug
-/warzone modifiers
-/warzone items
-```
-
-Confirm:
-
-1. `warzone.yml` reports `config-version: 5`.
-2. The module enabled value matches the old file.
-3. World and region IDs are unchanged.
-4. Sunday 04:00 Indiana scheduling is unchanged.
-5. Existing safe messages and built-in modifier text remain present.
-6. Every expected custom modifier and custom conflict group remains present.
-7. Every enabled modifier has a positive weight.
-8. Count weights and Elytra percentages match operator intent.
-9. Every configured probability branch has at least one feasible combination.
-10. The current selected IDs are all enabled and conflict-free.
-11. The weekly boundary and transition were not shifted by a required reroll.
-12. No reset profile was captured, armed, or scheduled.
-
-Review the generated report under `plugins/MaceGuard/migration-reports/` and retain both it and the timestamped configuration backup through staging.
+1. Read the newest migration report and confirm the backup paths.
+2. Run `/warzone validate` before enabling the module.
+3. Review the anchor, cadence, cycle, kit order, icons, and enabled states.
+4. Confirm migrated new spear outcomes and the spear kit remain disabled unless intentionally enabled.
+5. Run `/warzone debug` and verify automatic source, slot start/end, cycle position, state health, and final active source.
+6. Restart during the same migrated random slot and confirm modifier order and selection sequence remain unchanged.
+7. Test a boundary while offline and confirm startup jumps directly to the current slot.
+8. Test one-hour, next-boundary, and indefinite overrides across restart and reload.
+9. Complete the deployment and live staging checklist before production merge.
 
 ## Production incident distinction
 
-MaceGuard 4.0.1 could treat the entire configured Bukkit world as inside the Warzone when the configured outer region could not be resolved. MaceGuard 5.0.0 and later do not use that fallback. Losing any required geometry makes restrictions, positive effects, cooldown overlays, Warzone cobweb behavior, and Warzone-only announcements inactive until exact resolution returns.
-
-An explicitly configured WorldGuard `maceguard-block-policy` value on `__global__` is separate operator configuration. It remains effective until manually changed; MaceGuard reports the source but does not modify it.
-
-## Reset data
-
-Full and filtered snapshots remain bound to world identity, exact geometry, profile mode, exclusions, checksum, snapshot format, and explicit armed state. A schema/profile/geometry/exclusion mismatch disarms or refuses the reset. Production regions are never automatically recaptured or rearmed after migration.
+MaceGuard 4.0.1 could treat the configured Bukkit world as inside the Warzone when the outer region was unresolved. MaceGuard 5.0.0 and later do not use that fallback. Missing required geometry makes Warzone restrictions, positive effects, cooldown overlays, cobweb behavior, and Warzone-only announcements inactive until exact scope resolution returns.
 
 ## Rollback
 
-1. Stop the server cleanly.
-2. Preserve `plugins/MaceGuard/state`, snapshots, migration reports, backups, and restore journals.
-3. Restore the world and WorldGuard database from the same known-good backup if a destructive staged operation was interrupted.
-4. Restore the prior JAR and its matching configuration files.
-5. Keep the standalone WarzoneRotator directory intact until rollback is no longer required.
+To roll back:
+
+1. Stop the server.
+2. Preserve the current schema-6 config and state for diagnosis.
+3. Restore the matching pre-migration `warzone.yml` backup and plugin JAR together.
+4. Restore a matching older state file only when the older plugin expects it.
+5. Leave WorldGuard regions, reset snapshots, and temporary-block recovery files intact unless a separate verified rollback procedure requires otherwise.

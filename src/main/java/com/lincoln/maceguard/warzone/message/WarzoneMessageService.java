@@ -114,8 +114,8 @@ public final class WarzoneMessageService {
                 Placeholder.unparsed("time_left", DurationFormatter.words(rotations.remaining())),
                 Placeholder.unparsed("changes_at",
                         formatInstant(rotations.state().transitionAtMillis())),
-                Placeholder.unparsed("next_meta", "Random weekly selection"),
-                Placeholder.unparsed("next_meta_id", "unselected"),
+                Placeholder.unparsed("next_meta", rotations.entryName(rotations.nextSlot().entry())),
+                Placeholder.unparsed("next_meta_id", rotations.nextSlot().entry().type().name()),
                 Placeholder.unparsed("cooldown_remaining", precise(cooldownRemaining)),
                 Placeholder.unparsed("cooldown",
                         cooldownRemaining.isZero() ? "0s"
@@ -144,6 +144,7 @@ public final class WarzoneMessageService {
     public static String friendly(RestrictionTarget target) {
         if (target == null) return "item";
         if (target == RestrictionTarget.SPEAR_LUNGE) return "Spear Lunge";
+        if (target == RestrictionTarget.SPEAR_DAMAGE) return "Spear Damage";
         if (target == RestrictionTarget.SPEAR) return "Spear";
         return friendly(target.material());
     }

@@ -1,232 +1,180 @@
-# MaceGuard 5 deployment and staging
+# MaceGuard 6 deployment and staging
 
-## Safe weekly Warzone activation
+MaceGuard 6 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required and PlaceholderAPI remains optional. Keep a new schema-6 build in staging until the checks below are complete.
 
-Fresh installations ship with `warzone.yml` set to `enabled: false`. Complete this sequence before activation:
+## Safe Warzone activation
 
-1. Create and review `warzone`.
-2. Create and review `spawn`.
-3. Create and review `market`.
-4. Verify `region.world`, `region.id`, and every `excluded-region-id`.
-5. Review every modifier `enabled` value, modifier weight, count weight, conflict group, and Elytra special rule.
-6. Run `/warzone validate` and require a successful result.
-7. Change the top-level `enabled` value to `true`.
-8. Reload or restart.
-9. Run `/warzone debug` and verify `Gameplay scope active: true`.
-10. Run `/warzone items` and verify the effective state of Maces, Ender Pearls, Wind Charges, Spear Lunge, Elytra, and Cobwebs.
+Fresh installations ship with `warzone.yml` disabled. Complete this sequence before enabling gameplay:
 
-Do not create regions, change region geometry, or set flags automatically. If the world, outer region, or any required exclusion is missing, the selected weekly state remains loaded but effective gameplay scope is inactive. No whole-world fallback is applied.
+1. Back up `plugins/MaceGuard`, including `state/` and reset snapshots.
+2. Create and review the configured outer `warzone` WorldGuard region.
+3. Create and review every configured exclusion, including `spawn` and `market` by default.
+4. Review `rotation.schedule`, every cycle entry, kit, modifier, conflict group, and restriction target.
+5. Run `/warzone validate` and require a successful result.
+6. Change top-level `enabled` to `true`.
+7. Reload or restart.
+8. Run `/warzone debug`, `/warzone info`, `/warzone schedule preview`, and `/warzone items`.
+9. Confirm `Gameplay scope active: true` and `Whole-world fallback: false`.
 
-## Schema-5 selection review
+Missing world or region geometry makes Warzone gameplay inactive. It does not expand restrictions to the configured world.
 
-The default count weights are:
+## Schedule review
 
-```yaml
-rotation:
-  selection:
-    mode: WEIGHTED_RANDOM_MODIFIERS
-    minimum: 1
-    maximum: 3
-    prevent-identical-repeat: true
-    count-weights:
-      1: 35
-      2: 45
-      3: 20
-```
-
-Every enabled modifier must have a positive integer `weight`. A disabled modifier remains in the file for later reuse but cannot be selected randomly or with `/warzone set`.
-
-Before production activation, verify these conflict groups contain the intended IDs:
-
-```text
-mace-mode
-ender-pearl-mode
-wind-charge-mode
-```
-
-Only one mode from each group may be active in a weekly combination.
-
-The default Elytra rules are:
+Confirm the schedule uses the intended IANA timezone, anchor date, local time, cadence, and cycle:
 
 ```yaml
 rotation:
-  special-rules:
-    elytra-no-rockets:
-      weekly-inclusion-chance-percent: 8
-      unrestricted-mace-chance-percent: 90
+  schedule:
+    enabled: true
+    timezone: America/Indiana/Indianapolis
+    anchor-date: "2026-08-09"
+    time: "04:00"
+    cadence:
+      every: 1
+      unit: WEEKS
+    cycle:
+      - type: KIT
+        kit: smp
+      - type: RANDOM
+      - type: KIT
+        kit: mace
+      - type: MODIFIERS
+        modifiers: [cobwebs, no-lunge]
 ```
 
-`rotation.special-rules` supports only `elytra-no-rockets`. An inclusion chance from 1 through 99 requires at least one feasible Elytra combination and at least one feasible non-Elytra combination whose size has a configured count weight. Any positive unrestricted-Mace chance also requires at least one feasible Elytra combination without a modifier that restricts the `MACE` target. Validation rejects an impossible branch rather than silently changing its effective probability.
+Staging must verify:
 
-This makes Elytra uncommon and leaves Maces unrestricted in most Elytra weeks. Setting Elytra `enabled: false` overrides the inclusion percentage and still requires a feasible non-Elytra branch.
+- `DAYS`, `WEEKS`, and `MONTHS` preserve the configured local transition time;
+- spring and fall DST boundaries behave as documented;
+- monthly anchors on the 29th, 30th, or 31st clamp only for shorter months and return to the anchor day later;
+- several missed boundaries advance directly to the currently due slot;
+- a `RANDOM` slot keeps the same persisted result after restart;
+- `KIT`, exact `MODIFIERS`, and `NONE` activate exactly;
+- `/warzone schedule advance` persists its phase and does not repeat the advanced entry at the next boundary;
+- schedule enable/disable survives restart and enabling catches up to the current due slot.
 
-## Disabling outcomes safely
+## Kit and custom-combination review
 
-Disable one outcome without deleting its section:
+For every enabled kit, confirm:
 
-```yaml
-modifiers:
-  ender-pearl-disabled:
-    enabled: false
-```
+- the icon is a real Bukkit material for 1.21.11;
+- every modifier exists and is enabled;
+- modifier order matches the intended display order;
+- no duplicate, conflict-group, target, or conditional contradiction exists;
+- the kit contains the complete intended selection because kit activation replaces the active set.
 
-This still allows both Pearl cooldown outcomes. To leave Pearls unrestricted every week, disable all three Pearl outcomes. Apply the same method to all Wind Charge or Mace outcomes.
+Verify that changing a kit-derived selection requires `warzonerotator.manage.custom-combinations`, displays the detach warning, creates a `CUSTOM_OVERRIDE`, and does not alter the kit definition.
 
-After changing toggles or weights:
+## Manual override review
 
-1. Run `/warzone validate`.
-2. Run `/warzone reload`.
-3. Confirm the current persisted selection either remains valid or is rerolled.
-4. Confirm `/warzone debug` shows the original weekly calendar boundary and transition time after any required reroll.
-
-## WorldGuard regions
-
-Create and review these regions manually from administrator-selected WorldEdit geometry:
+Test all manual entry points from both a player and console:
 
 ```text
-warzone
-war-pit
-cobweb-box
-spawn
-market
-warzone-reset
+/warzone kit set <kit> <1h|next|manual>
+/warzone modifier set <modifier> <1h|next|manual>
+/warzone modifier remove <modifier> <1h|next|manual>
+/warzone random <1h|next|manual>
 ```
 
-`warzone-reset` must be a separate cuboid covering only the useful terrain height. Do not select the entire Minecraft build height.
+Verify:
 
-Recommended starting priorities:
+- players receive selection, confirmation, and duration screens;
+- console rejects missing IDs or duration values;
+- one-hour overrides expire exactly one hour after confirmation;
+- next-boundary overrides retain their originally confirmed expiration after config reload;
+- indefinite overrides survive reload and restart;
+- automatic boundaries under an override update state silently without changing gameplay;
+- clearing or expiring an override applies the automatic slot currently due;
+- ending an override does not reroll a persisted random automatic slot.
+
+## GUI safety
+
+Test the menus with Java and Bedrock clients. Confirm managed inventories reject:
+
+- normal movement and taking menu items;
+- shift-click insertion;
+- number-key swaps;
+- drag operations;
+- double-click collection;
+- offhand swaps;
+- clicks from stale or expired sessions.
+
+Navigate through multiple pages and confirm closing the replaced page does not invalidate the newly opened page. Close every screen before final confirmation and confirm no change is applied. Leave a confirmation open while another administrator changes the active set and confirm the stale operation is rejected.
+
+## Spear staging
+
+The default schema includes separate whole-spear, damage, and Lunge controls:
+
+- `spear-disabled` blocks spear launch and both melee and correlated thrown-spear damage in the effective scope;
+- `spear-damage-cooldown-10` starts only after accepted positive spear damage, including a correlated thrown-spear hit;
+- `no-lunge` blocks only the Lunge velocity;
+- `lunge-cooldown-10` starts only after an accepted correlated Lunge velocity.
+
+Stage each spear material and enchantment level. Verify cross-boundary actor/target cases, ordinary attacks, throws, hits, misses, item swaps, unrelated velocity, latency, Geyser/Bedrock behavior, and cooldown expiration. Paper/Leaf 1.21.11 has no supported `EntityLungeEvent`; the implementation intentionally uses the narrow pre-attack/velocity correlation without NMS.
+
+## Other restriction staging
+
+Verify the existing Mace, Ender Pearl, Wind Charge, Elytra, and firework behavior:
+
+- disabled actions cancel without consumption or duplicated denial messages;
+- cooldowns start only from accepted success events;
+- automated Wind Charges remain allowed in cooldown mode and blocked in disabled mode;
+- visual cooldown overlays do not shorten stronger vanilla or plugin cooldowns;
+- a modifier transition clears cooldowns only for restriction targets whose policy changed;
+- region exit/re-entry, reconnect, reload, and lag reconcile owned overlays correctly;
+- Elytra gliding and firework boosting follow the active final set.
+
+## Transition and persistence staging
+
+Exercise natural schedule changes, every override operation, config reload, plugin reload, and full restart. Confirm:
+
+- each effective change emits each removed end message and added start message once;
+- background automatic changes under an override produce no normal public transition;
+- transient Lunge/projectile correlation state is safely reset at effective transitions;
+- unchanged authoritative cooldown targets remain active while changed targets are cleared;
+- cobweb clear-on-meta-change is invoked exactly when a cobweb-enabled final set ends;
+- `state/warzone-state.yml` is atomic, ordered, and contains the expected automatic and override fields;
+- malformed state is backed up and rejected with a clear log reason;
+- startup publishes one final active set and does not replay historical announcements.
+
+## Placeholder and command staging
+
+Confirm existing placeholders still work and the schema-6 values return stable plain text:
 
 ```text
-/rg setpriority warzone 10
-/rg setpriority warzone-reset 20
-/rg setpriority war-pit 50
-/rg setpriority cobweb-box 60
-/rg setpriority spawn 100
-/rg setpriority market 100
+%warzone_source_type%
+%warzone_active_kit%
+%warzone_override_active%
+%warzone_override_mode%
+%warzone_override_ends_at%
+%warzone_override_time_left%
+%warzone_schedule_slot%
+%warzone_schedule_cycle_position%
+%warzone_next_source_type%
+%warzone_next_name%
+%warzone_next_changes_at%
 ```
 
-Higher-priority overlapping regions control a flag only when they define a value for that flag. Review all existing inherited and direct values with WorldGuard before production deployment.
+Also verify indexed modifier placeholders preserve final active order and spear placeholders report whole-item, damage, and Lunge states correctly.
 
-## Flags
+Tab completion must hide management operations without their focused permission and show live enabled modifier IDs, kit IDs, duration aliases, and schedule operations when authorized.
 
-Outer warzone:
+## Existing block, cobweb, and reset safety
 
-```text
-/rg flag warzone maceguard-explosives deny
-/rg flag warzone maceguard-cobwebs allow
-/rg flag warzone warzonerotator-cobwebs allow
-```
+MaceGuard 6 retains the existing WorldGuard block-policy, temporary-block recovery, explosion, snapshot, and reset safety. Stage at least:
 
-WorldGuard must permit Elytra gliding in the outer warzone. MaceGuard never un-cancels WorldGuard or another plugin; it controls whether a player may start gliding and whether an actual firework boost is accepted for the active weekly modifier.
+- normal and emergency temporary-cobweb persistence, bounded recovery, chunk tickets, restart, and changed-block protection;
+- a real burst of at least 100 managed cobwebs through TTL and full cleanup;
+- source and flowing-water restoration under Paper block-data serialization;
+- direct, inherited, and `__global__` block-policy diagnostics;
+- full and filtered snapshot validation, exclusions, checksums, arming, one-use plan tokens, journals, and interrupted-operation recovery;
+- plugin reload and shutdown while normal TTL tracking or emergency recovery is active.
 
-War pit:
-
-```text
-/rg flag war-pit maceguard-reset-profile war-pit
-```
-
-Cobweb box:
-
-```text
-/rg flag cobweb-box block-place allow
-/rg flag cobweb-box block-break allow
-/rg flag cobweb-box maceguard-cobwebs allow
-/rg flag cobweb-box maceguard-block-policy cobweb-box
-/rg flag cobweb-box maceguard-reset-profile cobweb-box
-```
-
-Large environmental reset cuboid:
-
-```text
-/rg flag warzone-reset maceguard-reset-profile warzone-environment
-```
-
-`maceguard-block-policy` should normally remain unset on `__global__`, `warzone`, `spawn`, `market`, and `war-pit`. An effective policy supplied by `__global__` can intentionally enforce a material whitelist throughout the world. MaceGuard reports that source but never removes or changes operator configuration.
-
-## Capture, validation, and arming
-
-Keep every required chunk loaded operationally; MaceGuard refuses instead of force-loading it.
-
-```text
-/maceguard capture <region>
-/maceguard validate <region>
-/maceguard plan <region>
-/maceguard arm <region>
-/maceguard schedule <region> on
-```
-
-Schedules remain off until an administrator explicitly enables each one. For a manual reset, run `plan` immediately before `reset` and use its one-use token:
-
-```text
-/maceguard plan <region>
-/maceguard reset <region> <token>
-```
-
-The Warzone schema migration never captures, arms, or schedules any reset profile.
-
-## Required Paper/Leaf 1.21.11 staging checks
-
-### Calendar, persistence, and selection
-
-1. Restart midweek repeatedly and confirm the selected modifier set does not reroll.
-2. Simulate an offline weekly boundary and confirm recovery selects once and preserves the next Sunday 04:00 boundary.
-3. Test `skip`, `force`, `set`, and `extend`; confirm none corrupts the calendar boundary.
-4. Disable one currently persisted modifier, reload, and confirm it rerolls without moving the established boundary.
-5. Set count weights to force one, two, and three outcomes in separate staging runs and confirm each count is selected deterministically.
-6. Confirm a disabled outcome never appears in random rolls, tab completion, or `/warzone set`.
-7. Confirm the Mace, Pearl, and Wind Charge conflict groups never produce two incompatible modes from the same group.
-8. Set Elytra inclusion to `0`, `1`, `8`, `50`, `99`, and `100`; confirm valid configurations preserve those branches and impossible Elytra or non-Elytra branches are rejected by `/warzone validate`.
-9. Set Elytra unrestricted-Mace chance to `0`, `1`, `90`, and `100`; confirm every positive value is rejected when no Mace-unrestricted Elytra combination exists.
-10. Add a custom modifier ID that restricts `MACE` and confirm the unrestricted-Mace rule recognizes it by target rather than by bundled ID.
-11. Add a `rotation.special-rules` entry for another known modifier and confirm validation rejects it as unsupported.
-12. Test fresh startup, invalid-state restoration, `force`, and a natural weekly transition after every valid branch configuration.
-
-### Runtime restrictions
-
-13. Test `mace-disabled` and `mace-cooldown` separately. Cancelled or zero-damage attacks must not start a cooldown.
-14. Test all three Ender Pearl modes from main hand and offhand. A disabled launch must be cancelled without consumption; successful cooldown launches must start the configured five- or ten-second cooldown exactly once; cancellation at either projectile event must not start one.
-15. Test all three Wind Charge modes from main hand and offhand with the same successful/cancelled-launch checks.
-16. During `wind-charge-disabled`, fire Wind Charges from dispensers inside the effective scope, outside pointing inward, and inside pointing outward. The dispense or finalized projectile launch must be cancelled. During either cooldown outcome, dispensers must remain allowed because no player owns the cooldown.
-17. Confirm `no-lunge` blocks only correlated Lunge velocity and does not block holding, swapping, normal attacks, throwing, or unrelated velocity.
-18. Confirm `elytra-no-rockets` allows gliding, blocks actual boosts, does not block moving or holding rockets, and does not consume a rejected rocket.
-19. Confirm the bypass permission remains unrestricted for every player-driven mode.
-20. Repeat player projectile checks from a Geyser/Bedrock client.
-
-### Scope and exclusions
-
-21. Enter `spawn` and `market` from every warzone edge and confirm all restrictions and cooldown overlays disappear.
-22. Remove or rename the outer region, then each exclusion in turn; verify attacks, projectiles, Lunge, Elytra, rockets, cooldowns, overlays, dispenser Wind Charges, and warzone cobweb behavior remain unrestricted everywhere.
-23. Recreate each region and confirm exact membership returns without restarting.
-24. Verify the human-readable status placeholders return `Inactive` whenever required scope geometry is unresolved.
-25. Verify machine-readable booleans return `false` and cooldown seconds return `0` while scope is inactive.
-
-### Migration
-
-26. Migrate the default schema-4 file and confirm the schema-5 result validates.
-27. Migrate customized built-in modifiers and confirm their compatible fields and explicit enabled/weight values are preserved.
-28. Migrate a valid custom modifier and custom conflict group; confirm the custom modifier receives only missing `enabled: true` and `weight: 10` defaults.
-29. Make the custom modifier invalid and confirm migration leaves the original active file unchanged, removes the temporary output, and retains the backup and error report.
-30. Confirm an existing weekly state and transition boundary survive migration or a required invalid-ID reroll without schedule drift.
-
-### Placeholders and diagnostics
-
-31. Exercise every new status placeholder in allowed, disabled, cooldown, inactive, and Elytra-active states.
-32. Confirm `%warzone_restrictions%` lists Pearl and Wind Charge restrictions.
-33. Confirm `/warzone modifiers` reports each enabled state, weight, conflict group, count weights, and Elytra percentages.
-34. Confirm `/warzone items` matches actual runtime enforcement.
-
-### Existing block and reset safety
-
-35. Confirm `cobweb-box` works only when both `maceguard-block-policy cobweb-box` and `maceguard-cobwebs allow` are effective.
-36. Deliberately invalidate the main schema and verify cobweb placement is not cancelled or tracked by MaceGuard and no TTL is written.
-37. Test block placement/breaking, water fill/empty, boundary flow, ice melt, infinite sources, pistons, and dispensers.
-38. Capture and reset bounded profiles with loaded and deliberately unloaded chunks; unloaded chunks must be refused, never force-loaded.
-39. Put a normal solid structure block at a filtered coordinate and confirm preflight skips/reports it and reset does not overwrite it.
-40. Interrupt a staged restore and confirm the journal locks further destructive work for administrator review.
+MaceGuard never creates WorldGuard regions, captures snapshots, arms reset profiles, or enables reset schedules automatically.
 
 ## Emergency operator mitigation
 
-When players report unexpected restrictions, first inspect the deployed version, exact scope resolution, selected modifiers, and WorldGuard flag sources:
+For unexpected restrictions, do not grant a broad bypass as the first response. Inspect:
 
 ```text
 /version MaceGuard
@@ -235,8 +183,9 @@ When players report unexpected restrictions, first inspect the deployed version,
 /rg flags __global__
 /warzone validate
 /warzone debug
+/warzone info
 /warzone items
 /maceguard here
 ```
 
-Do not grant bypass as the primary fix. On MaceGuard 5, unresolved required geometry automatically makes effective gameplay scope inactive. If `/maceguard here` identifies `__global__` as the policy source, manually review that WorldGuard flag before changing it.
+Disable the top-level Warzone module or restore missing required geometry before returning gameplay to service. Review `state/warzone-state.yml` and migration backups before deleting any state.

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,7 +64,9 @@ class WarzoneConfigLoaderTest {
                 .replace("  ender-pearl-cooldown-5:\n    enabled: true",
                         "  ender-pearl-cooldown-5:\n    enabled: false")
                 .replace("  ender-pearl-cooldown-10:\n    enabled: true",
-                        "  ender-pearl-cooldown-10:\n    enabled: false");
+                        "  ender-pearl-cooldown-10:\n    enabled: false")
+                .replace("  smp:\n    enabled: true", "  smp:\n    enabled: false")
+                .replace("      - type: KIT\n        kit: smp", "      - type: RANDOM");
         var result = load(text);
         assertTrue(result.valid(), result.errors().toString());
     }
@@ -144,12 +147,12 @@ class WarzoneConfigLoaderTest {
                 restriction-targets: {}
                 rotations: {}
                 """);
-        var result = new WarzoneConfigLoader().load(file);
+        var result = new WarzoneControlConfigLoader().load(file);
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
-                value.contains("config-version must be 5")));
+                value.contains("config-version must be 6")));
         assertTrue(result.errors().stream().anyMatch(value ->
-                value.contains("rotations is not supported")));
+                value.contains("unknown key 'rotations'")));
     }
 
     @Test void rejectsUnknownConflictReference() throws IOException {
@@ -171,8 +174,8 @@ class WarzoneConfigLoaderTest {
     }
 
     private ValidationResult<WarzoneConfig> loadDefault() {
-        return new WarzoneConfigLoader().load(
-                Path.of("src", "main", "resources", "warzone.yml"));
+        return gameplay(new WarzoneControlConfigLoader().load(
+                Path.of("src", "main", "resources", "warzone.yml")));
     }
 
     private String defaultText() throws IOException {
@@ -182,7 +185,13 @@ class WarzoneConfigLoaderTest {
     private ValidationResult<WarzoneConfig> load(String text) throws IOException {
         Path file = directory.resolve("test-" + System.nanoTime() + ".yml");
         Files.writeString(file, text);
-        return new WarzoneConfigLoader().load(file);
+        return gameplay(new WarzoneControlConfigLoader().load(file));
+    }
+
+    private ValidationResult<WarzoneConfig> gameplay(ValidationResult<WarzoneControlConfig> result) {
+        return result.valid()
+                ? new ValidationResult<>(result.value().gameplay(), List.of(), result.warnings())
+                : new ValidationResult<>(null, result.errors(), result.warnings());
     }
 
     private void assertCooldown(WarzoneConfig config, String modifierId,

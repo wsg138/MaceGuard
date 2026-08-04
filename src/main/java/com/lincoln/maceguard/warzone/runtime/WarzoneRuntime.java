@@ -4,7 +4,9 @@ import com.lincoln.maceguard.temporary.TemporaryBlock;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneMessages;
+import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
 import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
+import com.lincoln.maceguard.warzone.gui.WarzoneGuiManager;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import com.lincoln.maceguard.warzone.restriction.CooldownService;
 import com.lincoln.maceguard.warzone.restriction.ItemRestrictionListener;
@@ -12,6 +14,7 @@ import com.lincoln.maceguard.warzone.restriction.LungeVelocityGate;
 import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
 import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionService;
+import com.lincoln.maceguard.warzone.restriction.RestrictionTarget;
 import com.lincoln.maceguard.warzone.restriction.VisualCooldownService;
 import com.lincoln.maceguard.warzone.rotation.ModifierSelector;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
@@ -37,6 +40,7 @@ import java.util.random.RandomGenerator;
 public final class WarzoneRuntime {
     private final JavaPlugin plugin;
     private final TemporaryBlockService temporaryBlocks;
+    private final WarzoneControlConfig controlConfig;
     private final WarzoneConfig config;
     private final WarzoneRegionService region;
     private final WarzoneMessageService messages;
@@ -44,6 +48,7 @@ public final class WarzoneRuntime {
     private final VisualCooldownService visualCooldowns;
     private final RestrictionService restrictions;
     private final RotationManager rotations;
+    private final WarzoneGuiManager guis;
     private final ItemRestrictionListener restrictionListener;
     private final Path pendingCobwebClearMarker;
     private BukkitTask clockTask;
@@ -52,14 +57,30 @@ public final class WarzoneRuntime {
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
-        this(plugin, temporaryBlocks, config, templates, store, clock, RandomGenerator.getDefault());
+        this(plugin, temporaryBlocks, WarzoneControlConfig.legacy(config), templates, store, clock,
+                RandomGenerator.getDefault());
+    }
+
+    public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks,
+                          WarzoneControlConfig controlConfig, WarzoneMessages templates,
+                          WarzoneStateStore store, Clock clock) {
+        this(plugin, temporaryBlocks, controlConfig, templates, store, clock,
+                RandomGenerator.getDefault());
     }
 
     WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                    WarzoneMessages templates, WarzoneStateStore store, Clock clock, RandomGenerator random) {
+        this(plugin, temporaryBlocks, WarzoneControlConfig.legacy(config), templates, store, clock, random);
+    }
+
+    WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks,
+                   WarzoneControlConfig controlConfig, WarzoneMessages templates,
+                   WarzoneStateStore store, Clock clock, RandomGenerator random) {
+        WarzoneConfig config = controlConfig.gameplay();
         validateCooldownTargets(config);
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
+        this.controlConfig = controlConfig;
         this.config = config;
         this.pendingCobwebClearMarker = plugin.getDataFolder().toPath().resolve("state")
                 .resolve("warzone-cobweb-clear.pending");
@@ -70,10 +91,11 @@ public final class WarzoneRuntime {
         this.cooldowns = new CooldownService(clock::millis);
         this.visualCooldowns = new VisualCooldownService(plugin.getServer(), clock::millis,
                 () -> plugin.getServer().getCurrentTick());
-        this.rotations = new RotationManager(config, store, clock, random, this::transition, this::warning);
+        this.rotations = new RotationManager(controlConfig, store, clock, random, this::transition, this::warning);
         this.messages.bind(rotations);
+        this.guis = new WarzoneGuiManager(plugin, this);
         this.restrictions = new RestrictionService(rotations::active, cooldowns);
-        this.restrictionListener = new ItemRestrictionListener(restrictions, cooldowns, visualCooldowns,
+        this.restrictionListener = new ItemRestrictionListener(plugin, restrictions, cooldowns, visualCooldowns,
                 region, messages, rotations::active,
                 new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         clearCobwebsAfterOfflineTransition();
@@ -81,16 +103,21 @@ public final class WarzoneRuntime {
     }
 
     public void start() {
-        if (!config.enabled()) return;
-        plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
-        restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
+        plugin.getServer().getPluginManager().registerEvents(guis, plugin);
+        // Rotation state and manual-expiry time continue even while gameplay enforcement is
+        // disabled. Re-enabling the module therefore cannot resurrect an expired override or
+        // replay a stale schedule slot.
         clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             rotations.tick();
             cooldowns.discardExpired();
             messages.cleanup();
             restrictionListener.cleanup();
+            guis.cleanup();
             if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
+        if (!config.enabled()) return;
+        plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
+        restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             boolean resolved = region.refresh();
             restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
@@ -104,6 +131,8 @@ public final class WarzoneRuntime {
         clockTask = null;
         regionRefreshTask = null;
         HandlerList.unregisterAll(restrictionListener);
+        HandlerList.unregisterAll(guis);
+        guis.clear();
         restrictionListener.clear();
         visualCooldowns.clearOwned();
         cooldowns.clear();
@@ -142,10 +171,10 @@ public final class WarzoneRuntime {
     private void transition(WarzoneConfig.ActiveSet previous, WarzoneConfig.ActiveSet current,
                             boolean announce) {
         restrictionListener.clearTransientState();
-        visualCooldowns.clearOwned();
-        cooldowns.clear();
-        if (previous.cobwebsAllowed() && !current.cobwebsAllowed()
-                && config.cobwebs().clearOnMetaChange()) clearTrackedCobwebs();
+        Set<RestrictionTarget> changedTargets = changedRestrictionTargets(previous, current);
+        visualCooldowns.clearOwned(changedTargets);
+        cooldowns.clearTargets(changedTargets);
+        if (shouldClearCobwebs(previous, current, config.cobwebs())) clearTrackedCobwebs();
         if (!announce || !gameplayScopeActive()) return;
 
         Set<String> removed = new LinkedHashSet<>(previous.modifierIds());
@@ -164,8 +193,26 @@ public final class WarzoneRuntime {
                 messages.broadcast(modifier.startMessage(), config.messages().transitionAudience());
         }
         if (added.isEmpty())
-            messages.broadcast("<gold>The weekly warzone modifiers are now <meta><gold>.",
+            messages.broadcast("<gold>The Warzone modifiers are now <meta><gold>.",
                     config.messages().transitionAudience());
+    }
+
+
+    static Set<RestrictionTarget> changedRestrictionTargets(WarzoneConfig.ActiveSet previous,
+                                                               WarzoneConfig.ActiveSet current) {
+        Set<RestrictionTarget> targets = new LinkedHashSet<>();
+        targets.addAll(previous.restrictions().keySet());
+        targets.addAll(current.restrictions().keySet());
+        targets.removeIf(target -> java.util.Objects.equals(
+                previous.restrictions().get(target), current.restrictions().get(target)));
+        return Set.copyOf(targets);
+    }
+
+
+    static boolean shouldClearCobwebs(WarzoneConfig.ActiveSet previous,
+                                      WarzoneConfig.ActiveSet current,
+                                      WarzoneConfig.Cobwebs policy) {
+        return policy.clearOnMetaChange() && previous.cobwebsAllowed() && !current.cobwebsAllowed();
     }
 
     private void warning(WarzoneConfig.ActiveSet active, Duration remaining) {
@@ -181,7 +228,7 @@ public final class WarzoneRuntime {
         if (!config.cobwebs().clearOnMetaChange() || !rotations.advancedDuringRestore()) return;
         try {
             WarzoneConfig.ActiveSet stored = new ModifierSelector(new java.util.Random(0L))
-                    .compose(config, rotations.storedActiveModifierIds());
+                    .composeExact(config, rotations.storedActiveModifierIds());
             if (stored.cobwebsAllowed() && !rotations.active().cobwebsAllowed())
                 clearTrackedCobwebs();
         } catch (IllegalArgumentException ignored) {
@@ -205,10 +252,12 @@ public final class WarzoneRuntime {
     }
 
     public WarzoneConfig config() { return config; }
+    public WarzoneControlConfig controlConfig() { return controlConfig; }
     public WarzoneRegionService region() { return region; }
     public WarzoneMessageService messages() { return messages; }
     public RotationManager rotations() { return rotations; }
     public CooldownService cooldowns() { return cooldowns; }
+    public WarzoneGuiManager guis() { return guis; }
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 
     public int clearTrackedCobwebs() {

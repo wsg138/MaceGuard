@@ -5,7 +5,8 @@ import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.command.WarzoneCommand;
 import com.lincoln.maceguard.warzone.config.ValidationResult;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
-import com.lincoln.maceguard.warzone.config.WarzoneConfigLoader;
+import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
+import com.lincoln.maceguard.warzone.config.WarzoneControlConfigLoader;
 import com.lincoln.maceguard.warzone.config.WarzoneMessages;
 import com.lincoln.maceguard.warzone.config.WarzoneMessagesLoader;
 import com.lincoln.maceguard.warzone.integration.PlaceholderHookFactory;
@@ -73,11 +74,12 @@ public final class WarzoneModule {
             Prepared prepared = validateFiles(false);
             log(prepared);
             if (prepared.valid()) {
-                runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.config(),
+                runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
                         prepared.messages(), stateStore, clock);
                 runtime.start();
-                plugin.getLogger().info("Integrated weekly warzone module started with "
-                        + prepared.config().modifiers().size() + " modifiers; selected set is "
+                plugin.getLogger().info("Integrated Warzone module started with "
+                        + prepared.control().gameplay().modifiers().size() + " modifiers and "
+                        + prepared.control().kits().size() + " kits; selected set is "
                         + runtime.rotations().active().modifierIds() + "; gameplay scope is "
                         + (runtime.gameplayScopeActive() ? "active" : "inactive") + ".");
             } else {
@@ -109,15 +111,18 @@ public final class WarzoneModule {
         Prepared prepared = validateFiles(true);
         log(prepared);
         if (!prepared.valid()) {
-            send(sender, "<red>Reload rejected; the current weekly selection, transition, and services remain active. Check the console.");
+            send(sender, "<red>Reload rejected; the current selection, schedule, and services remain active. Check the console.");
             return;
         }
         WarzoneRuntime old = runtime;
         WarzoneConfig.ActiveSet oldSet = old == null ? null : old.rotations().active();
+        com.lincoln.maceguard.warzone.rotation.RotationState oldState =
+                old == null ? null : old.rotations().state();
         ReloadGuard.Result<WarzoneRuntime> candidate = ReloadGuard.prepare(old, prepared.valid(),
-                () -> new WarzoneRuntime(plugin, temporaryBlocks, prepared.config(),
+                () -> new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
                         prepared.messages(), stateStore, clock));
         if (!candidate.accepted()) {
+            if (oldState != null) stateStore.update(oldState);
             if (candidate.failure() != null)
                 plugin.getLogger().severe("Warzone reload could not build the replacement runtime: "
                         + candidate.failure().getMessage());
@@ -128,6 +133,7 @@ public final class WarzoneModule {
         try { replacement.start(); }
         catch (RuntimeException ex) {
             replacement.shutdown(false);
+            if (oldState != null) stateStore.update(oldState);
             plugin.getLogger().severe("Warzone reload could not start the replacement runtime: "
                     + ex.getMessage());
             send(sender, "<red>Reload rejected; the current runtime remains active.");
@@ -137,20 +143,21 @@ public final class WarzoneModule {
         runtime = replacement;
         if (oldSet != null && oldSet.cobwebsAllowed()
                 && !replacement.rotations().active().cobwebsAllowed()
-                && prepared.config().cobwebs().clearOnMetaChange()) old.clearTrackedCobwebs();
-        send(sender, "<green>Warzone configuration reloaded atomically; valid weekly state was preserved when possible.");
+                && prepared.control().gameplay().cobwebs().clearOnMetaChange()) old.clearTrackedCobwebs();
+        send(sender, "<green>Warzone configuration reloaded atomically; valid automatic and override state was preserved when possible.");
     }
 
     public void validate(CommandSender sender) {
         Prepared prepared = validateFiles(true);
         log(prepared);
         if (prepared.valid()) send(sender, "<green>Warzone configuration and effective scope are valid ("
-                + prepared.config().modifiers().size() + " modifiers).");
+                + prepared.control().gameplay().modifiers().size() + " modifiers, "
+                + prepared.control().kits().size() + " kits).");
         else send(sender, "<red>Warzone validation failed. Check the console for the exact unresolved world, region, or configuration path.");
     }
 
     public Prepared validateFiles(boolean validateResolvedRegion) {
-        ValidationResult<WarzoneConfig> config = new WarzoneConfigLoader().load(configFile);
+        ValidationResult<WarzoneControlConfig> config = new WarzoneControlConfigLoader().load(configFile);
         ValidationResult<WarzoneMessages> messages = new WarzoneMessagesLoader().load(messagesFile);
         List<String> errors = new ArrayList<>();
         errors.addAll(config.errors());
@@ -159,7 +166,7 @@ public final class WarzoneModule {
         warnings.addAll(messages.warnings());
         if (validateResolvedRegion && config.valid()) {
             var region = new com.lincoln.maceguard.warzone.region.WarzoneRegionService(
-                    config.value().region());
+                    config.value().gameplay().region());
             if (!region.worldLoaded())
                 errors.add("region.world '" + region.worldName() + "' is not loaded.");
             if (!region.regionResolved())
@@ -223,8 +230,8 @@ public final class WarzoneModule {
                 plugin.getLogger().severe("Warzone configuration: " + value));
     }
 
-    public record Prepared(WarzoneConfig config, WarzoneMessages messages,
+    public record Prepared(WarzoneControlConfig control, WarzoneMessages messages,
                            List<String> errors, List<String> warnings) {
-        public boolean valid() { return config != null && messages != null && errors.isEmpty(); }
+        public boolean valid() { return control != null && messages != null && errors.isEmpty(); }
     }
 }
