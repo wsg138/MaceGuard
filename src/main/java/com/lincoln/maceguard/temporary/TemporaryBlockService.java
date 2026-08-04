@@ -13,14 +13,15 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -35,8 +36,10 @@ public final class TemporaryBlockService implements Listener {
     private final Map<String, TemporaryBlock> tracked = new LinkedHashMap<>();
     private final EnumMap<TerminalReason, Long> terminalReasons = new EnumMap<>(TerminalReason.class);
     private final Object persistenceLock = new Object();
+    private final List<CompletableFuture<Void>> pendingWriteCompletions = new ArrayList<>();
     private BukkitTask ticker;
-    private CompletableFuture<Void> writeTail = CompletableFuture.completedFuture(null);
+    private Map<String, TemporaryBlock> pendingSnapshot;
+    private boolean writerScheduled;
     private volatile Map<String, TemporaryBlock> durableSnapshot = Map.of();
     private volatile boolean persistenceHealthy = true;
     private volatile boolean rollbackScheduled;
@@ -167,7 +170,7 @@ public final class TemporaryBlockService implements Listener {
         return affected;
     }
 
-    /** Queues a snapshot after all earlier writes, regardless of executor concurrency. */
+    /** Queues a snapshot after all earlier requested states. */
     public CompletableFuture<Void> persistCurrentState() { return persist(); }
 
     /** Drops records only when the current block is genuinely no longer the managed material. */
@@ -339,31 +342,69 @@ public final class TemporaryBlockService implements Listener {
     }
 
     private CompletableFuture<Void> persist() {
-        if (!persistenceHealthy)
-            return CompletableFuture.failedFuture(new IOException("temporary block persistence failed"));
-        Map<String, TemporaryBlock> copy = Map.copyOf(tracked);
-        CompletableFuture<Void> next;
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        boolean scheduleWriter = false;
         synchronized (persistenceLock) {
-            next = writeTail.handle((ignored, failure) -> null).thenRunAsync(() -> {
-                if (!persistenceHealthy)
-                    throw new CompletionException(new IOException(
-                            "temporary block persistence is unavailable"));
-                try {
-                    repository.save(copy);
-                    durableSnapshot = copy;
-                } catch (IOException ex) {
-                    persistenceHealthy = false;
-                    logPersistenceFailure("Temporary block state could not be committed; "
-                            + "no further blocks will be tracked", ex);
-                    throw new CompletionException(ex);
-                }
-            }, io);
-            writeTail = next;
+            if (!persistenceHealthy)
+                return CompletableFuture.failedFuture(
+                        new IOException("temporary block persistence failed"));
+            pendingSnapshot = Map.copyOf(tracked);
+            pendingWriteCompletions.add(completion);
+            if (!writerScheduled) {
+                writerScheduled = true;
+                scheduleWriter = true;
+            }
         }
-        next.whenComplete((ignored, failure) -> {
-            if (failure != null) scheduleRollbackUndurable();
-        });
-        return next;
+        if (scheduleWriter) {
+            try {
+                io.execute(this::drainPersistenceQueue);
+            } catch (RuntimeException ex) {
+                failPersistence("Temporary block persistence executor rejected a write", ex,
+                        List.of());
+            }
+        }
+        return completion;
+    }
+
+    private void drainPersistenceQueue() {
+        while (true) {
+            Map<String, TemporaryBlock> snapshot;
+            List<CompletableFuture<Void>> completions;
+            synchronized (persistenceLock) {
+                if (pendingSnapshot == null) {
+                    writerScheduled = false;
+                    return;
+                }
+                snapshot = pendingSnapshot;
+                pendingSnapshot = null;
+                completions = List.copyOf(pendingWriteCompletions);
+                pendingWriteCompletions.clear();
+            }
+            try {
+                repository.save(snapshot);
+                durableSnapshot = snapshot;
+                completions.forEach(completion -> completion.complete(null));
+            } catch (IOException ex) {
+                failPersistence("Temporary block state could not be committed; "
+                        + "no further blocks will be tracked", ex, completions);
+                return;
+            }
+        }
+    }
+
+    private void failPersistence(String prefix, Exception ex,
+                                 List<CompletableFuture<Void>> activeCompletions) {
+        List<CompletableFuture<Void>> failed = new ArrayList<>(activeCompletions);
+        synchronized (persistenceLock) {
+            persistenceHealthy = false;
+            writerScheduled = false;
+            pendingSnapshot = null;
+            failed.addAll(pendingWriteCompletions);
+            pendingWriteCompletions.clear();
+        }
+        logPersistenceFailure(prefix, ex);
+        failed.forEach(completion -> completion.completeExceptionally(ex));
+        scheduleRollbackUndurable();
     }
 
     private void scheduleRollbackUndurable() {
