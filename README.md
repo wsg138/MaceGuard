@@ -101,6 +101,22 @@ Machine-readable placeholders:
 %warzone_firework_boost_blocked%
 ```
 
+Ordered selected-modifier placeholders:
+
+```text
+%warzone_modifier_1%
+%warzone_modifier_2%
+%warzone_modifier_3%
+%warzone_modifier_1_id%
+%warzone_modifier_2_id%
+%warzone_modifier_3_id%
+%warzone_modifier_1_description%
+%warzone_modifier_2_description%
+%warzone_modifier_3_description%
+```
+
+Positions follow the active weekly modifier list without additional sorting. Name and description values use the plain-text form of the active runtime configuration, ID values use the exact internal IDs, and missing positions return an empty string. These selected-week values remain available when gameplay scope is inactive; all nine return an empty string when no active selection or Warzone runtime is available.
+
 Existing `%warzone_*%` placeholders remain supported, and `%warzone_restrictions%` includes Pearl and Wind Charge restrictions.
 
 ## Block policies
