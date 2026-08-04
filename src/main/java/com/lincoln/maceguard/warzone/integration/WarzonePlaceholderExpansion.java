@@ -38,6 +38,12 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
         var remaining = live.rotations().remaining();
         boolean scopeActive = live.gameplayScopeActive();
         String parameter = params.toLowerCase(Locale.ROOT);
+        String modifierValue = WarzoneStatusValues.resolveModifier(
+                parameter, live.config().modifiers(), active);
+        if (modifierValue != null) {
+            return parameter.endsWith("_id")
+                    ? modifierValue : live.messages().plain(modifierValue);
+        }
         String statusValue = WarzoneStatusValues.resolve(parameter, scopeActive, active);
         if (statusValue != null) return statusValue;
         return switch (parameter) {
