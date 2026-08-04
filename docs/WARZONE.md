@@ -207,8 +207,17 @@ Existing generic placeholders remain backward compatible, including:
 
 ## Example weeks
 
+The indexed placeholders expose the same stored order for every supported weekly count:
+
 ```text
-Cobwebs + 5s Pearl Cooldown
+One modifier:   Cobwebs
+Two modifiers:  Cobwebs + 5s Pearl Cooldown
+Three modifiers: No Lunge + Cobwebs + 5s Pearl Cooldown
+```
+
+Additional valid combinations include:
+
+```text
 No Lunge + 10s Wind Charge Cooldown
 Mace Cooldown + No Ender Pearls
 Elytra, No Rockets + Cobwebs
