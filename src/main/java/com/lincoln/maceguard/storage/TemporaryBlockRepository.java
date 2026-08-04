@@ -46,6 +46,15 @@ public final class TemporaryBlockRepository {
     }
 
     public void save(Map<String, TemporaryBlock> blocks) throws IOException {
+        save(blocks, false);
+    }
+
+    public void saveAtomically(Map<String, TemporaryBlock> blocks) throws IOException {
+        save(blocks, true);
+    }
+
+    private void save(Map<String, TemporaryBlock> blocks, boolean atomicRequired)
+            throws IOException {
         Files.createDirectories(file.getParent());
         Path temp = Files.createTempFile(file.getParent(), "temporary-", ".tmp");
         try {
@@ -59,6 +68,9 @@ public final class TemporaryBlockRepository {
                 Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException ex) {
+                if (atomicRequired)
+                    throw new IOException("Atomic temporary-block state replacement unavailable",
+                            ex);
                 Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
             }
         } finally {
