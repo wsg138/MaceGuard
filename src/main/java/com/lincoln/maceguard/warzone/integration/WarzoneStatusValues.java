@@ -4,10 +4,16 @@ import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionTarget;
 
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 final class WarzoneStatusValues {
     private static final RestrictionTarget MACE = target("MACE");
     private static final RestrictionTarget ENDER_PEARL = target("ENDER_PEARL");
     private static final RestrictionTarget WIND_CHARGE = target("WIND_CHARGE");
+    private static final Pattern MODIFIER_VALUE = Pattern.compile(
+            "^modifier_([1-3])(?:_(id|description))?$");
 
     private WarzoneStatusValues() { }
 
@@ -18,6 +24,31 @@ final class WarzoneStatusValues {
         String restriction = resolveRestrictionValue(parameter, scopeActive, active);
         return restriction != null
                 ? restriction : resolveEffectValue(parameter, scopeActive, active);
+    }
+
+    static String resolveModifier(String parameter,
+                                  Map<String, WarzoneConfig.Modifier> modifiers,
+                                  WarzoneConfig.ActiveSet active) {
+        Matcher matcher = MODIFIER_VALUE.matcher(parameter);
+        if (!matcher.matches()) return null;
+        ActiveModifier selected = activeModifier(
+                modifiers, active, Integer.parseInt(matcher.group(1)));
+        if (selected == null) return "";
+        String field = matcher.group(2);
+        if ("id".equals(field)) return selected.id();
+        if ("description".equals(field)) return selected.modifier().description();
+        return selected.modifier().displayName();
+    }
+
+    private static ActiveModifier activeModifier(
+            Map<String, WarzoneConfig.Modifier> modifiers,
+            WarzoneConfig.ActiveSet active, int oneBasedIndex) {
+        if (modifiers == null || active == null) return null;
+        int index = oneBasedIndex - 1;
+        if (index < 0 || index >= active.modifierIds().size()) return null;
+        String id = active.modifierIds().get(index);
+        WarzoneConfig.Modifier modifier = modifiers.get(id);
+        return modifier == null ? null : new ActiveModifier(id, modifier);
     }
 
     private static String resolveStatus(String parameter, boolean scopeActive,
@@ -103,4 +134,6 @@ final class WarzoneStatusValues {
     private static RestrictionTarget target(String id) {
         return RestrictionTarget.parse(id).orElseThrow();
     }
+
+    private record ActiveModifier(String id, WarzoneConfig.Modifier modifier) { }
 }
