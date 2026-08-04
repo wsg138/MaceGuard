@@ -17,6 +17,16 @@ jobs:
           java-version: '21'
       - name: Verify and package
         run: ./mvnw -B clean verify
+      - name: Upload temporary source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: |
+            .
+            !.git/**
+            !target/**
+          include-hidden-files: true
+          retention-days: 1
       - uses: actions/upload-artifact@v4
         with:
           name: MaceGuard
