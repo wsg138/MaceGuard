@@ -35,6 +35,39 @@ import static org.mockito.Mockito.when;
 class CobwebListenerPlacementTest {
     @Test
     void creativeAndSurvivalPlacementsUseTheSameGuaranteedTrackingPath() {
+        Harness harness = harness(true);
+
+        BlockPlaceEvent survival = event(GameMode.SURVIVAL, 1);
+        BlockPlaceEvent creative = event(GameMode.CREATIVE, 2);
+        harness.listener.onRestriction(survival);
+        harness.listener.onPlace(survival);
+        harness.listener.onRestriction(creative);
+        harness.listener.onPlace(creative);
+
+        verify(survival, never()).setCancelled(true);
+        verify(creative, never()).setCancelled(true);
+        verify(harness.temporary, org.mockito.Mockito.times(2))
+                .track(any(Block.class), anyString(), anyLong(), eq(true));
+        assertTrue(CobwebListener.replacementAllowed(harness.config, Material.AIR));
+    }
+
+    @Test
+    void rejectedTrackingCancelsAndRestoresTheOriginalBlock() {
+        Harness harness = harness(false);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 3);
+        Block placed = event.getBlockPlaced();
+        BlockData original = event.getBlockReplacedState().getBlockData();
+
+        harness.listener.onRestriction(event);
+        harness.listener.onPlace(event);
+
+        verify(event).setCancelled(true);
+        verify(placed).setBlockData(original, false);
+        verify(harness.warzone, never()).successfulCobweb(any(Player.class),
+                any(com.lincoln.maceguard.warzone.restriction.RestrictionDecision.class));
+    }
+
+    private Harness harness(boolean trackResult) {
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
         WarzoneModule warzone = mock(WarzoneModule.class);
         TemporaryBlockService temporary = mock(TemporaryBlockService.class);
@@ -58,20 +91,8 @@ class CobwebListenerPlacementTest {
         when(worldGuard.cobwebsAllowed(any(Location.class), any(Player.class))).thenReturn(true);
         when(worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
         when(temporary.track(any(Block.class), anyString(), anyLong(), eq(true)))
-                .thenReturn(true);
-
-        BlockPlaceEvent survival = event(GameMode.SURVIVAL, 1);
-        BlockPlaceEvent creative = event(GameMode.CREATIVE, 2);
-        listener.onRestriction(survival);
-        listener.onPlace(survival);
-        listener.onRestriction(creative);
-        listener.onPlace(creative);
-
-        verify(survival, never()).setCancelled(true);
-        verify(creative, never()).setCancelled(true);
-        verify(temporary, org.mockito.Mockito.times(2))
-                .track(any(Block.class), anyString(), anyLong(), eq(true));
-        assertTrue(CobwebListener.replacementAllowed(config, Material.AIR));
+                .thenReturn(trackResult);
+        return new Harness(listener, warzone, temporary, config);
     }
 
     private BlockPlaceEvent event(GameMode mode, int x) {
@@ -109,4 +130,7 @@ class CobwebListenerPlacementTest {
         when(data.getAsString(true)).thenReturn(serialized);
         return data;
     }
+
+    private record Harness(CobwebListener listener, WarzoneModule warzone,
+                           TemporaryBlockService temporary, MaceGuardConfig config) { }
 }
