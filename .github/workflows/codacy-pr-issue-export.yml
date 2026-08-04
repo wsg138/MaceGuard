@@ -1,0 +1,53 @@
+name: Codacy PR issue export
+
+on:
+  push:
+    branches:
+      - agent/expanded-warzone-rotations
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Export current Codacy PR issues
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/14/issues?status=new&limit=1000'
+          for attempt in $(seq 1 20); do
+            curl --fail --silent --show-error --location \
+              --header 'Accept: application/json' \
+              "$url" \
+              --output codacy-pr14-issues.json
+            analyzed=$(jq -r '.analyzed // false' codacy-pr14-issues.json)
+            total=$(jq -r '.pagination.total // (.data | length) // 0' codacy-pr14-issues.json)
+            echo "attempt=$attempt analyzed=$analyzed total=$total"
+            if [[ "$analyzed" == "true" && "$total" -gt 0 ]]; then
+              break
+            fi
+            sleep 15
+          done
+          jq -e '.analyzed == true' codacy-pr14-issues.json >/dev/null
+          jq -e '(.pagination.total // (.data | length)) > 0' codacy-pr14-issues.json >/dev/null
+          jq -r '.data[] | [
+            (.commitIssue.toolInfo.name // ""),
+            (.commitIssue.patternInfo.id // ""),
+            (.commitIssue.patternInfo.severityLevel // .commitIssue.patternInfo.level // ""),
+            (.commitIssue.patternInfo.category // ""),
+            (.commitIssue.filePath // ""),
+            ((.commitIssue.lineNumber // 0) | tostring),
+            (.commitIssue.message // .commitIssue.patternInfo.title // "")
+          ] | @tsv' codacy-pr14-issues.json | sort > codacy-pr14-issues.tsv
+
+      - name: Upload Codacy issue export
+        uses: actions/upload-artifact@v4
+        with:
+          name: codacy-pr14-issues
+          path: |
+            codacy-pr14-issues.json
+            codacy-pr14-issues.tsv
+          if-no-files-found: error
+          retention-days: 1
