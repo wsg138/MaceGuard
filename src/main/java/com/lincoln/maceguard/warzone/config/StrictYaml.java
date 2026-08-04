@@ -59,7 +59,8 @@ final class StrictYaml {
     private static LoaderOptions options() {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
-        options.setWarnOnDuplicateKeys(false);
+        // Paper may provide a SnakeYAML version without setWarnOnDuplicateKeys. Duplicate keys are
+        // already rejected above, so calling that optional newer API is unnecessary and unsafe.
         options.setMaxAliasesForCollections(50);
         return options;
     }
