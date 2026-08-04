@@ -60,7 +60,7 @@ class TemporaryBlockServiceTest {
     }
 
     @Test
-    void rapidPlacementTracksExactlyOneEntryPerCoordinate() {
+    void rapidPlacementTracksExactlyOneEntryPerCoordinate() throws Exception {
         TestWorld world = world();
         QueuedExecutor io = new QueuedExecutor();
         TemporaryBlockService service = service("rapid.json", io, 10_000);
