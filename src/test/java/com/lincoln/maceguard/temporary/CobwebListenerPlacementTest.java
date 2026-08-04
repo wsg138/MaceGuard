@@ -35,10 +35,10 @@ import static org.mockito.Mockito.when;
 class CobwebListenerPlacementTest {
     @Test
     void creativeAndSurvivalPlacementsUseTheSameGuaranteedTrackingPath() {
-        Harness harness = harness(true);
+        Harness harness = harness(true, true);
 
-        BlockPlaceEvent survival = event(GameMode.SURVIVAL, 1);
-        BlockPlaceEvent creative = event(GameMode.CREATIVE, 2);
+        BlockPlaceEvent survival = event(GameMode.SURVIVAL, 1, Material.AIR);
+        BlockPlaceEvent creative = event(GameMode.CREATIVE, 2, Material.AIR);
         harness.listener.onRestriction(survival);
         harness.listener.onPlace(survival);
         harness.listener.onRestriction(creative);
@@ -53,8 +53,8 @@ class CobwebListenerPlacementTest {
 
     @Test
     void rejectedTrackingCancelsAndRestoresTheOriginalBlock() {
-        Harness harness = harness(false);
-        BlockPlaceEvent event = event(GameMode.SURVIVAL, 3);
+        Harness harness = harness(false, true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 3, Material.AIR);
         Block placed = event.getBlockPlaced();
         BlockData original = event.getBlockReplacedState().getBlockData();
 
@@ -67,7 +67,34 @@ class CobwebListenerPlacementTest {
                 any(com.lincoln.maceguard.warzone.restriction.RestrictionDecision.class));
     }
 
-    private Harness harness(boolean trackResult) {
+    @Test
+    void disallowedReplacementIsCancelledInsideManagedScope() {
+        Harness harness = harness(true, true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 4, Material.STONE);
+
+        harness.listener.onRestriction(event);
+
+        verify(event).setCancelled(true);
+        verify(harness.temporary, never())
+                .track(any(Block.class), anyString(), anyLong(), any(Boolean.class));
+    }
+
+    @Test
+    void replacementConfigurationDoesNotAffectCobwebsOutsideManagedScope() {
+        Harness harness = harness(true, false);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 5, Material.STONE);
+        Block placed = event.getBlockPlaced();
+
+        harness.listener.onRestriction(event);
+        harness.listener.onPlace(event);
+
+        verify(event, never()).setCancelled(true);
+        verify(placed, never()).setBlockData(any(BlockData.class), eq(false));
+        verify(harness.temporary, never())
+                .track(any(Block.class), anyString(), anyLong(), any(Boolean.class));
+    }
+
+    private Harness harness(boolean trackResult, boolean warzoneApplies) {
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
         WarzoneModule warzone = mock(WarzoneModule.class);
         TemporaryBlockService temporary = mock(TemporaryBlockService.class);
@@ -82,7 +109,7 @@ class CobwebListenerPlacementTest {
         when(policies.resolve(any(Location.class))).thenReturn(
                 BlockPolicyResolver.Resolution.none(
                         BlockPolicyResolver.Status.NO_EFFECTIVE_VALUE));
-        when(warzone.appliesAt(any(Location.class))).thenReturn(true);
+        when(warzone.appliesAt(any(Location.class))).thenReturn(warzoneApplies);
         when(warzone.cobwebDecision(any(Player.class), any(Location.class)))
                 .thenReturn(WarzoneRuntime.CobwebDecision.permit());
         when(warzone.cobwebLifetime(any(Duration.class), any(Location.class)))
@@ -95,7 +122,7 @@ class CobwebListenerPlacementTest {
         return new Harness(listener, warzone, temporary, config);
     }
 
-    private BlockPlaceEvent event(GameMode mode, int x) {
+    private BlockPlaceEvent event(GameMode mode, int x, Material originalMaterial) {
         World world = mock(World.class);
         when(world.getUID()).thenReturn(UUID.randomUUID());
         Location location = new Location(world, x, 64, 0);
@@ -112,10 +139,11 @@ class CobwebListenerPlacementTest {
         when(placed.getZ()).thenReturn(0);
         when(placed.getBlockData()).thenReturn(cobwebData);
 
-        BlockData airData = data(Material.AIR, "minecraft:air");
+        BlockData originalData = data(originalMaterial,
+                "minecraft:" + originalMaterial.name().toLowerCase(java.util.Locale.ROOT));
         BlockState replaced = mock(BlockState.class);
-        when(replaced.getType()).thenReturn(Material.AIR);
-        when(replaced.getBlockData()).thenReturn(airData);
+        when(replaced.getType()).thenReturn(originalMaterial);
+        when(replaced.getBlockData()).thenReturn(originalData);
 
         BlockPlaceEvent event = mock(BlockPlaceEvent.class);
         when(event.getPlayer()).thenReturn(player);
