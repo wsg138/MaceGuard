@@ -13,7 +13,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,6 +29,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 public final class TemporaryBlockService implements Listener {
+    private static final int TRACE_LIMIT = 64;
+
     private final JavaPlugin plugin;
     private final TemporaryBlockRepository repository;
     private final Executor io;
@@ -35,6 +39,7 @@ public final class TemporaryBlockService implements Listener {
     private final Function<String, BlockData> blockDataFactory;
     private final Map<String, TemporaryBlock> tracked = new LinkedHashMap<>();
     private final EnumMap<TerminalReason, Long> terminalReasons = new EnumMap<>(TerminalReason.class);
+    private final Deque<TraceEvent> recentTrace = new ArrayDeque<>(TRACE_LIMIT);
     private final Object persistenceLock = new Object();
     private final List<CompletableFuture<Void>> pendingWriteCompletions = new ArrayList<>();
     private BukkitTask ticker;
@@ -117,6 +122,37 @@ public final class TemporaryBlockService implements Listener {
         return Map.copyOf(terminalReasons);
     }
 
+    public List<TraceEvent> recentTrace(int limit) {
+        int requested = Math.max(0, limit);
+        int skip = Math.max(0, recentTrace.size() - requested);
+        return recentTrace.stream().skip(skip).toList();
+    }
+
+    public List<ActiveDiagnostic> activeDiagnostics(long now, int limit) {
+        List<ActiveDiagnostic> diagnostics = new ArrayList<>();
+        int maximum = Math.max(0, limit);
+        for (TemporaryBlock entry : tracked.values()) {
+            if (diagnostics.size() >= maximum) break;
+            World world = world(entry);
+            String status;
+            String current;
+            if (world == null) {
+                status = validWorldUuid(entry) ? "WORLD_UNAVAILABLE" : "INVALID_WORLD_UUID";
+                current = "<world-unavailable>";
+            } else if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) {
+                status = "WAITING_UNLOADED_CHUNK";
+                current = "<chunk-unloaded>";
+            } else {
+                status = entry.expiresAt() <= now ? "EXPIRED_LOADED" : "TRACKED";
+                current = currentBlockData(world, entry);
+            }
+            diagnostics.add(new ActiveDiagnostic(status, entry.worldUuid(), entry.x(), entry.y(),
+                    entry.z(), entry.expectedBlockData(), current, entry.originalBlockData(),
+                    entry.expiresAt(), entry.pendingClear()));
+        }
+        return List.copyOf(diagnostics);
+    }
+
     public void shutdown() {
         if (ticker != null) ticker.cancel();
         ticker = null;
@@ -142,7 +178,7 @@ public final class TemporaryBlockService implements Listener {
             World world = world(entry);
             if (world == null) {
                 if (!validWorldUuid(entry)) {
-                    remove(iterator, TerminalReason.WORLD_MISSING);
+                    remove(iterator, entry, TerminalReason.WORLD_MISSING, "<world-unavailable>");
                     changed = true;
                 } else if (!entry.pendingClear()) {
                     trackedEntry.setValue(entry.withPendingClear());
@@ -159,7 +195,7 @@ public final class TemporaryBlockService implements Listener {
             }
             RestoreOutcome outcome = restoreLoaded(world, entry, TerminalReason.CLEAR_RESTORED);
             if (outcome.terminal()) {
-                remove(iterator, outcome.reason());
+                remove(iterator, entry, outcome.reason(), outcome.observedCurrentBlockData());
                 changed = true;
             } else if (!entry.pendingClear()) {
                 trackedEntry.setValue(entry.withPendingClear());
@@ -183,7 +219,8 @@ public final class TemporaryBlockService implements Listener {
             if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
             if (matchesManagedBlock(block, entry)) continue;
-            remove(iterator, TerminalReason.CURRENT_BLOCK_DIFFERENT);
+            remove(iterator, entry, TerminalReason.CURRENT_BLOCK_DIFFERENT,
+                    block.getBlockData().getAsString(true));
             removed++;
         }
         if (removed > 0) persist();
@@ -204,7 +241,8 @@ public final class TemporaryBlockService implements Listener {
             if (world == null || !world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) continue;
             Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
             if (!matchesRecordedData(block, entry.originalBlockData(), false)) continue;
-            remove(iterator, TerminalReason.RESET_CONFIRMED);
+            remove(iterator, entry, TerminalReason.RESET_CONFIRMED,
+                    block.getBlockData().getAsString(true));
             removed++;
         }
         if (removed > 0) persist();
@@ -218,7 +256,7 @@ public final class TemporaryBlockService implements Listener {
         while (iterator.hasNext()) {
             TemporaryBlock entry = iterator.next().getValue();
             if (!selected.test(entry)) continue;
-            remove(iterator, TerminalReason.EXPLICIT_DISCARD);
+            remove(iterator, entry, TerminalReason.EXPLICIT_DISCARD, currentBlockData(entry));
             removed++;
         }
         if (removed > 0) persist();
@@ -249,7 +287,8 @@ public final class TemporaryBlockService implements Listener {
             World world = world(entry);
             if (world == null) {
                 if (!validWorldUuid(entry)) {
-                    remove(iterator, TerminalReason.WORLD_MISSING);
+                    remove(iterator, entry, TerminalReason.WORLD_MISSING,
+                            "<world-unavailable>");
                     changed = true;
                 }
                 continue;
@@ -259,7 +298,7 @@ public final class TemporaryBlockService implements Listener {
                     ? TerminalReason.CLEAR_RESTORED : TerminalReason.EXPIRED_RESTORED;
             RestoreOutcome outcome = restoreLoaded(world, entry, restoredReason);
             if (!outcome.terminal()) continue;
-            remove(iterator, outcome.reason());
+            remove(iterator, entry, outcome.reason(), outcome.observedCurrentBlockData());
             changed = true;
         }
         if (changed) persist();
@@ -278,7 +317,7 @@ public final class TemporaryBlockService implements Listener {
                     ? TerminalReason.CLEAR_RESTORED : TerminalReason.EXPIRED_RESTORED;
             RestoreOutcome outcome = restoreLoaded(world, entry, restoredReason);
             if (!outcome.terminal()) continue;
-            remove(iterator, outcome.reason());
+            remove(iterator, entry, outcome.reason(), outcome.observedCurrentBlockData());
             changed = true;
         }
         if (changed) persist();
@@ -287,15 +326,18 @@ public final class TemporaryBlockService implements Listener {
     private RestoreOutcome restoreLoaded(World world, TemporaryBlock entry,
                                          TerminalReason restoredReason) {
         Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
+        String observedCurrent = block.getBlockData().getAsString(true);
         if (!matchesManagedBlock(block, entry))
-            return RestoreOutcome.terminal(TerminalReason.CURRENT_BLOCK_DIFFERENT);
+            return RestoreOutcome.terminal(TerminalReason.CURRENT_BLOCK_DIFFERENT,
+                    observedCurrent);
         try {
             block.setBlockData(blockDataFactory.apply(entry.originalBlockData()), false);
-            return RestoreOutcome.terminal(restoredReason);
+            return RestoreOutcome.terminal(restoredReason, observedCurrent);
         } catch (RuntimeException ex) {
+            recordTrace(entry, "RESTORE_RETRY", observedCurrent);
             plugin.getLogger().warning("Could not restore temporary block at "
                     + block.getLocation() + ": " + ex.getMessage());
-            return RestoreOutcome.retry();
+            return RestoreOutcome.retry(observedCurrent);
         }
     }
 
@@ -338,6 +380,22 @@ public final class TemporaryBlockService implements Listener {
             return true;
         } catch (IllegalArgumentException ex) {
             return false;
+        }
+    }
+
+    private String currentBlockData(TemporaryBlock entry) {
+        World world = world(entry);
+        if (world == null) return "<world-unavailable>";
+        if (!world.isChunkLoaded(entry.x() >> 4, entry.z() >> 4)) return "<chunk-unloaded>";
+        return currentBlockData(world, entry);
+    }
+
+    private String currentBlockData(World world, TemporaryBlock entry) {
+        try {
+            return world.getBlockAt(entry.x(), entry.y(), entry.z())
+                    .getBlockData().getAsString(true);
+        } catch (RuntimeException ex) {
+            return "<block-data-unavailable>";
         }
     }
 
@@ -436,15 +494,29 @@ public final class TemporaryBlockService implements Listener {
             RestoreOutcome outcome = restoreLoaded(world, entry,
                     TerminalReason.PERSISTENCE_ROLLBACK);
             if (!outcome.terminal()) continue;
-            remove(iterator, outcome.reason());
+            remove(iterator, entry, outcome.reason(), outcome.observedCurrentBlockData());
             removed++;
         }
         return removed;
     }
 
-    private void remove(java.util.Iterator<?> iterator, TerminalReason reason) {
+    private void remove(java.util.Iterator<?> iterator, TemporaryBlock entry,
+                        TerminalReason reason, String observedCurrentBlockData) {
+        recordTrace(entry, reason.name(), observedCurrentBlockData);
         iterator.remove();
         terminalReasons.merge(reason, 1L, Long::sum);
+    }
+
+    private void recordTrace(TemporaryBlock entry, String reason,
+                             String observedCurrentBlockData) {
+        TraceEvent event = new TraceEvent(System.currentTimeMillis(), reason, entry.worldUuid(),
+                entry.x(), entry.y(), entry.z(), entry.expectedBlockData(),
+                observedCurrentBlockData, entry.originalBlockData(), entry.expiresAt(),
+                entry.pendingClear());
+        TraceEvent previous = recentTrace.peekLast();
+        if (previous != null && previous.sameOutcome(event)) return;
+        if (recentTrace.size() >= TRACE_LIMIT) recentTrace.removeFirst();
+        recentTrace.addLast(event);
     }
 
     private void logPersistenceFailure(String prefix, Exception ex) {
@@ -461,6 +533,23 @@ public final class TemporaryBlockService implements Listener {
                               boolean persistenceHealthy, int capacityCurrent,
                               int capacityMaximum) { }
 
+    public record ActiveDiagnostic(String status, String worldUuid, int x, int y, int z,
+                                   String expectedBlockData, String currentBlockData,
+                                   String originalBlockData, long expiresAt,
+                                   boolean pendingClear) { }
+
+    public record TraceEvent(long observedAt, String reason, String worldUuid,
+                             int x, int y, int z, String expectedBlockData,
+                             String currentBlockData, String originalBlockData,
+                             long expiresAt, boolean pendingClear) {
+        private boolean sameOutcome(TraceEvent other) {
+            return reason.equals(other.reason) && worldUuid.equals(other.worldUuid)
+                    && x == other.x && y == other.y && z == other.z
+                    && currentBlockData.equals(other.currentBlockData)
+                    && pendingClear == other.pendingClear;
+        }
+    }
+
     public enum TerminalReason {
         EXPIRED_RESTORED,
         CLEAR_RESTORED,
@@ -471,11 +560,14 @@ public final class TemporaryBlockService implements Listener {
         EXPLICIT_DISCARD
     }
 
-    private record RestoreOutcome(boolean terminal, TerminalReason reason) {
-        static RestoreOutcome terminal(TerminalReason reason) {
-            return new RestoreOutcome(true, reason);
+    private record RestoreOutcome(boolean terminal, TerminalReason reason,
+                                  String observedCurrentBlockData) {
+        static RestoreOutcome terminal(TerminalReason reason, String observedCurrentBlockData) {
+            return new RestoreOutcome(true, reason, observedCurrentBlockData);
         }
 
-        static RestoreOutcome retry() { return new RestoreOutcome(false, null); }
+        static RestoreOutcome retry(String observedCurrentBlockData) {
+            return new RestoreOutcome(false, null, observedCurrentBlockData);
+        }
     }
 }
