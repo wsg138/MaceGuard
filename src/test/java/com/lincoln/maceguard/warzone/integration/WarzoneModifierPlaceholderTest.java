@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -78,6 +79,30 @@ class WarzoneModifierPlaceholderTest {
         assertAllSlotsEmpty(expansion(modifiers(), null, true));
     }
 
+    @Test void indexedParametersAreCaseInsensitive() {
+        WarzonePlaceholderExpansion expansion = expansion(modifiers(),
+                active(List.of(COBWEBS)), true);
+
+        assertEquals("Cobwebs", expansion.onRequest(null, "MoDiFiEr_1"));
+        assertEquals(COBWEBS, expansion.onRequest(null, "MODIFIER_1_ID"));
+        assertEquals(COBWEBS_DESCRIPTION, expansion.onRequest(
+                null, "Modifier_1_Description"));
+    }
+
+    @Test void reloadUsesChangedConfiguredNameAndDescription() {
+        AtomicReference<Map<String, WarzoneConfig.Modifier>> configured =
+                new AtomicReference<>(modifiers());
+        WarzonePlaceholderExpansion expansion = expansion(configured,
+                active(List.of(COBWEBS)), true);
+        assertSlot(expansion, 1, "Cobwebs", COBWEBS, COBWEBS_DESCRIPTION);
+
+        configured.set(Map.of(COBWEBS, modifier(COBWEBS,
+                "<gold>Web Week", "<gray>Reloaded runtime description.")));
+
+        assertSlot(expansion, 1, "Web Week", COBWEBS,
+                "Reloaded runtime description.");
+    }
+
     @Test void existingGenericPlaceholdersRemainUnchanged() {
         WarzoneConfig.ActiveSet active = new WarzoneConfig.ActiveSet(
                 List.of(COBWEBS, NO_LUNGE),
@@ -96,6 +121,12 @@ class WarzoneModifierPlaceholderTest {
     private WarzonePlaceholderExpansion expansion(
             Map<String, WarzoneConfig.Modifier> modifiers,
             WarzoneConfig.ActiveSet active, boolean scopeActive) {
+        return expansion(new AtomicReference<>(modifiers), active, scopeActive);
+    }
+
+    private WarzonePlaceholderExpansion expansion(
+            AtomicReference<Map<String, WarzoneConfig.Modifier>> modifiers,
+            WarzoneConfig.ActiveSet active, boolean scopeActive) {
         Plugin plugin = mock(Plugin.class);
         WarzoneRuntime live = mock(WarzoneRuntime.class);
         RotationManager rotations = mock(RotationManager.class);
@@ -106,7 +137,7 @@ class WarzoneModifierPlaceholderTest {
         when(rotations.remaining()).thenReturn(Duration.ZERO);
         when(live.gameplayScopeActive()).thenReturn(scopeActive);
         when(live.config()).thenReturn(config);
-        when(config.modifiers()).thenReturn(modifiers);
+        when(config.modifiers()).thenAnswer(ignored -> modifiers.get());
         when(live.messages()).thenReturn(messages);
         when(messages.plain(anyString())).thenAnswer(invocation ->
                 plain(invocation.getArgument(0)));
