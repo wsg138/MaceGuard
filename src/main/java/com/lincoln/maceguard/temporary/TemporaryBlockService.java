@@ -34,6 +34,7 @@ public final class TemporaryBlockService implements Listener {
     private static final int EMERGENCY_ENTRIES_PER_PASS = 64;
     private static final long EMERGENCY_PENDING_LOG_INTERVAL_MILLIS = 30_000L;
     private static final String WORLD_UNAVAILABLE_DATA = "<world-unavailable>";
+    private static final String ORDERED_MAP_SUPPRESSION = "PMD.UseConcurrentHashMap";
 
     private final JavaPlugin plugin;
     private final TemporaryBlockRepository repository;
@@ -573,7 +574,7 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // LinkedHashMap preserves deterministic journal and retry order; this copy is thread-confined.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private void captureUndurableEntries(Map<String, TemporaryBlock> latestSnapshot) {
         Map<String, TemporaryBlock> recovery = new LinkedHashMap<>(emergencyRecovery);
         for (Map.Entry<String, TemporaryBlock> entry : latestSnapshot.entrySet()) {
@@ -635,7 +636,7 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // LinkedHashMap preserves deterministic bounded retry order; this state is main-thread confined.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private RecoveryPass createRecoveryPass(Map<String, TemporaryBlock> recovery) {
         return new RecoveryPass(recovery, scanEmergencyChunks(recovery),
                 new LinkedHashMap<>(recovery));
@@ -705,7 +706,7 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // Chunk insertion is isolated so the bounded scan loop performs no direct allocations.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private LinkedHashMap<ChunkKey, List<RecoveryEntry>> scanEmergencyChunks(
             Map<String, TemporaryBlock> recovery) {
         LinkedHashMap<ChunkKey, List<RecoveryEntry>> chunks = new LinkedHashMap<>();
@@ -809,7 +810,7 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // LinkedHashMap preserves retry order while removing one entry on the main thread.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private void removeFromEmergencyRecovery(TemporaryBlock entry) {
         String entryKey = key(entry);
         if (!emergencyRecovery.containsKey(entryKey)) return;

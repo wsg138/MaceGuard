@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -113,14 +114,14 @@ class TemporaryBlockEmergencyRecoveryTest {
         assertTrue(first.service.track(block.block, AIR_DATA, 100L));
         first.io.runAll();
         world.setChunkLoaded(2, 0, false);
-        world.ticketLoadingAllowed = false;
+        world.ticketLoadingAllowed.set(false);
 
         first.service.shutdown();
         mainTasks.clear();
         assertEquals(Material.COBWEB, block.material);
         assertEquals(1, first.emergency.load().size());
 
-        world.ticketLoadingAllowed = true;
+        world.ticketLoadingAllowed.set(true);
         TemporaryBlockService restarted = service(first.primary, first.emergency, Runnable::run);
         assertEquals(1, restarted.count());
         assertEquals(1, restarted.emergencyRecoveryCount());
@@ -140,7 +141,7 @@ class TemporaryBlockEmergencyRecoveryTest {
         Scenario first = failingScenario("shutdown-race");
         assertTrue(first.service.track(block.block, AIR_DATA, 100L));
         world.setChunkLoaded(3, 0, false);
-        world.ticketLoadingAllowed = false;
+        world.ticketLoadingAllowed.set(false);
 
         first.service.shutdown();
         first.io.runAll();
@@ -150,7 +151,7 @@ class TemporaryBlockEmergencyRecoveryTest {
         assertEquals(Material.COBWEB, block.material);
         assertEquals(1, first.emergency.load().size());
 
-        world.ticketLoadingAllowed = true;
+        world.ticketLoadingAllowed.set(true);
         TemporaryBlockService restarted = service(first.primary, first.emergency, Runnable::run);
         restarted.rollbackUndurable();
         assertEquals(Material.AIR, block.material);
@@ -375,14 +376,14 @@ class TemporaryBlockEmergencyRecoveryTest {
         assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.setChunkLoaded(6, 6, false);
-        world.ticketLoadingAllowed = false;
+        world.ticketLoadingAllowed.set(false);
 
         runMainTasks();
         assertEquals(Material.COBWEB, block.material);
         assertEquals(1, scenario.service.count());
         assertEquals(1, scenario.service.emergencyRecoveryCount());
 
-        world.ticketLoadingAllowed = true;
+        world.ticketLoadingAllowed.set(true);
         scenario.service.rollbackUndurable();
         assertEquals(Material.AIR, block.material);
         assertEquals(0, scenario.service.count());
@@ -474,7 +475,7 @@ class TemporaryBlockEmergencyRecoveryTest {
         private final Map<String, Integer> removedTickets = new ConcurrentHashMap<>();
         private final Set<String> ownedTickets = new HashSet<>();
         private boolean available = true;
-        private boolean ticketLoadingAllowed = true;
+        private final AtomicBoolean ticketLoadingAllowed = new AtomicBoolean(true);
 
         private WorldHarness() {
             when(world.getUID()).thenReturn(uuid);
@@ -489,7 +490,7 @@ class TemporaryBlockEmergencyRecoveryTest {
                         int x = invocation.getArgument(0);
                         int z = invocation.getArgument(1);
                         String key = chunkKey(x, z);
-                        if (!ticketLoadingAllowed) return false;
+                        if (!ticketLoadingAllowed.get()) return false;
                         addedTickets.merge(key, 1, Integer::sum);
                         boolean added = ownedTickets.add(key);
                         loadedChunks.put(key, true);

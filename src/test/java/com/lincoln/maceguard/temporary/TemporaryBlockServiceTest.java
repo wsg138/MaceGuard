@@ -257,9 +257,9 @@ class TemporaryBlockServiceTest {
 
         io.runAll();
 
-        Map<String, TemporaryBlock> persisted = new TemporaryBlockRepository(
-                directory.resolve("queued.json")).load();
-        assertEquals(4, persisted.size());
+        int persistedCount = new TemporaryBlockRepository(
+                directory.resolve("queued.json")).load().size();
+        assertEquals(4, persistedCount);
         assertTrue(service.persistenceHealthy());
     }
 
