@@ -34,7 +34,6 @@ public final class TemporaryBlockService implements Listener {
     private static final int EMERGENCY_ENTRIES_PER_PASS = 64;
     private static final long EMERGENCY_PENDING_LOG_INTERVAL_MILLIS = 30_000L;
     private static final String WORLD_UNAVAILABLE_DATA = "<world-unavailable>";
-    private static final String ORDERED_MAP_SUPPRESSION = "PMD.UseConcurrentHashMap";
 
     private final JavaPlugin plugin;
     private final TemporaryBlockRepository repository;
@@ -588,8 +587,8 @@ public final class TemporaryBlockService implements Listener {
         scheduleRollbackUndurable();
     }
 
-    // LinkedHashMap preserves deterministic journal and retry order; this copy is thread-confined.
-    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
+    // This LinkedHashMap is a thread-confined ordered copy, not shared concurrent state.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private void captureUndurableEntries(Map<String, TemporaryBlock> latestSnapshot) {
         Map<String, TemporaryBlock> recovery = new LinkedHashMap<>(emergencyRecovery);
         for (Map.Entry<String, TemporaryBlock> entry : latestSnapshot.entrySet()) {
@@ -662,7 +661,6 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // LinkedHashMap preserves deterministic bounded retry order; this state is main-thread confined.
-    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private RecoveryPass createRecoveryPass(Map<String, TemporaryBlock> recovery) {
         return new RecoveryPass(recovery, scanEmergencyChunks(recovery),
                 new LinkedHashMap<>(recovery));
@@ -729,7 +727,6 @@ public final class TemporaryBlockService implements Listener {
     }
 
     // Chunk insertion is isolated so the bounded scan loop performs no direct allocations.
-    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
     private LinkedHashMap<ChunkKey, List<RecoveryEntry>> scanEmergencyChunks(
             Map<String, TemporaryBlock> recovery) {
         LinkedHashMap<ChunkKey, List<RecoveryEntry>> chunks = new LinkedHashMap<>();
@@ -813,23 +810,44 @@ public final class TemporaryBlockService implements Listener {
     }
 
     private void logEmergencyPendingIfNeeded(boolean force) {
-        int pending = emergencyRecovery.size();
-        if (pending == 0 && !emergencyJournalDirty) return;
-        long now = System.currentTimeMillis();
-        if (!force && now - lastEmergencyPendingLog < EMERGENCY_PENDING_LOG_INTERVAL_MILLIS) return;
-        lastEmergencyPendingLog = now;
-        if (pending == 0) {
-            plugin.getLogger().warning("Emergency temporary-block physical rollback is complete, "
-                    + "but the recovery journal checkpoint remains pending; new temporary blocks "
-                    + "remain disabled.");
-            return;
-        }
-        String journal = emergencyJournalHealthy && !emergencyJournalDirty
-                ? "durably journaled" : "journal checkpoint pending";
-        plugin.getLogger().warning("Emergency temporary-block rollback remains pending for "
-                + pending + " entr" + (pending == 1 ? "y" : "ies") + " (" + journal
-                + "). Worlds or chunks will be retried without permanent force-loading.");
+    int pending = emergencyRecovery.size();
+    long now = System.currentTimeMillis();
+    if (!shouldLogEmergencyPending(force, pending, now)) return;
+    lastEmergencyPendingLog = now;
+    if (pending == 0) {
+        logEmergencyJournalCheckpointPending();
+        return;
     }
+    logEmergencyEntriesPending(pending);
+}
+
+private boolean shouldLogEmergencyPending(boolean force, int pending, long now) {
+    if (pending == 0 && !emergencyJournalDirty) return false;
+    return force
+            || now - lastEmergencyPendingLog >= EMERGENCY_PENDING_LOG_INTERVAL_MILLIS;
+}
+
+private void logEmergencyJournalCheckpointPending() {
+    plugin.getLogger().warning("Emergency temporary-block physical rollback is complete, "
+            + "but the recovery journal checkpoint remains pending; new temporary blocks "
+            + "remain disabled.");
+}
+
+private void logEmergencyEntriesPending(int pending) {
+    plugin.getLogger().warning("Emergency temporary-block rollback remains pending for "
+            + pending + " " + recoveryEntryNoun(pending) + " ("
+            + emergencyJournalStatus()
+            + "). Worlds or chunks will be retried without permanent force-loading.");
+}
+
+private String emergencyJournalStatus() {
+    return emergencyJournalHealthy && !emergencyJournalDirty
+            ? "durably journaled" : "journal checkpoint pending";
+}
+
+private String recoveryEntryNoun(int pending) {
+    return pending == 1 ? "entry" : "entries";
+}
 
     private void remove(java.util.Iterator<?> iterator, TemporaryBlock entry,
                         TerminalReason reason, String observedCurrentBlockData) {
@@ -839,8 +857,8 @@ public final class TemporaryBlockService implements Listener {
         removeFromEmergencyRecovery(entry);
     }
 
-    // LinkedHashMap preserves retry order while removing one entry on the main thread.
-    @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
+    // This LinkedHashMap is a main-thread-confined ordered copy, not shared concurrent state.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     private void removeFromEmergencyRecovery(TemporaryBlock entry) {
         String entryKey = key(entry);
         if (!emergencyRecovery.containsKey(entryKey)) return;

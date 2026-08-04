@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 class WarzoneModifierPlaceholderTest {
     private static final String MODIFIER_PREFIX = "modifier_";
     private static final String COBWEBS = "cobwebs";
+    private static final String COBWEBS_NAME = "Cobwebs";
     private static final String PEARL_FIVE = "ender-pearl-cooldown-5";
     private static final String NO_LUNGE = "no-lunge";
     private static final String COBWEBS_DESCRIPTION =
@@ -35,7 +36,7 @@ class WarzoneModifierPlaceholderTest {
                 active(List.of(NO_LUNGE, COBWEBS, PEARL_FIVE)), true);
 
         assertSlot(expansion, 1, "No Lunge", NO_LUNGE, LUNGE_DESCRIPTION);
-        assertSlot(expansion, 2, "Cobwebs", COBWEBS, COBWEBS_DESCRIPTION);
+        assertSlot(expansion, 2, COBWEBS_NAME, COBWEBS, COBWEBS_DESCRIPTION);
         assertSlot(expansion, 3, "5s Pearl Cooldown", PEARL_FIVE,
                 PEARL_DESCRIPTION);
     }
@@ -46,7 +47,7 @@ class WarzoneModifierPlaceholderTest {
 
         assertSlot(expansion, 1, "5s Pearl Cooldown", PEARL_FIVE,
                 PEARL_DESCRIPTION);
-        assertSlot(expansion, 2, "Cobwebs", COBWEBS, COBWEBS_DESCRIPTION);
+        assertSlot(expansion, 2, COBWEBS_NAME, COBWEBS, COBWEBS_DESCRIPTION);
         assertEmptySlot(expansion, 3);
     }
 
@@ -67,7 +68,7 @@ class WarzoneModifierPlaceholderTest {
         WarzonePlaceholderExpansion expansion = expansion(modifiers(),
                 active(List.of(COBWEBS, NO_LUNGE)), false);
 
-        assertSlot(expansion, 1, "Cobwebs", COBWEBS, COBWEBS_DESCRIPTION);
+        assertSlot(expansion, 1, COBWEBS_NAME, COBWEBS, COBWEBS_DESCRIPTION);
         assertSlot(expansion, 2, "No Lunge", NO_LUNGE, LUNGE_DESCRIPTION);
         assertEmptySlot(expansion, 3);
     }
@@ -83,7 +84,7 @@ class WarzoneModifierPlaceholderTest {
         WarzonePlaceholderExpansion expansion = expansion(modifiers(),
                 active(List.of(COBWEBS)), true);
 
-        assertEquals("Cobwebs", expansion.onRequest(null, "MoDiFiEr_1"));
+        assertEquals(COBWEBS_NAME, expansion.onRequest(null, "MoDiFiEr_1"));
         assertEquals(COBWEBS, expansion.onRequest(null, "MODIFIER_1_ID"));
         assertEquals(COBWEBS_DESCRIPTION, expansion.onRequest(
                 null, "Modifier_1_Description"));
@@ -94,7 +95,7 @@ class WarzoneModifierPlaceholderTest {
                 new AtomicReference<>(modifiers());
         WarzonePlaceholderExpansion expansion = expansion(configured,
                 active(List.of(COBWEBS)), true);
-        assertSlot(expansion, 1, "Cobwebs", COBWEBS, COBWEBS_DESCRIPTION);
+        assertSlot(expansion, 1, COBWEBS_NAME, COBWEBS, COBWEBS_DESCRIPTION);
 
         configured.set(Map.of(COBWEBS, modifier(COBWEBS,
                 "<gold>Web Week", "<gray>Reloaded runtime description.")));
