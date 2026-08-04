@@ -108,6 +108,8 @@ public final class MaceGuardPlugin extends JavaPlugin {
         TemporaryBlockService temporary = new TemporaryBlockService(this,
                 new TemporaryBlockRepository(data.resolve("state")
                         .resolve("temporary-blocks.json")),
+                new TemporaryBlockRepository(data.resolve("state")
+                        .resolve("temporary-blocks-emergency.json")),
                 io, settings.temporary().maxTrackedBlocks());
         resets.onSuccessfulReset((world, regionId) ->
                 regions.cuboid(world, regionId).ifPresent(region ->
@@ -141,7 +143,6 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     private void stopRuntime(boolean pluginDisable) {
         HandlerList.unregisterAll(this);
-        getServer().getScheduler().cancelTasks(this);
         if (durabilityListener != null) durabilityListener.clear();
         if (runtime != null) {
             runtime.warzone().shutdown(pluginDisable);
@@ -154,8 +155,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }
-            runtime.temporaryBlocks().rollbackUndurable();
+            runtime.temporaryBlocks().finishShutdownRecovery();
         }
+        getServer().getScheduler().cancelTasks(this);
         durabilityListener = null;
         runtime = null;
     }
