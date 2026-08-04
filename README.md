@@ -1,142 +1,195 @@
 # MaceGuard
 
-MaceGuard 5 provides WorldGuard-scoped weekly warzone modifiers, strict temporary-block and block-policy handling, broad explosion blocking, and fail-closed region restoration for Paper/Leaf 1.21.11. WorldGuard remains the sole owner of region geometry, membership, parents, priorities, and ordinary protection.
+MaceGuard 6 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
+
+WorldGuard remains the authority for region geometry, membership, inheritance, priorities, and ordinary protection. MaceGuard never broadens an unresolved Warzone to the whole world.
 
 ## Requirements
 
 - Java 21
 - Paper or Leaf 1.21.11-compatible server
-- WorldGuard 7.0.17 and its matching WorldEdit dependency
-- Optional PlaceholderAPI 2.11.6+
+- WorldGuard 7.0.17 with its matching WorldEdit dependency
+- PlaceholderAPI 2.11.6+ is optional
 
-## Weekly warzone modifiers
+No NMS, reflection-based version bridge, or external GUI framework is used.
 
-`warzone.yml` schema 5 selects one to three compatible modifiers at the configured weekly calendar boundary. The default transition remains Sunday at 04:00 in `America/Indiana/Indianapolis`. Selection, activation, the weekly boundary, effective transition, warning state, and sequence persist atomically. Restarting does not reroll a valid current week.
+## Warzone schema 6
 
-Modifier count is selected from `rotation.selection.count-weights` (defaults: one `35`, two `45`, three `20`). Enabled modifiers are then selected without replacement by their relative `weight`, while conflict groups and special rules are enforced. `enabled: false` removes one outcome from both random and manual selection without deleting its configuration.
+`plugins/MaceGuard/warzone.yml` now combines the existing weighted modifier system with:
 
-Bundled outcomes and default weights:
+- named, ordered kits;
+- an anchored repeating `DAYS`, `WEEKS`, or `MONTHS` cycle;
+- `RANDOM`, `KIT`, exact `MODIFIERS`, and explicit `NONE` schedule entries;
+- one-hour, next-boundary, and indefinite manual overrides;
+- inventory menus for status, kits, modifiers, schedules, confirmation, and duration;
+- versioned automatic-slot and manual-override persistence.
 
-| Modifier | Weight | Effect |
-| --- | ---: | --- |
-| `cobwebs` | 10 | Enables temporary tracked cobweb placement. |
-| `no-lunge` | 8 | Disables only `SPEAR_LUNGE`. |
-| `mace-disabled` | 4 | Disables Maces. |
-| `mace-cooldown` | 8 | Ten-second cooldown after a successful Mace hit. |
-| `ender-pearl-disabled` | 3 | Disables Ender Pearls. |
-| `ender-pearl-cooldown-5` | 9 | Five-second cooldown after a successful Pearl launch. |
-| `ender-pearl-cooldown-10` | 6 | Ten-second cooldown after a successful Pearl launch. |
-| `wind-charge-disabled` | 3 | Disables player and dispenser Wind Charges in scope. |
-| `wind-charge-cooldown-5` | 9 | Five-second cooldown after a successful player Wind Charge launch. |
-| `wind-charge-cooldown-10` | 6 | Ten-second cooldown after a successful player Wind Charge launch. |
-| `elytra-no-rockets` | 1 | Allows gliding while blocking firework boosts. |
+Gameplay always consumes one validated final active set. A manual override takes precedence without pausing or shifting the automatic cycle. Boundaries that occur under an override update the background slot silently. Clearing or expiring the override applies the automatic slot currently due.
 
-Only one Mace, Pearl, or Wind Charge mode may be active at once. Leaving every outcome for one item disabled leaves that item unrestricted every week. Automated Wind Charge sources have no player cooldown owner, so cooldown outcomes allow dispensers while the disabled outcome cancels them in the exact effective scope.
+A random schedule result is persisted against its exact slot identity, so restarting in the same slot does not reroll it. If the server was offline across several boundaries, startup calculates the current slot directly instead of replaying missed announcements.
 
-To disable one outcome:
+## Schedule example
 
 ```yaml
-modifiers:
-  ender-pearl-disabled:
-    enabled: false
+rotation:
+  schedule:
+    enabled: true
+    timezone: America/Indiana/Indianapolis
+    anchor-date: "2026-08-09"
+    time: "04:00"
+    cadence:
+      every: 1
+      unit: WEEKS
+    cycle:
+      - type: KIT
+        kit: smp
+      - type: RANDOM
+      - type: KIT
+        kit: mace
+      - type: MODIFIERS
+        modifiers: [cobwebs, no-lunge]
 ```
 
-To disable an entire item category, set every outcome for that item to `enabled: false`. Do not delete sections.
+Month cadence uses calendar arithmetic. An anchor on the 29th, 30th, or 31st clamps to the target month’s final valid day. Timezone transitions use Java’s deterministic `ZoneId` behavior.
 
-Elytra has an explicit default 8% weekly inclusion chance. When selected, a second deterministic rule has a 90% chance to require a combination without any modifier that restricts the `MACE` target. Configuration validation proves every branch that can be rolled has a feasible count-weighted combination. Inclusion values from 1 through 99 therefore require both Elytra and non-Elytra branches, and any positive unrestricted-Mace chance requires an Elytra branch with Maces unrestricted. Invalid branches are rejected rather than silently ignored or renormalized.
+## Kits
 
-Example valid weeks include:
-
-```text
-Cobwebs + 5s Pearl Cooldown
-No Lunge + 10s Wind Charge Cooldown
-Mace Cooldown + No Ender Pearls
-Elytra, No Rockets + Cobwebs
-Elytra, No Rockets + 5s Pearl Cooldown
+```yaml
+kits:
+  smp:
+    enabled: true
+    display-name: "<green>SMP"
+    description: "<gray>General-purpose mobility and utility rules."
+    icon: GRASS_BLOCK
+    modifiers:
+      - cobwebs
+      - ender-pearl-cooldown-5
+      - wind-charge-cooldown-5
 ```
 
-The effective scope is the configured outer `warzone` region minus every configured exclusion. The defaults remain `spawn` and `market`. Missing required geometry makes gameplay scope inactive and never broadens enforcement to the whole world.
+Kit modifier order is preserved in menus and placeholders. Enabled kits must reference only known, enabled, unique, mutually compatible modifiers. Activating a kit replaces the full active selection.
 
-Fresh installations ship with `enabled: false`. Create and review `warzone`, `spawn`, and `market`, run `/warzone validate`, then enable and reload the module.
+Adding or removing a modifier from a kit-derived selection does not alter the kit. It detaches the active selection into a `CUSTOM_OVERRIDE`. Count limits may be bypassed only by `warzonerotator.manage.custom-combinations`; unknown IDs, disabled modifiers, target capabilities, conflict groups, and contradictory restrictions are never bypassed.
 
-Commands:
+## Spear controls
+
+The built-in spear controls are independent:
+
+- `spear-disabled` targets `SPEAR` and blocks spear launches and both melee and correlated thrown-spear damage;
+- `spear-damage-cooldown-10` targets `SPEAR_DAMAGE` and begins only after confirmed positive direct damage;
+- `no-lunge` disables only the correlated Lunge velocity;
+- `lunge-cooldown-10` begins only after an accepted Lunge velocity event.
+
+A spear damage cooldown is not started merely by launching a spear; it starts only after accepted positive melee or correlated thrown-spear damage. A Lunge restriction does not block ordinary spear use. All three target policies and cooldown durations remain configurable.
+
+## Commands
+
+Player-facing commands:
 
 ```text
+/warzone
 /warzone info
 /warzone modifiers
+/warzone modifier list
+/warzone kit
+/warzone kits
 /warzone items
 /warzone next
-/warzone skip
-/warzone force
-/warzone set <modifier> [modifier...]
-/warzone extend <duration>
+/warzone schedule
+/warzone menu
+/warzone help
+```
+
+Administrative commands:
+
+```text
+/warzone modifier set [modifier-id]
+/warzone modifier remove [modifier-id]
+/warzone modifier clear
+/warzone kit set [kit-id]
+/warzone kit remove
+/warzone kit list
+/warzone random
+/warzone override clear
+/warzone override status
+/warzone schedule enable
+/warzone schedule disable
+/warzone schedule preview
+/warzone schedule advance
 /warzone reload
 /warzone validate
 /warzone debug
 ```
 
-`skip`, `force`, and `set` preserve the current effective transition. Persisted selections that become disabled or invalid are rerolled while retaining their established weekly boundary.
-
-Status placeholders:
+A player who omits a required kit or modifier ID is sent to the relevant GUI. Console use requires an explicit ID and duration:
 
 ```text
-%warzone_mace_status%
-%warzone_ender_pearl_status%
-%warzone_wind_charge_status%
+/warzone kit set <kit> <1h|next|manual>
+/warzone modifier set <modifier> <1h|next|manual>
+/warzone modifier remove <modifier> <1h|next|manual>
+/warzone random <1h|next|manual>
+```
+
+Compatibility aliases remain: `/warzone set`, `/warzone force`, `/warzone skip`, `/warzone extend`, and the command aliases `/warzonerotator` and `/wzr`.
+
+## GUI safety
+
+Managed inventories use dedicated holders and short-lived per-player sessions, not inventory titles. Managed clicks, shift insertion, number-key swaps, drag, double-click collection, and offhand swaps are cancelled. Closing before final confirmation, quitting, reloading, disabling the plugin, completing an operation, timing out, or presenting a stale session clears the pending action.
+
+Every mutating GUI shows current and proposed source/modifiers, additions, removals, and kit detachment before an explicit confirmation. Duration is selected separately.
+
+## Effective scope and safety
+
+The default effective scope is the configured `warzone` region minus `spawn` and `market`. The world, outer region, and every required exclusion must resolve before restrictions, positive effects, cooldown overlays, Warzone cobweb behavior, or Warzone-only announcements apply.
+
+Existing transition safety remains centralized: modifier additions/removals are calculated once, start/end messages are sent once, stale item cooldowns and transient Lunge/projectile state are cleared, cobweb clear-on-meta-change remains enforced, state is persisted in order, and suppressed automatic transitions are not publicly announced.
+
+## Placeholders
+
+New selection and schedule values:
+
+```text
+%warzone_source_type%
+%warzone_active_kit%
+%warzone_override_active%
+%warzone_override_mode%
+%warzone_override_ends_at%
+%warzone_override_time_left%
+%warzone_schedule_slot%
+%warzone_schedule_cycle_position%
+%warzone_next_source_type%
+%warzone_next_name%
+%warzone_next_changes_at%
+```
+
+Spear status values:
+
+```text
+%warzone_spear_status%
+%warzone_spear_disabled%
+%warzone_spear_damage_status%
+%warzone_spear_damage_cooldown_seconds%
 %warzone_spear_lunge_status%
-%warzone_elytra_status%
-```
-
-Machine-readable placeholders:
-
-```text
-%warzone_mace_disabled%
-%warzone_mace_cooldown_seconds%
-%warzone_ender_pearl_disabled%
-%warzone_ender_pearl_cooldown_seconds%
-%warzone_wind_charge_disabled%
-%warzone_wind_charge_cooldown_seconds%
 %warzone_spear_lunge_disabled%
-%warzone_elytra_gliding_allowed%
-%warzone_firework_boost_blocked%
+%warzone_spear_lunge_cooldown_seconds%
 ```
 
-Ordered selected-modifier placeholders:
+All existing placeholders remain supported. Indexed modifier placeholders continue to follow the final active order:
 
 ```text
-%warzone_modifier_1%
-%warzone_modifier_2%
-%warzone_modifier_3%
-%warzone_modifier_1_id%
-%warzone_modifier_2_id%
-%warzone_modifier_3_id%
-%warzone_modifier_1_description%
-%warzone_modifier_2_description%
-%warzone_modifier_3_description%
+%warzone_modifier_1% ... %warzone_modifier_3%
+%warzone_modifier_1_id% ... %warzone_modifier_3_id%
+%warzone_modifier_1_description% ... %warzone_modifier_3_description%
 ```
 
-Positions follow the active weekly modifier list without additional sorting. Name and description values use the plain-text form of the active runtime configuration, ID values use the exact internal IDs, and missing positions return an empty string. These selected-week values remain available when gameplay scope is inactive; all nine return an empty string when no active selection or Warzone runtime is available.
-
-Existing `%warzone_*%` placeholders remain supported, and `%warzone_restrictions%` includes Pearl and Wind Charge restrictions.
-
-## Block policies
-
-The WorldGuard string flag `maceguard-block-policy` associates a region with a named policy from `config.yml`. WorldGuard must first allow the action; MaceGuard only adds restrictions and never un-cancels another plugin's event.
-
-The bundled `cobweb-box` policy permits players to place and break cobwebs and ice, use and collect water, confines liquids to the region, blocks infinite-water source creation, and denies unlisted materials. Pistons, dispensers, fluid flow, and non-player block sources are checked explicitly.
-
-## Reset profiles
-
-MaceGuard supports `FULL_SNAPSHOT` for bounded areas and `FILTERED_SNAPSHOT` for a large, vertically limited reset cuboid. Capture, preflight, and restore preserve the existing fail-closed lifecycle, batching, exclusions, journals, checksums, arming, and one-use confirmation tokens. MaceGuard never automatically captures, arms, or enables a reset schedule.
-
-## Explosion behavior
-
-`maceguard-explosives deny` remains intentionally broad. It blocks end crystals, respawn anchors, TNT, TNT minecarts, beds, creepers, and other block or entity explosions at the effective WorldGuard location.
+Fields that do not apply return an empty string. Boolean values are stable lowercase plain text.
 
 ## Migration
 
-Main configuration schema remains version 8; warzone configuration schema is version 5. Schema-4 `warzone.yml` files are backed up and migrated while preserving the explicit module enabled value, world and region IDs, exclusions, weekly schedule, warning times, messages, cobweb settings, restriction policies, built-in settings, valid custom modifier definitions, custom conflict groups, and persisted weekly state. Custom modifiers receive `enabled: true` and `weight: 10` only when absent. The complete migrated file is validated before replacement; an invalid custom migration leaves the original file unchanged.
+Schema 5 is backed up and converted to schema 6 as a one-entry weekly `RANDOM` cycle whose anchor preserves the former weekday, time, and timezone. Existing scope, warnings, weighted selection, special rules, messages, cobweb settings, restriction policies, modifier definitions, conflict groups, and persisted selection state are retained and revalidated.
 
-The migration never creates or changes WorldGuard regions, enables the module automatically, captures snapshots, arms profiles, or enables reset schedules. The standalone `plugins/WarzoneRotator` directory remains untouched for rollback.
+New spear outcomes and the bundled spear kit are disabled during schema-5 migration so the prior random selection pool does not silently change. They can be enabled after review.
 
-See [warzone configuration](docs/WARZONE.md), [deployment and staging](docs/DEPLOYMENT.md), and [migration behavior](docs/MIGRATION.md).
+Schema 4 migrates through the validated schema-5 representation. A failed migration never partially replaces the active file. Incompatible older files are backed up and replaced with a disabled clean schema-6 file. WorldGuard regions, reset snapshots, arming state, and reset schedules are never created or enabled by migration.
+
+See [Warzone configuration](docs/WARZONE.md), [deployment and staging](docs/DEPLOYMENT.md), and [migration](docs/MIGRATION.md).

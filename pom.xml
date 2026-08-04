@@ -6,9 +6,9 @@
 
     <groupId>dev.lincoln</groupId>
     <artifactId>maceguard</artifactId>
-    <version>5.0.0</version>
+    <version>6.0.0</version>
     <name>MaceGuard</name>
-    <description>WorldGuard-scoped weekly combat modifiers, strict block policies, temporary cobwebs, explosive controls, and fail-closed filtered/full region resets.</description>
+    <description>WorldGuard-scoped scheduled combat modifiers, strict block policies, temporary cobwebs, explosive controls, and fail-closed filtered/full region resets.</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

@@ -53,10 +53,32 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
             case "time_left" -> DurationFormatter.clock(remaining);
             case "time_left_words" -> DurationFormatter.words(remaining);
             case "time_left_seconds" -> Long.toString(Math.max(0, remaining.getSeconds()));
-            case "changes_at" -> live.messages().formatInstant(
-                    live.rotations().state().transitionAtMillis());
-            case "next_meta" -> "Random weekly selection";
-            case "next_meta_id" -> "unselected";
+            case "changes_at" -> (live.rotations().state().overrideActive()
+                    && live.rotations().state().overrideExpiresAtMillis() == 0)
+                    || (!live.rotations().state().overrideActive()
+                    && !live.rotations().scheduleEnabled()) ? ""
+                    : live.messages().formatInstant(live.rotations().nextEffectiveTransitionMillis());
+            case "next_meta" -> live.rotations().scheduleEnabled()
+                    ? live.rotations().entryName(live.rotations().nextSlot().entry()) : "";
+            case "next_meta_id" -> live.rotations().scheduleEnabled() ? nextId(live) : "";
+            case "source_type" -> live.rotations().activeSelection().sourceType().name();
+            case "active_kit" -> live.rotations().activeSelection().sourceType()
+                    == com.lincoln.maceguard.warzone.rotation.SelectionSourceType.KIT
+                    ? value(live.rotations().activeSelection().sourceId()) : "";
+            case "override_active" -> Boolean.toString(live.rotations().state().overrideActive());
+            case "override_mode" -> live.rotations().state().overrideDurationMode() == null ? ""
+                    : live.rotations().state().overrideDurationMode().name();
+            case "override_ends_at" -> live.rotations().state().overrideExpiresAtMillis() <= 0 ? ""
+                    : live.messages().formatInstant(live.rotations().state().overrideExpiresAtMillis());
+            case "override_time_left" -> overrideTimeLeft(live);
+            case "schedule_slot" -> live.rotations().state().automaticSlotIdentity();
+            case "schedule_cycle_position" -> Integer.toString(
+                    live.rotations().state().currentCycleIndex() + 1);
+            case "next_source_type" -> live.rotations().scheduleEnabled() ? nextSource(live) : "";
+            case "next_name" -> live.rotations().scheduleEnabled()
+                    ? live.rotations().entryName(live.rotations().nextSlot().entry()) : "";
+            case "next_changes_at" -> live.rotations().scheduleEnabled()
+                    ? live.messages().formatInstant(live.rotations().state().automaticSlotEndMillis()) : "";
             case "disabled_items" -> scopeActive
                     ? joined(active, RestrictionMode.DISABLED, false) : "None";
             case "disabled_items_count" -> scopeActive ? Long.toString(
@@ -74,6 +96,31 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
             default -> null;
         };
     }
+
+    private String overrideTimeLeft(WarzoneRuntime live) {
+        long expires = live.rotations().state().overrideExpiresAtMillis();
+        if (expires <= 0) return "";
+        return DurationFormatter.clock(java.time.Duration.ofMillis(
+                Math.max(0, expires - live.rotations().nowMillis())));
+    }
+
+    private String nextSource(WarzoneRuntime live) {
+        return switch (live.rotations().nextSlot().entry().type()) {
+            case RANDOM -> "RANDOM";
+            case KIT -> "KIT";
+            case MODIFIERS -> "SCHEDULED_MODIFIERS";
+            case NONE -> "NONE";
+        };
+    }
+
+    private String nextId(WarzoneRuntime live) {
+        var entry = live.rotations().nextSlot().entry();
+        return entry.type() == com.lincoln.maceguard.warzone.config.WarzoneControlConfig.EntryType.KIT
+                ? value(entry.kitId()) : entry.type() == com.lincoln.maceguard.warzone.config.WarzoneControlConfig.EntryType.MODIFIERS
+                ? String.join("+", entry.modifierIds()) : entry.type().name().toLowerCase(Locale.ROOT);
+    }
+
+    private String value(String value) { return value == null ? "" : value; }
 
     private String joined(WarzoneConfig.ActiveSet active, RestrictionMode mode, boolean effects) {
         String value = active.restrictions().values().stream()

@@ -1,9 +1,9 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 5.0.0
+version: 6.0.0
 api-version: '1.21'
 author: P2wn
-description: WorldGuard-scoped weekly warzone modifiers, block policies, explosive controls, temporary cobwebs, and safe filtered/full resets.
+description: WorldGuard-scoped Warzone kits, repeating schedules, manual overrides, combat restrictions, temporary cobwebs, and safe region resets.
 depend: [WorldGuard]
 softdepend: [PlaceholderAPI]
 
@@ -12,25 +12,32 @@ commands:
     description: MaceGuard admin command
     usage: /<command> here|status|capture|validate|plan|arm|disarm|schedule|reset|recover|temporary|reload
   warzone:
-    description: View or administer the integrated weekly warzone modifiers.
+    description: View or administer Warzone kits, modifiers, schedules, and overrides.
     aliases: [warzonerotator, wzr]
-    usage: /<command> [info|modifiers|items|next|skip|force|set|extend|reload|validate|debug]
+    usage: /<command> [info|modifiers|modifier|kit|kits|items|next|schedule|menu|help|random|override|reload|validate|debug]
 
 permissions:
-  maceguard.admin:
-    default: op
-  maceguard.reload:
-    default: op
-  maceguard.reset:
-    default: op
+  maceguard.admin: { default: op }
+  maceguard.reload: { default: op }
+  maceguard.reset: { default: op }
+
   warzonerotator.admin:
-    description: Grants all integrated warzone administrative permissions.
+    description: Grants all Warzone management permissions and compatibility commands.
     default: op
     children:
       warzonerotator.command.info: true
       warzonerotator.command.modifiers: true
-      warzonerotator.command.items: true
+      warzonerotator.command.kits: true
       warzonerotator.command.next: true
+      warzonerotator.command.schedule: true
+      warzonerotator.command.menu: true
+      warzonerotator.command.items: true
+      warzonerotator.manage.modifier: true
+      warzonerotator.manage.kit: true
+      warzonerotator.manage.random: true
+      warzonerotator.manage.override: true
+      warzonerotator.manage.schedule: true
+      warzonerotator.manage.custom-combinations: true
       warzonerotator.command.skip: true
       warzonerotator.command.force: true
       warzonerotator.command.set: true
@@ -39,14 +46,40 @@ permissions:
       warzonerotator.command.validate: true
       warzonerotator.command.debug: true
       warzonerotator.bypass: true
+
   warzonerotator.command.info: { default: true }
   warzonerotator.command.modifiers: { default: true }
-  warzonerotator.command.items: { default: true }
+  warzonerotator.command.kits: { default: true }
   warzonerotator.command.next: { default: true }
-  warzonerotator.command.skip: { default: op }
-  warzonerotator.command.force: { default: op }
-  warzonerotator.command.set: { default: op }
-  warzonerotator.command.extend: { default: op }
+  warzonerotator.command.schedule: { default: true }
+  warzonerotator.command.menu: { default: true }
+  warzonerotator.command.items:
+    default: true
+    children:
+      warzonerotator.command.modifiers: true
+
+  warzonerotator.manage.modifier: { default: op }
+  warzonerotator.manage.kit: { default: op }
+  warzonerotator.manage.random: { default: op }
+  warzonerotator.manage.override: { default: op }
+  warzonerotator.manage.schedule: { default: op }
+  warzonerotator.manage.custom-combinations: { default: op }
+
+  # Compatibility nodes retained for existing permission files and command aliases.
+  warzonerotator.command.skip:
+    default: op
+    children: { warzonerotator.manage.random: true }
+  warzonerotator.command.force:
+    default: op
+    children: { warzonerotator.manage.random: true }
+  warzonerotator.command.set:
+    default: op
+    children:
+      warzonerotator.manage.modifier: true
+      warzonerotator.manage.custom-combinations: true
+  warzonerotator.command.extend:
+    default: op
+    children: { warzonerotator.manage.override: true }
   warzonerotator.command.reload: { default: op }
   warzonerotator.command.validate: { default: op }
   warzonerotator.command.debug: { default: op }

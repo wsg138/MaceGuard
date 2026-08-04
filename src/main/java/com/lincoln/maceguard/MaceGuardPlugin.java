@@ -83,7 +83,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         stopRuntime(false);
         reloadConfig();
         startRuntime();
-        feedback.sendMessage("MaceGuard and integrated weekly warzone configuration reloaded. "
+        feedback.sendMessage("MaceGuard and integrated Warzone configuration reloaded. "
                 + "Reset state was revalidated and never re-armed automatically.");
     }
 

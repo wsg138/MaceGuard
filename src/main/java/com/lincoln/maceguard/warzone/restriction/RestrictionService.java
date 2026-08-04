@@ -28,6 +28,20 @@ public final class RestrictionService {
         return decide(playerId, restriction);
     }
 
+
+    public RestrictionDecision materialDisableOnly(UUID playerId, Material material, boolean bypass,
+                                                   boolean actorInside, boolean targetInside) {
+        RestrictionDecision decision = material(playerId, material, bypass, actorInside, targetInside);
+        return decision.result() == RestrictionDecision.Result.DISABLED
+                ? decision : RestrictionDecision.unrestricted();
+    }
+
+    public RestrictionDecision spearDamage(UUID playerId, boolean bypass,
+                                           boolean actorInside, boolean targetInside) {
+        if (bypass || (!actorInside && !targetInside)) return RestrictionDecision.unrestricted();
+        return decide(playerId, activeSet.get().restrictions().get(RestrictionTarget.SPEAR_DAMAGE));
+    }
+
     public RestrictionDecision lunge(UUID playerId, boolean bypass, boolean actorInside, boolean targetInside) {
         if (bypass || (!actorInside && !targetInside)) return RestrictionDecision.unrestricted();
         return decide(playerId, activeSet.get().restrictions().get(RestrictionTarget.SPEAR_LUNGE));

@@ -1,6 +1,6 @@
 package com.lincoln.maceguard.warzone.runtime;
 
-import com.lincoln.maceguard.warzone.config.WarzoneConfigLoader;
+import com.lincoln.maceguard.warzone.config.WarzoneControlConfigLoader;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
@@ -79,10 +79,11 @@ class WarzoneMigrationServiceTest {
     @Test void schemaFourMigrationPreservesBuiltInsCustomModifiersAndConflictGroups()
             throws InvalidConfigurationException {
         YamlConfiguration old = schemaFourWithCustomModifier();
-        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema4(
-                old, bundledDefaults());
+        YamlConfiguration schemaFive = WarzoneMigrationService.migrateSchema4(
+                old, WarzoneMigrationService.schemaFiveDefaults(bundledDefaults()));
+        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema5(schemaFive, bundledDefaults());
 
-        assertEquals(5, migrated.getInt("config-version"));
+        assertEquals(6, migrated.getInt("config-version"));
         assertTrue(migrated.getBoolean("enabled"));
         assertEquals("custom-world", migrated.getString("region.world"));
         assertFalse(migrated.getBoolean("modifiers.mace-disabled.enabled"));
@@ -102,7 +103,7 @@ class WarzoneMigrationServiceTest {
         Path migratedFile = directory.resolve("migrated.yml");
         assertDoesNotThrow(() -> WarzoneMigrationService.saveValidatedAtomically(
                 migrated, migratedFile));
-        assertTrue(new WarzoneConfigLoader().load(migratedFile).valid());
+        assertTrue(new WarzoneControlConfigLoader().load(migratedFile).valid());
     }
 
     @Test void invalidCustomModifierAbortsWithoutReplacingOriginalFile()
@@ -112,8 +113,9 @@ class WarzoneMigrationServiceTest {
 
         YamlConfiguration old = schemaFourWithCustomModifier();
         old.set("modifiers.custom-mace-rule.display-name", null);
-        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema4(
-                old, bundledDefaults());
+        YamlConfiguration schemaFive = WarzoneMigrationService.migrateSchema4(
+                old, WarzoneMigrationService.schemaFiveDefaults(bundledDefaults()));
+        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema5(schemaFive, bundledDefaults());
 
         IOException failure = assertThrows(IOException.class,
                 () -> WarzoneMigrationService.saveValidatedAtomically(migrated, target));
@@ -121,6 +123,45 @@ class WarzoneMigrationServiceTest {
         assertEquals("original-schema-four\n",
                 Files.readString(target, StandardCharsets.UTF_8));
         assertFalse(Files.exists(target.resolveSibling("warzone.yml.tmp")));
+    }
+
+
+    @Test void schemaFiveMissingBundledOutcomesRemainDisabled() {
+        YamlConfiguration schemaFive = WarzoneMigrationService.schemaFiveDefaults(bundledDefaults());
+        schemaFive.set("modifiers.lunge-cooldown-10", null);
+        schemaFive.set("modifiers.spear-disabled", null);
+        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema5(
+                schemaFive, bundledDefaults());
+
+        assertFalse(migrated.getBoolean("modifiers.lunge-cooldown-10.enabled"));
+        assertFalse(migrated.getBoolean("modifiers.spear-disabled.enabled"));
+        assertFalse(migrated.getBoolean("kits.spear.enabled"));
+    }
+
+    @Test void schemaFiveInvalidWeekdayIsRejectedRatherThanNormalized() {
+        YamlConfiguration schemaFive = WarzoneMigrationService.schemaFiveDefaults(bundledDefaults());
+        schemaFive.set("rotation.schedule.day", "FUNDAY");
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> WarzoneMigrationService.migrateSchema5(schemaFive, bundledDefaults()));
+        assertTrue(failure.getMessage().contains("not a valid weekday"));
+    }
+
+    @Test void schemaFiveMigrationCreatesOneEntryRandomCycleWithSameScheduleSurface() {
+        YamlConfiguration schemaFive = WarzoneMigrationService.schemaFiveDefaults(bundledDefaults());
+        schemaFive.set("enabled", true);
+        schemaFive.set("rotation.schedule.day", "WEDNESDAY");
+        schemaFive.set("rotation.schedule.time", "06:45");
+        schemaFive.set("rotation.schedule.timezone", "America/Indiana/Indianapolis");
+        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema5(
+                schemaFive, bundledDefaults());
+
+        assertTrue(migrated.getBoolean("enabled"));
+        assertEquals("1970-01-07", migrated.getString("rotation.schedule.anchor-date"));
+        assertEquals("06:45", migrated.getString("rotation.schedule.time"));
+        assertEquals("America/Indiana/Indianapolis",
+                migrated.getString("rotation.schedule.timezone"));
+        assertEquals(1, migrated.getMapList("rotation.schedule.cycle").size());
+        assertEquals("RANDOM", migrated.getMapList("rotation.schedule.cycle").getFirst().get("type"));
     }
 
     private YamlConfiguration schemaFourWithCustomModifier()

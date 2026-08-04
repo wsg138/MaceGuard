@@ -9,7 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public final class RestrictionTarget implements Comparable<RestrictionTarget> {
-    public enum Kind { MATERIAL, SPEAR_GROUP, SPEAR_LUNGE }
+    public enum Kind { MATERIAL, SPEAR_GROUP, SPEAR_DAMAGE, SPEAR_LUNGE }
 
     private static final Set<Material> PROJECTILE_MATERIALS = Set.of(
             Material.ENDER_PEARL, Material.WIND_CHARGE, Material.SNOWBALL, Material.EGG,
@@ -18,6 +18,8 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
 
     public static final RestrictionTarget SPEAR = new RestrictionTarget("SPEAR", Kind.SPEAR_GROUP, null,
             Set.of(CooldownCapability.PROJECTILE, CooldownCapability.DIRECT_ATTACK));
+    public static final RestrictionTarget SPEAR_DAMAGE = new RestrictionTarget("SPEAR_DAMAGE", Kind.SPEAR_DAMAGE, null,
+            Set.of(CooldownCapability.DIRECT_ATTACK));
     public static final RestrictionTarget SPEAR_LUNGE = new RestrictionTarget("SPEAR_LUNGE", Kind.SPEAR_LUNGE, null,
             Set.of(CooldownCapability.LUNGE_EFFECT));
 
@@ -37,6 +39,7 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
         if (raw == null) return Optional.empty();
         String id = raw.trim().toUpperCase(Locale.ROOT);
         if (id.equals(SPEAR.id)) return Optional.of(SPEAR);
+        if (id.equals(SPEAR_DAMAGE.id)) return Optional.of(SPEAR_DAMAGE);
         if (id.equals(SPEAR_LUNGE.id)) return Optional.of(SPEAR_LUNGE);
         try {
             Material material = Material.valueOf(id);
@@ -72,7 +75,7 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
         return switch (kind) {
             case MATERIAL -> material == candidate;
             case SPEAR_GROUP -> isSpear(candidate);
-            case SPEAR_LUNGE -> false;
+            case SPEAR_DAMAGE, SPEAR_LUNGE -> false;
         };
     }
 

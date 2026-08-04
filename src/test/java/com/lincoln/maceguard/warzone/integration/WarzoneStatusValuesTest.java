@@ -30,6 +30,8 @@ class WarzoneStatusValuesTest {
         assertEquals(ALLOWED, value(MACE_STATUS, true, active));
         assertEquals(ALLOWED, value(PEARL_STATUS, true, active));
         assertEquals(ALLOWED, value(WIND_STATUS, true, active));
+        assertEquals(ALLOWED, value("spear_status", true, active));
+        assertEquals(ALLOWED, value("spear_damage_status", true, active));
         assertEquals(ALLOWED, value("spear_lunge_status", true, active));
         assertEquals(DISABLED, value("elytra_status", true, active));
         assertEquals(FALSE, value("mace_disabled", true, active));
@@ -38,7 +40,10 @@ class WarzoneStatusValuesTest {
         assertEquals("0", value("ender_pearl_cooldown_seconds", true, active));
         assertEquals(FALSE, value("wind_charge_disabled", true, active));
         assertEquals("0", value("wind_charge_cooldown_seconds", true, active));
+        assertEquals(FALSE, value("spear_disabled", true, active));
+        assertEquals("0", value("spear_damage_cooldown_seconds", true, active));
         assertEquals(FALSE, value("spear_lunge_disabled", true, active));
+        assertEquals("0", value("spear_lunge_cooldown_seconds", true, active));
         assertEquals(FALSE, value("elytra_gliding_allowed", true, active));
         assertEquals(FALSE, value("firework_boost_blocked", true, active));
         assertNull(value("unknown", true, active));
@@ -49,16 +54,20 @@ class WarzoneStatusValuesTest {
                 MACE, restriction(MACE, RestrictionMode.DISABLED, null),
                 PEARL, restriction(PEARL, RestrictionMode.DISABLED, null),
                 WIND, restriction(WIND, RestrictionMode.DISABLED, null),
+                RestrictionTarget.SPEAR,
+                restriction(RestrictionTarget.SPEAR, RestrictionMode.DISABLED, null),
                 RestrictionTarget.SPEAR_LUNGE,
                 restriction(RestrictionTarget.SPEAR_LUNGE,
                         RestrictionMode.DISABLED, null)));
         assertEquals(DISABLED, value(MACE_STATUS, true, active));
         assertEquals(DISABLED, value(PEARL_STATUS, true, active));
         assertEquals(DISABLED, value(WIND_STATUS, true, active));
+        assertEquals(DISABLED, value("spear_status", true, active));
         assertEquals(DISABLED, value("spear_lunge_status", true, active));
         assertEquals(TRUE, value("mace_disabled", true, active));
         assertEquals(TRUE, value("ender_pearl_disabled", true, active));
         assertEquals(TRUE, value("wind_charge_disabled", true, active));
+        assertEquals(TRUE, value("spear_disabled", true, active));
         assertEquals(TRUE, value("spear_lunge_disabled", true, active));
     }
 
@@ -69,13 +78,23 @@ class WarzoneStatusValuesTest {
                 PEARL, restriction(PEARL, RestrictionMode.COOLDOWN,
                         Duration.ofSeconds(5)),
                 WIND, restriction(WIND, RestrictionMode.COOLDOWN,
-                        Duration.ofSeconds(10))));
+                        Duration.ofSeconds(10)),
+                RestrictionTarget.SPEAR_DAMAGE,
+                restriction(RestrictionTarget.SPEAR_DAMAGE, RestrictionMode.COOLDOWN,
+                        Duration.ofSeconds(7)),
+                RestrictionTarget.SPEAR_LUNGE,
+                restriction(RestrictionTarget.SPEAR_LUNGE, RestrictionMode.COOLDOWN,
+                        Duration.ofSeconds(9))));
         assertEquals("10s cooldown", value(MACE_STATUS, true, active));
         assertEquals("5s cooldown", value(PEARL_STATUS, true, active));
         assertEquals("10s cooldown", value(WIND_STATUS, true, active));
         assertEquals("10", value("mace_cooldown_seconds", true, active));
         assertEquals("5", value("ender_pearl_cooldown_seconds", true, active));
         assertEquals("10", value("wind_charge_cooldown_seconds", true, active));
+        assertEquals("7s cooldown", value("spear_damage_status", true, active));
+        assertEquals("7", value("spear_damage_cooldown_seconds", true, active));
+        assertEquals("9s cooldown", value("spear_lunge_status", true, active));
+        assertEquals("9", value("spear_lunge_cooldown_seconds", true, active));
     }
 
     @Test void inactiveScopeOverridesEveryEffectiveValue() {
@@ -90,14 +109,16 @@ class WarzoneStatusValuesTest {
                         restriction(RestrictionTarget.SPEAR_LUNGE,
                                 RestrictionMode.DISABLED, null)));
         for (String status : List.of("mace_status", PEARL_STATUS,
-                WIND_STATUS, "spear_lunge_status", "elytra_status"))
+                WIND_STATUS, "spear_status", "spear_damage_status",
+                "spear_lunge_status", "elytra_status"))
             assertEquals("Inactive", value(status, false, active));
         for (String bool : List.of("mace_disabled", "ender_pearl_disabled",
-                "wind_charge_disabled", "spear_lunge_disabled",
+                "wind_charge_disabled", "spear_disabled", "spear_lunge_disabled",
                 "elytra_gliding_allowed", "firework_boost_blocked"))
             assertEquals(FALSE, value(bool, false, active));
         for (String cooldown : List.of("mace_cooldown_seconds",
-                "ender_pearl_cooldown_seconds", "wind_charge_cooldown_seconds"))
+                "ender_pearl_cooldown_seconds", "wind_charge_cooldown_seconds",
+                "spear_damage_cooldown_seconds", "spear_lunge_cooldown_seconds"))
             assertEquals("0", value(cooldown, false, active));
     }
 
