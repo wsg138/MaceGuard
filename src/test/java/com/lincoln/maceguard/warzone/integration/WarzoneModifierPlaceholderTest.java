@@ -18,6 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class WarzoneModifierPlaceholderTest {
+    private static final String MODIFIER_PREFIX = "modifier_";
     private static final String COBWEBS = "cobwebs";
     private static final String PEARL_FIVE = "ender-pearl-cooldown-5";
     private static final String NO_LUNGE = "no-lunge";
@@ -114,17 +115,17 @@ class WarzoneModifierPlaceholderTest {
 
     private void assertSlot(WarzonePlaceholderExpansion expansion, int index,
                             String name, String id, String description) {
-        assertEquals(name, expansion.onRequest(null, "modifier_" + index));
-        assertEquals(id, expansion.onRequest(null, "modifier_" + index + "_id"));
+        assertEquals(name, expansion.onRequest(null, MODIFIER_PREFIX + index));
+        assertEquals(id, expansion.onRequest(null, MODIFIER_PREFIX + index + "_id"));
         assertEquals(description, expansion.onRequest(
-                null, "modifier_" + index + "_description"));
+                null, MODIFIER_PREFIX + index + "_description"));
     }
 
     private void assertEmptySlot(WarzonePlaceholderExpansion expansion, int index) {
-        assertEquals("", expansion.onRequest(null, "modifier_" + index));
-        assertEquals("", expansion.onRequest(null, "modifier_" + index + "_id"));
+        assertEquals("", expansion.onRequest(null, MODIFIER_PREFIX + index));
+        assertEquals("", expansion.onRequest(null, MODIFIER_PREFIX + index + "_id"));
         assertEquals("", expansion.onRequest(
-                null, "modifier_" + index + "_description"));
+                null, MODIFIER_PREFIX + index + "_description"));
     }
 
     private void assertAllSlotsEmpty(WarzonePlaceholderExpansion expansion) {

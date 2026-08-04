@@ -32,6 +32,8 @@ public final class TemporaryBlockRepository {
         return new TemporaryBlockRepository(file.resolveSibling(sibling));
     }
 
+    // Ordered copies keep the on-disk journal deterministic; all maps here are method-local.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
     public Map<String, TemporaryBlock> load() throws IOException {
         if (!Files.isRegularFile(file)) return new LinkedHashMap<>();
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {

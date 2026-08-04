@@ -19,12 +19,12 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.logging.Logger;
 
@@ -43,19 +43,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TemporaryBlockEmergencyRecoveryTest {
+    private static final String AIR_DATA = "minecraft:air";
+    private static final String COBWEB_DATA = "minecraft:cobweb";
+
     @TempDir Path directory;
 
     private JavaPlugin plugin;
-    private BukkitScheduler scheduler;
     private BukkitTask task;
     private final Deque<Runnable> mainTasks = new ArrayDeque<>();
-    private final Map<UUID, TestWorld> worlds = new HashMap<>();
+    private final Map<UUID, WorldHarness> worlds = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
         plugin = mock(JavaPlugin.class);
         Server server = mock(Server.class);
-        scheduler = mock(BukkitScheduler.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
         task = mock(BukkitTask.class);
         when(plugin.getServer()).thenReturn(server);
         when(server.getScheduler()).thenReturn(scheduler);
@@ -69,11 +71,11 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void asynchronousPersistenceFailureWithLoadedChunkRollsBackOnMainTask() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(4, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(4, 64, 4);
         Scenario scenario = failingScenario("loaded");
 
-        assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         scenario.io.runAll();
         assertFalse(scenario.service.persistenceHealthy());
         assertEquals(1, scenario.service.count());
@@ -87,10 +89,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void asynchronousFailureFollowedByChunkUnloadUsesOwnedTemporaryTicket() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(20, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(20, 64, 4);
         Scenario scenario = failingScenario("unload");
-        assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
 
         scenario.io.runAll();
         world.setChunkLoaded(1, 0, false);
@@ -105,10 +107,10 @@ class TemporaryBlockEmergencyRecoveryTest {
     @Test
     void shutdownWithUndurableUnloadedEntrySurvivesRestartAndClearsJournal()
             throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(36, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(36, 64, 4);
         Scenario first = failingScenario("restart");
-        assertTrue(first.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(first.service.track(block.block, AIR_DATA, 100L));
         first.io.runAll();
         world.setChunkLoaded(2, 0, false);
         world.ticketLoadingAllowed = false;
@@ -133,10 +135,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void failureDiscoveredDuringShutdownIsRecoveredAfterRestart() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(52, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(52, 64, 4);
         Scenario first = failingScenario("shutdown-race");
-        assertTrue(first.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(first.service.track(block.block, AIR_DATA, 100L));
         world.setChunkLoaded(3, 0, false);
         world.ticketLoadingAllowed = false;
 
@@ -158,10 +160,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void pluginReloadConsumesEmergencyJournal() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(68, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(68, 64, 4);
         Scenario first = failingScenario("reload");
-        assertTrue(first.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(first.service.track(block.block, AIR_DATA, 100L));
         first.io.runAll();
         world.available = false;
         runMainTasks();
@@ -179,10 +181,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void temporarilyUnavailableWorldRemainsRecoverableUntilItReturns() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(84, 64, 4);
+        WorldHarness world = world();
+        BlockHarness block = world.block(84, 64, 4);
         Scenario scenario = failingScenario("world-unavailable");
-        assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.available = false;
 
@@ -200,13 +202,13 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void multipleUndurableEntriesInOneChunkShareOneOwnedTicket() throws Exception {
-        TestWorld world = world();
-        List<TestBlock> blocks = new ArrayList<>();
+        WorldHarness world = world();
+        List<BlockHarness> blocks = new ArrayList<>();
         Scenario scenario = failingScenario("one-chunk");
         for (int x = 0; x < 8; x++) {
-            TestBlock block = world.block(x, 64, 8);
+            BlockHarness block = world.block(x, 64, 8);
             blocks.add(block);
-            assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+            assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         }
         scenario.io.runAll();
         world.setChunkLoaded(0, 0, false);
@@ -221,13 +223,13 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void entriesAcrossSeveralChunksRecoverInBoundedPasses() throws Exception {
-        TestWorld world = world();
-        List<TestBlock> blocks = new ArrayList<>();
+        WorldHarness world = world();
+        List<BlockHarness> blocks = new ArrayList<>();
         Scenario scenario = failingScenario("many-chunks");
         for (int chunk = 0; chunk < 5; chunk++) {
-            TestBlock block = world.block(chunk * 16, 64, 12);
+            BlockHarness block = world.block(chunk * 16, 64, 12);
             blocks.add(block);
-            assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+            assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         }
         scenario.io.runAll();
         for (int chunk = 0; chunk < 5; chunk++) world.setChunkLoaded(chunk, 0, false);
@@ -245,11 +247,11 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void entriesCrossingChunkBoundaryRecoverIndependently() throws Exception {
-        TestWorld world = world();
-        TestBlock west = world.block(15, 64, 16);
-        TestBlock east = world.block(16, 64, 16);
+        WorldHarness world = world();
+        BlockHarness west = world.block(15, 64, 16);
+        BlockHarness east = world.block(16, 64, 16);
         Scenario scenario = failingScenario("boundary");
-        assertTrue(scenario.service.track(west.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(west.block, AIR_DATA, 100L));
         assertTrue(scenario.service.track(east.block, "minecraft:water[level=0]", 100L));
         scenario.io.runAll();
         world.setChunkLoaded(0, 1, false);
@@ -266,12 +268,12 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void recoveryReleasesOnlyTicketsItAdded() throws Exception {
-        TestWorld world = world();
-        TestBlock alreadyLoaded = world.block(4, 64, 20);
-        TestBlock emergencyLoaded = world.block(20, 64, 20);
+        WorldHarness world = world();
+        BlockHarness alreadyLoaded = world.block(4, 64, 20);
+        BlockHarness emergencyLoaded = world.block(20, 64, 20);
         Scenario scenario = failingScenario("ticket-ownership");
-        assertTrue(scenario.service.track(alreadyLoaded.block, "minecraft:air", 100L));
-        assertTrue(scenario.service.track(emergencyLoaded.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(alreadyLoaded.block, AIR_DATA, 100L));
+        assertTrue(scenario.service.track(emergencyLoaded.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.setChunkLoaded(0, 1, true);
         world.setChunkLoaded(1, 1, false);
@@ -287,10 +289,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void emergencyRecoveryNeverForceLoadsChunks() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(32, 64, 32);
+        WorldHarness world = world();
+        BlockHarness block = world.block(32, 64, 32);
         Scenario scenario = failingScenario("no-force-load");
-        assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.setChunkLoaded(2, 2, false);
 
@@ -302,14 +304,14 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void healthyExpiredEntryStillWaitsForNaturalChunkLoad() {
-        TestWorld world = world();
-        TestBlock block = world.block(48, 64, 48);
+        WorldHarness world = world();
+        BlockHarness block = world.block(48, 64, 48);
         TemporaryBlockRepository primary = new TemporaryBlockRepository(
                 directory.resolve("healthy-primary.json"));
         TemporaryBlockRepository emergency = new TemporaryBlockRepository(
                 directory.resolve("healthy-emergency.json"));
         TemporaryBlockService service = service(primary, emergency, Runnable::run);
-        assertTrue(service.track(block.block, "minecraft:air", 10L));
+        assertTrue(service.track(block.block, AIR_DATA, 10L));
         world.setChunkLoaded(3, 3, false);
 
         service.expireNow(11L);
@@ -326,13 +328,13 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void startupEmergencyJournalIsConsumedAndCleared() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(64, 64, 64);
+        WorldHarness world = world();
+        BlockHarness block = world.block(64, 64, 64);
         TemporaryBlockRepository primary = new TemporaryBlockRepository(
                 directory.resolve("startup-primary.json"));
         TemporaryBlockRepository emergency = new TemporaryBlockRepository(
                 directory.resolve("startup-emergency.json"));
-        TemporaryBlock entry = entry(block, "minecraft:air", 100L);
+        TemporaryBlock entry = entry(block, AIR_DATA, 100L);
         emergency.save(Map.of(key(entry), entry));
         world.setChunkLoaded(4, 4, false);
 
@@ -349,14 +351,14 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void emergencyJournalWriteFailureFallsBackToPhysicalRollback() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(80, 64, 80);
+        WorldHarness world = world();
+        BlockHarness block = world.block(80, 64, 80);
         QueuedExecutor io = new QueuedExecutor();
         TemporaryBlockRepository primary = invalidRepository("journal-fail-primary");
         TemporaryBlockRepository emergency = invalidRepository("journal-fail-emergency");
         TemporaryBlockService service = service(primary, emergency, io);
 
-        assertTrue(service.track(block.block, "minecraft:air", 100L));
+        assertTrue(service.track(block.block, AIR_DATA, 100L));
         io.runAll();
         runMainTasks();
 
@@ -367,10 +369,10 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void trackingCountReachesZeroOnlyAfterManagedPhysicalCobwebIsGone() throws Exception {
-        TestWorld world = world();
-        TestBlock block = world.block(96, 64, 96);
+        WorldHarness world = world();
+        BlockHarness block = world.block(96, 64, 96);
         Scenario scenario = failingScenario("count-invariant");
-        assertTrue(scenario.service.track(block.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(block.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.setChunkLoaded(6, 6, false);
         world.ticketLoadingAllowed = false;
@@ -389,16 +391,16 @@ class TemporaryBlockEmergencyRecoveryTest {
 
     @Test
     void newTemporaryBlocksAreRejectedWhileEmergencyRecoveryIsPending() throws Exception {
-        TestWorld world = world();
-        TestBlock first = world.block(112, 64, 112);
-        TestBlock rejected = world.block(113, 64, 112);
+        WorldHarness world = world();
+        BlockHarness first = world.block(112, 64, 112);
+        BlockHarness rejected = world.block(113, 64, 112);
         Scenario scenario = failingScenario("reject-pending");
-        assertTrue(scenario.service.track(first.block, "minecraft:air", 100L));
+        assertTrue(scenario.service.track(first.block, AIR_DATA, 100L));
         scenario.io.runAll();
         world.available = false;
         runMainTasks();
 
-        assertFalse(scenario.service.track(rejected.block, "minecraft:air", 100L));
+        assertFalse(scenario.service.track(rejected.block, AIR_DATA, 100L));
         assertEquals(1, scenario.service.count());
     }
 
@@ -420,13 +422,13 @@ class TemporaryBlockEmergencyRecoveryTest {
                                           TemporaryBlockRepository emergency, Executor io) {
         return new TemporaryBlockService(plugin, primary, emergency, io, 10_000,
                 uuid -> {
-                    TestWorld world = worlds.get(uuid);
+                    WorldHarness world = worlds.get(uuid);
                     return world == null || !world.available ? null : world.world;
                 }, this::blockData, false);
     }
 
-    private TestWorld world() {
-        TestWorld world = new TestWorld();
+    private WorldHarness world() {
+        WorldHarness world = new WorldHarness();
         worlds.put(world.uuid, world);
         return world;
     }
@@ -435,7 +437,7 @@ class TemporaryBlockEmergencyRecoveryTest {
         while (!mainTasks.isEmpty()) mainTasks.removeFirst().run();
     }
 
-    private TemporaryBlock entry(TestBlock block, String original, long expiresAt) {
+    private TemporaryBlock entry(BlockHarness block, String original, long expiresAt) {
         return new TemporaryBlock(block.testWorld.uuid.toString(), block.x, block.y, block.z,
                 block.data, original, expiresAt, false, false);
     }
@@ -450,8 +452,12 @@ class TemporaryBlockEmergencyRecoveryTest {
         when(data.getMaterial()).thenReturn(material);
         when(data.getAsString(true)).thenReturn(serialized);
         when(data.matches(any(BlockData.class))).thenAnswer(invocation ->
-                invocation.<BlockData>getArgument(0).getMaterial() == material);
+                sameMaterial(material, invocation.getArgument(0)));
         return data;
+    }
+
+    private boolean sameMaterial(Material expected, BlockData candidate) {
+        return expected.equals(candidate.getMaterial());
     }
 
     private record Scenario(TemporaryBlockService service,
@@ -459,18 +465,18 @@ class TemporaryBlockEmergencyRecoveryTest {
                             TemporaryBlockRepository emergency,
                             QueuedExecutor io) { }
 
-    private final class TestWorld {
+    private final class WorldHarness {
         private final UUID uuid = UUID.randomUUID();
         private final World world = mock(World.class);
-        private final Map<String, TestBlock> blocks = new HashMap<>();
-        private final Map<String, Boolean> loadedChunks = new HashMap<>();
-        private final Map<String, Integer> addedTickets = new HashMap<>();
-        private final Map<String, Integer> removedTickets = new HashMap<>();
+        private final Map<String, BlockHarness> blocks = new ConcurrentHashMap<>();
+        private final Map<String, Boolean> loadedChunks = new ConcurrentHashMap<>();
+        private final Map<String, Integer> addedTickets = new ConcurrentHashMap<>();
+        private final Map<String, Integer> removedTickets = new ConcurrentHashMap<>();
         private final Set<String> ownedTickets = new HashSet<>();
         private boolean available = true;
         private boolean ticketLoadingAllowed = true;
 
-        private TestWorld() {
+        private WorldHarness() {
             when(world.getUID()).thenReturn(uuid);
             when(world.isChunkLoaded(anyInt(), anyInt())).thenAnswer(invocation ->
                     loadedChunks.getOrDefault(chunkKey(invocation.getArgument(0),
@@ -500,8 +506,8 @@ class TemporaryBlockEmergencyRecoveryTest {
                     });
         }
 
-        private TestBlock block(int x, int y, int z) {
-            TestBlock block = new TestBlock(this, x, y, z);
+        private BlockHarness block(int x, int y, int z) {
+            BlockHarness block = new BlockHarness(this, x, y, z);
             blocks.put(blockKey(x, y, z), block);
             return block;
         }
@@ -519,16 +525,16 @@ class TemporaryBlockEmergencyRecoveryTest {
         }
     }
 
-    private final class TestBlock {
-        private final TestWorld testWorld;
+    private final class BlockHarness {
+        private final WorldHarness testWorld;
         private final int x;
         private final int y;
         private final int z;
         private final Block block = mock(Block.class);
         private Material material = Material.COBWEB;
-        private String data = "minecraft:cobweb";
+        private String data = COBWEB_DATA;
 
-        private TestBlock(TestWorld testWorld, int x, int y, int z) {
+        private BlockHarness(WorldHarness testWorld, int x, int y, int z) {
             this.testWorld = testWorld;
             this.x = x;
             this.y = y;

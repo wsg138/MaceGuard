@@ -35,6 +35,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class TemporaryBlockFailurePathTest {
+    private static final String AIR_DATA = "minecraft:air";
+    private static final String COBWEB_DATA = "minecraft:cobweb";
+
     @TempDir Path directory;
 
     private JavaPlugin plugin;
@@ -62,7 +65,7 @@ class TemporaryBlockFailurePathTest {
         world = mock(World.class);
         block = mock(Block.class);
         material = Material.COBWEB;
-        serialized = "minecraft:cobweb";
+        serialized = COBWEB_DATA;
         when(world.getUID()).thenReturn(worldUuid);
         when(world.isChunkLoaded(anyInt(), anyInt())).thenReturn(true);
         when(world.getBlockAt(4, 64, 4)).thenReturn(block);
@@ -90,7 +93,7 @@ class TemporaryBlockFailurePathTest {
                 new TemporaryBlockRepository(invalidParent.resolve("temporary.json")), io, 10,
                 uuid -> uuid.equals(worldUuid) ? world : null, this::blockData, false);
 
-        assertTrue(service.track(block, "minecraft:air", 100L));
+        assertTrue(service.track(block, AIR_DATA, 100L));
         assertEquals(1, service.count());
 
         io.runAll();
@@ -107,14 +110,14 @@ class TemporaryBlockFailurePathTest {
     void transientRestorationFailureRetainsEntryAndRetries() {
         AtomicBoolean firstRestore = new AtomicBoolean(true);
         Function<String, BlockData> factory = value -> {
-            if (value.equals("minecraft:air") && firstRestore.getAndSet(false))
+            if (value.equals(AIR_DATA) && firstRestore.getAndSet(false))
                 throw new IllegalArgumentException("synthetic transient failure");
             return blockData(value);
         };
         TemporaryBlockService service = new TemporaryBlockService(plugin,
                 new TemporaryBlockRepository(directory.resolve("retry.json")), Runnable::run, 10,
                 uuid -> uuid.equals(worldUuid) ? world : null, factory, false);
-        assertTrue(service.track(block, "minecraft:air", 10L));
+        assertTrue(service.track(block, AIR_DATA, 10L));
 
         service.expireNow(11L);
         assertEquals(1, service.count());
@@ -132,7 +135,7 @@ class TemporaryBlockFailurePathTest {
     @Test
     void terminalTraceIncludesExactBlockAndEntryContext() {
         TemporaryBlockService service = service("trace.json");
-        assertTrue(service.track(block, "minecraft:air", 10L));
+        assertTrue(service.track(block, AIR_DATA, 10L));
         serialized = "minecraft:cobweb[synthetic-default=true]";
 
         service.expireNow(11L);
@@ -143,9 +146,9 @@ class TemporaryBlockFailurePathTest {
         assertEquals(4, trace.x());
         assertEquals(64, trace.y());
         assertEquals(4, trace.z());
-        assertEquals("minecraft:cobweb", trace.expectedBlockData());
+        assertEquals(COBWEB_DATA, trace.expectedBlockData());
         assertEquals("minecraft:cobweb[synthetic-default=true]", trace.currentBlockData());
-        assertEquals("minecraft:air", trace.originalBlockData());
+        assertEquals(AIR_DATA, trace.originalBlockData());
         assertEquals(10L, trace.expiresAt());
         assertFalse(trace.pendingClear());
     }
@@ -153,7 +156,7 @@ class TemporaryBlockFailurePathTest {
     @Test
     void activeDiagnosticsIdentifyUnloadedChunkWaitingState() {
         TemporaryBlockService service = service("active.json");
-        assertTrue(service.track(block, "minecraft:air", 10L));
+        assertTrue(service.track(block, AIR_DATA, 10L));
         when(world.isChunkLoaded(anyInt(), anyInt())).thenReturn(false);
 
         TemporaryBlockService.ActiveDiagnostic diagnostic =
@@ -161,8 +164,8 @@ class TemporaryBlockFailurePathTest {
 
         assertEquals("WAITING_UNLOADED_CHUNK", diagnostic.status());
         assertEquals("<chunk-unloaded>", diagnostic.currentBlockData());
-        assertEquals("minecraft:cobweb", diagnostic.expectedBlockData());
-        assertEquals("minecraft:air", diagnostic.originalBlockData());
+        assertEquals(COBWEB_DATA, diagnostic.expectedBlockData());
+        assertEquals(AIR_DATA, diagnostic.originalBlockData());
         assertEquals(10L, diagnostic.expiresAt());
         assertFalse(diagnostic.pendingClear());
     }

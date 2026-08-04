@@ -19,10 +19,10 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.logging.Logger;
 
@@ -37,18 +37,21 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class TemporaryBlockServiceTest {
+    private static final String AIR_DATA = "minecraft:air";
+    private static final String COBWEB_DATA = "minecraft:cobweb";
+    private static final String SOURCE_WATER_DATA = "minecraft:water[level=0]";
+
     @TempDir Path directory;
 
     private JavaPlugin plugin;
-    private BukkitScheduler scheduler;
     private BukkitTask task;
-    private final Map<UUID, TestWorld> worlds = new HashMap<>();
+    private final Map<UUID, WorldHarness> worlds = new ConcurrentHashMap<>();
 
     @BeforeEach
     void setUp() {
         plugin = mock(JavaPlugin.class);
         Server server = mock(Server.class);
-        scheduler = mock(BukkitScheduler.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
         task = mock(BukkitTask.class);
         when(plugin.getServer()).thenReturn(server);
         when(server.getScheduler()).thenReturn(scheduler);
@@ -61,13 +64,13 @@ class TemporaryBlockServiceTest {
 
     @Test
     void rapidPlacementTracksExactlyOneEntryPerCoordinate() throws Exception {
-        TestWorld world = world();
+        WorldHarness world = world();
         QueuedExecutor io = new QueuedExecutor();
         TemporaryBlockService service = service("rapid.json", io, 10_000);
 
         for (int index = 0; index < 125; index++) {
-            TestBlock block = world.block(index, 64, 0, Material.COBWEB, "minecraft:cobweb");
-            assertTrue(service.track(block.block, "minecraft:air", 2_000L));
+            BlockHarness block = world.block(index, 64, 0, Material.COBWEB, COBWEB_DATA);
+            assertTrue(service.track(block.block, AIR_DATA, 2_000L));
         }
 
         assertEquals(125, service.count());
@@ -77,13 +80,13 @@ class TemporaryBlockServiceTest {
 
     @Test
     void expirationRestoresEveryRapidlyTrackedCobweb() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("expire.json", Runnable::run, 10_000);
-        List<TestBlock> blocks = new ArrayList<>();
+        List<BlockHarness> blocks = new ArrayList<>();
         for (int index = 0; index < 100; index++) {
-            TestBlock block = world.block(index, 64, 1, Material.COBWEB, "minecraft:cobweb");
+            BlockHarness block = world.block(index, 64, 1, Material.COBWEB, COBWEB_DATA);
             blocks.add(block);
-            assertTrue(service.track(block.block, "minecraft:air", 1_000L));
+            assertTrue(service.track(block.block, AIR_DATA, 1_000L));
         }
 
         service.expireNow(1_001L);
@@ -96,13 +99,13 @@ class TemporaryBlockServiceTest {
 
     @Test
     void liveRegressionCannotReportZeroWhileManagedCobwebsRemain() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("regression.json", Runnable::run, 10_000);
-        List<TestBlock> blocks = new ArrayList<>();
+        List<BlockHarness> blocks = new ArrayList<>();
         for (int index = 0; index < 100; index++) {
-            TestBlock block = world.block(index, 70, 2, Material.COBWEB, "minecraft:cobweb");
+            BlockHarness block = world.block(index, 70, 2, Material.COBWEB, COBWEB_DATA);
             blocks.add(block);
-            assertTrue(service.track(block.block, "minecraft:air", 60_000L));
+            assertTrue(service.track(block.block, AIR_DATA, 60_000L));
         }
 
         service.expireNow(60_001L);
@@ -115,10 +118,10 @@ class TemporaryBlockServiceTest {
 
     @Test
     void equivalentSerializationDifferenceDoesNotStrandCobweb() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("serialization.json", Runnable::run, 10);
-        TestBlock block = world.block(1, 64, 1, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(block.block, "minecraft:air", 10L));
+        BlockHarness block = world.block(1, 64, 1, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(block.block, AIR_DATA, 10L));
         block.set(Material.COBWEB, "minecraft:cobweb[synthetic-default=true]");
 
         service.expireNow(11L);
@@ -131,10 +134,10 @@ class TemporaryBlockServiceTest {
 
     @Test
     void genuinelyPlayerReplacedBlockIsNotOverwritten() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("stale.json", Runnable::run, 10);
-        TestBlock block = world.block(2, 64, 2, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(block.block, "minecraft:air", 10L));
+        BlockHarness block = world.block(2, 64, 2, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(block.block, AIR_DATA, 10L));
         block.set(Material.STONE, "minecraft:stone");
 
         service.expireNow(11L);
@@ -147,12 +150,12 @@ class TemporaryBlockServiceTest {
 
     @Test
     void airRestorationPreservesRecordedData() {
-        assertRestores("air.json", "minecraft:air", Material.AIR);
+        assertRestores("air.json", AIR_DATA, Material.AIR);
     }
 
     @Test
     void sourceWaterRestorationPreservesRecordedData() {
-        assertRestores("source-water.json", "minecraft:water[level=0]", Material.WATER);
+        assertRestores("source-water.json", SOURCE_WATER_DATA, Material.WATER);
     }
 
     @Test
@@ -162,10 +165,10 @@ class TemporaryBlockServiceTest {
 
     @Test
     void unloadedChunkWaitsAndRestoresOnChunkLoad() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("chunk.json", Runnable::run, 10);
-        TestBlock block = world.block(32, 64, 0, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(block.block, "minecraft:air", 10L));
+        BlockHarness block = world.block(32, 64, 0, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(block.block, AIR_DATA, 10L));
         world.setChunkLoaded(2, 0, false);
 
         service.expireNow(11L);
@@ -180,10 +183,10 @@ class TemporaryBlockServiceTest {
 
     @Test
     void restartBeforeExpirationLoadsAndCleansPersistedEntry() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService first = service("restart.json", Runnable::run, 10);
-        TestBlock block = world.block(3, 64, 3, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(first.track(block.block, "minecraft:air", 100L));
+        BlockHarness block = world.block(3, 64, 3, Material.COBWEB, COBWEB_DATA);
+        assertTrue(first.track(block.block, AIR_DATA, 100L));
         first.shutdown();
 
         TemporaryBlockService restarted = service("restart.json", Runnable::run, 10);
@@ -195,10 +198,10 @@ class TemporaryBlockServiceTest {
 
     @Test
     void reloadBeforeExpirationPreservesTrackingUntilDue() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService first = service("reload.json", Runnable::run, 10);
-        TestBlock block = world.block(4, 64, 4, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(first.track(block.block, "minecraft:air", 200L));
+        BlockHarness block = world.block(4, 64, 4, Material.COBWEB, COBWEB_DATA);
+        assertTrue(first.track(block.block, AIR_DATA, 200L));
         first.shutdown();
 
         TemporaryBlockService reloaded = service("reload.json", Runnable::run, 10);
@@ -212,15 +215,15 @@ class TemporaryBlockServiceTest {
 
     @Test
     void persistenceFailureRollsBackAcceptedPhysicalCobweb() throws Exception {
-        TestWorld world = world();
+        WorldHarness world = world();
         Path invalidParent = directory.resolve("not-a-directory");
         Files.writeString(invalidParent, "blocker");
         TemporaryBlockService service = new TemporaryBlockService(plugin,
                 new TemporaryBlockRepository(invalidParent.resolve("temporary.json")),
                 Runnable::run, 10, uuid -> worlds.get(uuid).world, this::blockData, false);
-        TestBlock block = world.block(5, 64, 5, Material.COBWEB, "minecraft:cobweb");
+        BlockHarness block = world.block(5, 64, 5, Material.COBWEB, COBWEB_DATA);
 
-        assertFalse(service.track(block.block, "minecraft:air", 100L));
+        assertFalse(service.track(block.block, AIR_DATA, 100L));
         assertFalse(service.persistenceHealthy());
         assertEquals(0, service.count());
         assertEquals(Material.AIR, block.material);
@@ -230,13 +233,13 @@ class TemporaryBlockServiceTest {
 
     @Test
     void maximumCapacityRejectsAdditionalCoordinateWithoutOverwrite() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("capacity.json", Runnable::run, 1);
-        TestBlock first = world.block(6, 64, 6, Material.COBWEB, "minecraft:cobweb");
-        TestBlock second = world.block(7, 64, 6, Material.COBWEB, "minecraft:cobweb");
+        BlockHarness first = world.block(6, 64, 6, Material.COBWEB, COBWEB_DATA);
+        BlockHarness second = world.block(7, 64, 6, Material.COBWEB, COBWEB_DATA);
 
-        assertTrue(service.track(first.block, "minecraft:air", 100L));
-        assertFalse(service.track(second.block, "minecraft:air", 100L));
+        assertTrue(service.track(first.block, AIR_DATA, 100L));
+        assertFalse(service.track(second.block, AIR_DATA, 100L));
         assertEquals(1, service.count());
         assertEquals(1, service.diagnostics(0L).capacityCurrent());
         assertEquals(1, service.diagnostics(0L).capacityMaximum());
@@ -244,12 +247,12 @@ class TemporaryBlockServiceTest {
 
     @Test
     void rapidlyQueuedPersistenceWritesFinishWithNewestSnapshot() throws Exception {
-        TestWorld world = world();
+        WorldHarness world = world();
         QueuedExecutor io = new QueuedExecutor();
         TemporaryBlockService service = service("queued.json", io, 10);
         for (int index = 0; index < 4; index++) {
-            TestBlock block = world.block(index, 80, 8, Material.COBWEB, "minecraft:cobweb");
-            assertTrue(service.track(block.block, "minecraft:air", 1_000L));
+            BlockHarness block = world.block(index, 80, 8, Material.COBWEB, COBWEB_DATA);
+            assertTrue(service.track(block.block, AIR_DATA, 1_000L));
         }
 
         io.runAll();
@@ -262,13 +265,13 @@ class TemporaryBlockServiceTest {
 
     @Test
     void successfulResetDiscardsOnlyCoordinatesConfirmedAtOriginalData() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("reset.json", Runnable::run, 10);
-        TestBlock restored = world.block(8, 64, 8, Material.COBWEB, "minecraft:cobweb");
-        TestBlock leftover = world.block(9, 64, 8, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(restored.block, "minecraft:air", 100L));
-        assertTrue(service.track(leftover.block, "minecraft:air", 100L));
-        restored.set(Material.AIR, "minecraft:air");
+        BlockHarness restored = world.block(8, 64, 8, Material.COBWEB, COBWEB_DATA);
+        BlockHarness leftover = world.block(9, 64, 8, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(restored.block, AIR_DATA, 100L));
+        assertTrue(service.track(leftover.block, AIR_DATA, 100L));
+        restored.set(Material.AIR, AIR_DATA);
 
         assertEquals(1, service.discardResetRestored(entry -> true));
         assertEquals(1, service.count());
@@ -280,12 +283,12 @@ class TemporaryBlockServiceTest {
 
     @Test
     void adjacentAndCrossChunkEntriesRemainIndependent() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("boundary.json", Runnable::run, 10);
-        TestBlock west = world.block(15, 64, 0, Material.COBWEB, "minecraft:cobweb");
-        TestBlock east = world.block(16, 64, 0, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(west.block, "minecraft:air", 10L));
-        assertTrue(service.track(east.block, "minecraft:water[level=0]", 10L));
+        BlockHarness west = world.block(15, 64, 0, Material.COBWEB, COBWEB_DATA);
+        BlockHarness east = world.block(16, 64, 0, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(west.block, AIR_DATA, 10L));
+        assertTrue(service.track(east.block, SOURCE_WATER_DATA, 10L));
         world.setChunkLoaded(1, 0, false);
 
         service.expireNow(11L);
@@ -296,22 +299,22 @@ class TemporaryBlockServiceTest {
         world.setChunkLoaded(1, 0, true);
         service.processAvailable(world.world, 1, 0, 11L);
         assertEquals(Material.WATER, east.material);
-        assertEquals("minecraft:water[level=0]", east.data);
+        assertEquals(SOURCE_WATER_DATA, east.data);
         assertEquals(0, service.count());
     }
 
     @Test
     void everyRemovedEntryHasOneSpecificTerminalReason() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("reasons.json", Runnable::run, 10);
-        TestBlock restored = world.block(10, 64, 10, Material.COBWEB, "minecraft:cobweb");
-        TestBlock replaced = world.block(11, 64, 10, Material.COBWEB, "minecraft:cobweb");
-        TestBlock reset = world.block(12, 64, 10, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(restored.block, "minecraft:air", 10L));
-        assertTrue(service.track(replaced.block, "minecraft:air", 10L));
-        assertTrue(service.track(reset.block, "minecraft:air", 100L));
+        BlockHarness restored = world.block(10, 64, 10, Material.COBWEB, COBWEB_DATA);
+        BlockHarness replaced = world.block(11, 64, 10, Material.COBWEB, COBWEB_DATA);
+        BlockHarness reset = world.block(12, 64, 10, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(restored.block, AIR_DATA, 10L));
+        assertTrue(service.track(replaced.block, AIR_DATA, 10L));
+        assertTrue(service.track(reset.block, AIR_DATA, 100L));
         replaced.set(Material.STONE, "minecraft:stone");
-        reset.set(Material.AIR, "minecraft:air");
+        reset.set(Material.AIR, AIR_DATA);
 
         service.discardResetRestored(entry -> entry.x() == 12);
         service.expireNow(11L);
@@ -324,24 +327,24 @@ class TemporaryBlockServiceTest {
 
     @Test
     void duplicateCoordinateCannotOverwriteOriginalTrackingRecord() {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service("duplicate.json", Runnable::run, 10);
-        TestBlock block = world.block(13, 64, 13, Material.COBWEB, "minecraft:cobweb");
-        assertTrue(service.track(block.block, "minecraft:air", 10L));
-        assertFalse(service.track(block.block, "minecraft:water[level=0]", 10L));
+        BlockHarness block = world.block(13, 64, 13, Material.COBWEB, COBWEB_DATA);
+        assertTrue(service.track(block.block, AIR_DATA, 10L));
+        assertFalse(service.track(block.block, SOURCE_WATER_DATA, 10L));
 
         service.expireNow(11L);
 
         assertEquals(Material.AIR, block.material);
-        assertEquals("minecraft:air", block.data);
+        assertEquals(AIR_DATA, block.data);
         assertEquals(0, service.count());
     }
 
     private void assertRestores(String file, String originalData, Material material) {
-        TestWorld world = world();
+        WorldHarness world = world();
         TemporaryBlockService service = service(file, Runnable::run, 10);
-        TestBlock block = world.block(20, 64, file.hashCode(), Material.COBWEB,
-                "minecraft:cobweb");
+        BlockHarness block = world.block(20, 64, file.hashCode(), Material.COBWEB,
+                COBWEB_DATA);
         assertTrue(service.track(block.block, originalData, 10L));
         service.expireNow(11L);
         assertEquals(material, block.material);
@@ -353,13 +356,13 @@ class TemporaryBlockServiceTest {
         return new TemporaryBlockService(plugin,
                 new TemporaryBlockRepository(directory.resolve(file)), io, maximum,
                 uuid -> {
-                    TestWorld world = worlds.get(uuid);
+                    WorldHarness world = worlds.get(uuid);
                     return world == null ? null : world.world;
                 }, this::blockData, false);
     }
 
-    private TestWorld world() {
-        TestWorld world = new TestWorld();
+    private WorldHarness world() {
+        WorldHarness world = new WorldHarness();
         worlds.put(world.uuid, world);
         return world;
     }
@@ -374,13 +377,13 @@ class TemporaryBlockServiceTest {
         return data;
     }
 
-    private final class TestWorld {
+    private final class WorldHarness {
         private final UUID uuid = UUID.randomUUID();
         private final World world = mock(World.class);
-        private final Map<String, TestBlock> blocks = new HashMap<>();
-        private final Map<String, Boolean> loadedChunks = new HashMap<>();
+        private final Map<String, BlockHarness> blocks = new ConcurrentHashMap<>();
+        private final Map<String, Boolean> loadedChunks = new ConcurrentHashMap<>();
 
-        private TestWorld() {
+        private WorldHarness() {
             when(world.getUID()).thenReturn(uuid);
             when(world.isChunkLoaded(anyInt(), anyInt())).thenAnswer(invocation ->
                     loadedChunks.getOrDefault(chunkKey(invocation.getArgument(0),
@@ -390,8 +393,8 @@ class TemporaryBlockServiceTest {
                             invocation.getArgument(2))).block);
         }
 
-        private TestBlock block(int x, int y, int z, Material material, String data) {
-            TestBlock block = new TestBlock(this, x, y, z, material, data);
+        private BlockHarness block(int x, int y, int z, Material material, String data) {
+            BlockHarness block = new BlockHarness(this, x, y, z, material, data);
             blocks.put(blockKey(x, y, z), block);
             return block;
         }
@@ -401,12 +404,12 @@ class TemporaryBlockServiceTest {
         }
     }
 
-    private final class TestBlock {
+    private final class BlockHarness {
         private final Block block = mock(Block.class);
         private Material material;
         private String data;
 
-        private TestBlock(TestWorld testWorld, int x, int y, int z,
+        private BlockHarness(WorldHarness testWorld, int x, int y, int z,
                           Material material, String data) {
             this.material = material;
             this.data = data;
