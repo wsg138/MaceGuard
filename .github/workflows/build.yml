@@ -44,15 +44,15 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           service_path = Path('src/main/java/com/lincoln/maceguard/temporary/TemporaryBlockService.java')
           service = service_path.read_text()
-
           service = service.replace(
               '    private static final String ORDERED_MAP_SUPPRESSION = "PMD.UseConcurrentHashMap";\n',
               '')
 
-          replacements = {
+          exact_replacements = {
               '''    // LinkedHashMap preserves deterministic journal and retry order; this copy is thread-confined.
               @SuppressWarnings(ORDERED_MAP_SUPPRESSION)
               private void captureUndurableEntries''':
@@ -76,30 +76,11 @@ jobs:
               @SuppressWarnings("PMD.UseConcurrentHashMap")
               private void removeFromEmergencyRecovery'''
           }
-          for old, new in replacements.items():
+          for old, new in exact_replacements.items():
               if old not in service:
                   raise SystemExit(f'missing service replacement:\n{old}')
               service = service.replace(old, new, 1)
 
-          old_log = '''    private void logEmergencyPendingIfNeeded(boolean force) {
-              int pending = emergencyRecovery.size();
-              if (pending == 0 && !emergencyJournalDirty) return;
-              long now = System.currentTimeMillis();
-              if (!force && now - lastEmergencyPendingLog < EMERGENCY_PENDING_LOG_INTERVAL_MILLIS) return;
-              lastEmergencyPendingLog = now;
-              if (pending == 0) {
-                  plugin.getLogger().warning("Emergency temporary-block physical rollback is complete, "
-                          + "but the recovery journal checkpoint remains pending; new temporary blocks "
-                          + "remain disabled.");
-                  return;
-              }
-              String journal = emergencyJournalHealthy && !emergencyJournalDirty
-                      ? "durably journaled" : "journal checkpoint pending";
-              plugin.getLogger().warning("Emergency temporary-block rollback remains pending for "
-                      + pending + " entr" + (pending == 1 ? "y" : "ies") + " (" + journal
-                      + "). Worlds or chunks will be retried without permanent force-loading.");
-          }
-          '''
           new_log = '''    private void logEmergencyPendingIfNeeded(boolean force) {
               int pending = emergencyRecovery.size();
               long now = System.currentTimeMillis();
@@ -139,10 +120,16 @@ jobs:
           private String recoveryEntryNoun(int pending) {
               return pending == 1 ? "entry" : "entries";
           }
+
           '''
-          if old_log not in service:
-              raise SystemExit('missing logEmergencyPendingIfNeeded block')
-          service = service.replace(old_log, new_log, 1)
+          service, count = re.subn(
+              r'    private void logEmergencyPendingIfNeeded\(boolean force\) \{.*?(?=    private void remove\()',
+              new_log,
+              service,
+              count=1,
+              flags=re.DOTALL)
+          if count != 1:
+              raise SystemExit(f'expected one emergency log method, replaced {count}')
           service_path.write_text(service)
 
           test_path = Path('src/test/java/com/lincoln/maceguard/warzone/integration/WarzoneModifierPlaceholderTest.java')
@@ -170,25 +157,3 @@ jobs:
           git add src/test/java/com/lincoln/maceguard/warzone/integration/WarzoneModifierPlaceholderTest.java
           git commit -m 'Resolve remaining Codacy findings'
           git push origin HEAD:agent/expanded-warzone-rotations
-
-  publish-latest:
-    if: github.event_name == 'push'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: MaceGuard
-          path: dist
-      - name: Publish latest automated build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload latest dist/MaceGuard.jar --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit latest --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create latest dist/MaceGuard.jar --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
-          fi
