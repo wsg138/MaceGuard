@@ -100,6 +100,7 @@ class TemporaryBlockFailurePathTest {
         assertEquals(Material.AIR, material);
         assertEquals(1L, service.terminalReasonCounts()
                 .get(TemporaryBlockService.TerminalReason.PERSISTENCE_ROLLBACK));
+        assertEquals("PERSISTENCE_ROLLBACK", service.recentTrace(1).getFirst().reason());
     }
 
     @Test
@@ -118,12 +119,58 @@ class TemporaryBlockFailurePathTest {
         service.expireNow(11L);
         assertEquals(1, service.count());
         assertEquals(Material.COBWEB, material);
+        assertEquals("RESTORE_RETRY", service.recentTrace(1).getFirst().reason());
 
         service.expireNow(12L);
         assertEquals(0, service.count());
         assertEquals(Material.AIR, material);
         assertEquals(1L, service.terminalReasonCounts()
                 .get(TemporaryBlockService.TerminalReason.EXPIRED_RESTORED));
+        assertEquals("EXPIRED_RESTORED", service.recentTrace(1).getFirst().reason());
+    }
+
+    @Test
+    void terminalTraceIncludesExactBlockAndEntryContext() {
+        TemporaryBlockService service = service("trace.json");
+        assertTrue(service.track(block, "minecraft:air", 10L));
+        serialized = "minecraft:cobweb[synthetic-default=true]";
+
+        service.expireNow(11L);
+
+        TemporaryBlockService.TraceEvent trace = service.recentTrace(1).getFirst();
+        assertEquals("EXPIRED_RESTORED", trace.reason());
+        assertEquals(worldUuid.toString(), trace.worldUuid());
+        assertEquals(4, trace.x());
+        assertEquals(64, trace.y());
+        assertEquals(4, trace.z());
+        assertEquals("minecraft:cobweb", trace.expectedBlockData());
+        assertEquals("minecraft:cobweb[synthetic-default=true]", trace.currentBlockData());
+        assertEquals("minecraft:air", trace.originalBlockData());
+        assertEquals(10L, trace.expiresAt());
+        assertFalse(trace.pendingClear());
+    }
+
+    @Test
+    void activeDiagnosticsIdentifyUnloadedChunkWaitingState() {
+        TemporaryBlockService service = service("active.json");
+        assertTrue(service.track(block, "minecraft:air", 10L));
+        when(world.isChunkLoaded(anyInt(), anyInt())).thenReturn(false);
+
+        TemporaryBlockService.ActiveDiagnostic diagnostic =
+                service.activeDiagnostics(11L, 10).getFirst();
+
+        assertEquals("WAITING_UNLOADED_CHUNK", diagnostic.status());
+        assertEquals("<chunk-unloaded>", diagnostic.currentBlockData());
+        assertEquals("minecraft:cobweb", diagnostic.expectedBlockData());
+        assertEquals("minecraft:air", diagnostic.originalBlockData());
+        assertEquals(10L, diagnostic.expiresAt());
+        assertFalse(diagnostic.pendingClear());
+    }
+
+    private TemporaryBlockService service(String file) {
+        return new TemporaryBlockService(plugin,
+                new TemporaryBlockRepository(directory.resolve(file)), Runnable::run, 10,
+                uuid -> uuid.equals(worldUuid) ? world : null, this::blockData, false);
     }
 
     private BlockData blockData(String value) {
