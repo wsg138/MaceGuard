@@ -38,10 +38,6 @@ public final class CobwebListener implements Listener {
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
-        if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
-            event.setCancelled(true);
-            return;
-        }
         var location = event.getBlockPlaced().getLocation();
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
@@ -49,7 +45,8 @@ public final class CobwebListener implements Listener {
             boolean allowed = policyTemporaryAllowed(policy,
                     worldGuard.buildAllowed(location, event.getPlayer()),
                     worldGuard.cobwebsAllowed(location, event.getPlayer()));
-            if (!allowed) event.setCancelled(true);
+            if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType()))
+                event.setCancelled(true);
             return;
         }
 
@@ -59,6 +56,8 @@ public final class CobwebListener implements Listener {
                 && worldGuard.cobwebsAllowed(location, event.getPlayer())
                 && worldGuard.warzoneCobwebsAllowed(location)
                 && decision.allowed();
+        if (allowed && !replacementAllowed(config, event.getBlockReplacedState().getType()))
+            allowed = false;
         if (allowed) return;
         event.setCancelled(true);
         if (!decision.allowed()) warzone.sendCobwebDenial(event.getPlayer(), decision);
@@ -68,10 +67,6 @@ public final class CobwebListener implements Listener {
     public void onPlace(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
-        if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
-            rollbackUnmanagedPlacement(event);
-            return;
-        }
 
         var location = event.getBlockPlaced().getLocation();
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
@@ -90,6 +85,10 @@ public final class CobwebListener implements Listener {
                     || !worldGuard.cobwebsAllowed(location, event.getPlayer())
                     || !worldGuard.warzoneCobwebsAllowed(location)
                     || !decision.allowed()) return;
+        }
+        if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
+            rollbackUnmanagedPlacement(event);
+            return;
         }
 
         String original = event.getBlockReplacedState().getBlockData().getAsString(true);
