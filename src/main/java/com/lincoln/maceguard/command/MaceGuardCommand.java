@@ -29,10 +29,18 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
         }
         if (sub.equals("temporary")) {
             if (!sender.hasPermission("maceguard.admin")) return denied(sender);
-            sender.sendMessage("Temporary blocks: "
-                    + plugin.runtime().temporaryBlocks().count()
-                    + ", persistence="
-                    + plugin.runtime().temporaryBlocks().persistenceHealthy());
+            var temporary = plugin.runtime().temporaryBlocks();
+            var diagnostics = temporary.diagnostics(System.currentTimeMillis());
+            sender.sendMessage("tracked=" + diagnostics.tracked()
+                    + " expired=" + diagnostics.expired()
+                    + " pending-clear=" + diagnostics.pendingClear()
+                    + " persistence="
+                    + (diagnostics.persistenceHealthy() ? "healthy" : "failed")
+                    + " capacity=" + diagnostics.capacityCurrent() + "/"
+                    + diagnostics.capacityMaximum());
+            if (args.length > 1 && args[1].equalsIgnoreCase("debug"))
+                sender.sendMessage("temporary-removal-reasons="
+                        + temporary.terminalReasonCounts());
             return true;
         }
         if (sub.equals("reload")) {
@@ -135,7 +143,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
     private void help(CommandSender sender) {
         sender.sendMessage("/maceguard here|status <region>|capture <region>|validate <region>|"
                 + "plan <region>|arm <region>|disarm <region>|schedule <region> <on|off>|"
-                + "reset <region> <token>|recover|temporary|reload");
+                + "reset <region> <token>|recover|temporary [debug]|reload");
     }
 
     @Override public List<String> onTabComplete(CommandSender sender, Command command,
@@ -144,6 +152,7 @@ public final class MaceGuardCommand implements CommandExecutor, TabCompleter {
             return List.of("here", "status", "capture", "validate", "plan", "arm",
                     "disarm", "filler", "restore", "schedule", "reset", "recover",
                     "temporary", "reload");
+        if (args.length == 2 && args[0].equalsIgnoreCase("temporary")) return List.of("debug");
         if (args.length == 3 && (args[0].equalsIgnoreCase("filler")
                 || args[0].equalsIgnoreCase("restore")
                 || args[0].equalsIgnoreCase("schedule")))
