@@ -1,0 +1,44 @@
+name: Apply final Codacy cleanup
+
+on:
+  push:
+    branches:
+      - agent/expanded-warzone-rotations
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'Apply final Codacy cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: agent/expanded-warzone-rotations
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Apply, verify, and remove temporary workflows
+        env:
+          PATCH_GZ_B64: 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
+        run: |
+          set -euo pipefail
+          printf '%s' "$PATCH_GZ_B64" | base64 --decode | gzip --decompress > /tmp/final-codacy-fix.patch
+          echo '289d4121b9474a33aac66f825c48815ad00dd2d1a1e3d447636ea2475eda8a85  /tmp/final-codacy-fix.patch' | sha256sum --check
+          git apply --check /tmp/final-codacy-fix.patch
+          git apply /tmp/final-codacy-fix.patch
+          git show origin/main:.github/workflows/build.yml > .github/workflows/build.yml
+          git rm .github/workflows/codacy-final-export.yml
+          git rm .github/workflows/apply-final-codacy-cleanup.yml
+          ./mvnw -B clean verify
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/build.yml
+          git add src/main/java/com/lincoln/maceguard/temporary/TemporaryBlockService.java
+          git add src/test/java/com/lincoln/maceguard/temporary/TemporaryBlockEmergencyRecoveryTest.java
+          git add src/test/java/com/lincoln/maceguard/temporary/TemporaryBlockServiceTest.java
+          git commit -m 'Resolve final Codacy findings'
+          git push origin HEAD:agent/expanded-warzone-rotations
