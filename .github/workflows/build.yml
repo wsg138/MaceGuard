@@ -23,15 +23,6 @@ jobs:
           path: target/MaceGuard.jar
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pr-source-snapshot
-          path: |
-            .
-            !.git/**
-            !target/**
-          if-no-files-found: error
-          retention-days: 1
 
   publish-latest:
     if: github.event_name == 'push'
