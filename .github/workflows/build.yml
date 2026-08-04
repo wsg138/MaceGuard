@@ -21,7 +21,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Reconstruct and verify audited patch
+      - name: Reconstruct and verify audited source patch
         shell: bash
         run: |
           set -euo pipefail
@@ -45,63 +45,13 @@ jobs:
           echo 'ac37340dbc6bc82e57680210d8bdd7071a1077b01b0e6ac34433aba7bcd072e3  /tmp/maceguard-final.patch' | sha256sum -c -
           git apply --check --exclude=.github/workflows/build.yml /tmp/maceguard-final.patch
           git apply --exclude=.github/workflows/build.yml /tmp/maceguard-final.patch
-          cat > .github/workflows/build.yml <<'YAML'
-          name: Build
-          on:
-            push:
-              branches: [main]
-            pull_request:
-              branches: [main]
-          permissions:
-            contents: read
-          jobs:
-            build:
-              runs-on: ubuntu-latest
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-java@v4
-                  with:
-                    distribution: temurin
-                    java-version: '21'
-                - name: Verify and package
-                  run: ./mvnw -B clean verify
-                - uses: actions/upload-artifact@v4
-                  with:
-                    name: MaceGuard
-                    path: target/MaceGuard.jar
-                    if-no-files-found: error
-                    retention-days: 14
-
-            publish-latest:
-              if: github.event_name == 'push'
-              needs: build
-              runs-on: ubuntu-latest
-              permissions:
-                contents: write
-              steps:
-                - uses: actions/download-artifact@v4
-                  with:
-                    name: MaceGuard
-                    path: dist
-                - name: Publish latest automated build
-                  env:
-                    GH_TOKEN: ${{ github.token }}
-                  run: |
-                    if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-                      gh release upload latest dist/MaceGuard.jar --clobber --repo "$GITHUB_REPOSITORY"
-                      gh release edit latest --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
-                    else
-                      gh release create latest dist/MaceGuard.jar --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
-                    fi
-          YAML
           git rm -r --ignore-unmatch \
             .codex-transfer \
             .codex-final \
-            .codex-download-link.md \
-            .github/workflows/apply-final.yml
+            .codex-download-link.md
           git diff --check
 
-      - name: Verify and package exact replacement tree
+      - name: Verify and package exact source tree
         run: ./mvnw -B clean verify
 
       - name: Inspect packaged plugin metadata
@@ -125,7 +75,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish clean implementation commit
+      - name: Publish verified source commit
         shell: bash
         run: |
           set -euo pipefail
