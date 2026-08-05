@@ -448,6 +448,34 @@ public final class WarzoneCommand implements TabExecutor {
         module.send(sender, "<yellow>Whole-world fallback: <white>false");
         module.send(sender, "<yellow>GUI sessions: <white>" + runtime.guis().sessionCount());
         module.send(sender, "<yellow>Active cooldown records: <white>" + runtime.cooldowns().size());
+        var combat = runtime.combatScopes();
+        module.send(sender, "<yellow>CombatLogX integration: <white>" + combat.combat().available()
+                + (combat.combat().available() ? "" : " — " + combat.combat().unavailableReason()));
+        module.send(sender, "<yellow>Warzone combat latches: <white>" + combat.size());
+        module.send(sender, "<yellow>Carried effects/restrictions: <white>"
+                + runtime.rotations().active().carriedEffects() + " / "
+                + runtime.rotations().active().carriedRestrictions().keySet());
+        if (sender instanceof Player player) {
+            boolean tagged = combat.combat().inCombat(player);
+            boolean combatBypass = combat.combat().bypass(player);
+            boolean latched = combat.latch(player.getUniqueId()).isPresent();
+            boolean insideFlag = combat.insideCombatZone(player);
+            boolean insideConfigured = runtime.region().contains(player.getLocation());
+            boolean carriedElytra = runtime.rotations().active().carriedElytraGlidingAllowed();
+            boolean elytraAllowed = tagged && !combatBypass && latched
+                    && runtime.rotations().active().elytraGlidingAllowed()
+                    && (insideConfigured || carriedElytra);
+            module.send(sender, "<yellow>Player combat tagged/bypass: <white>" + tagged + " / " + combatBypass);
+            module.send(sender, "<yellow>Combat maximum/remaining: <white>"
+                    + combat.combat().maximumSeconds(player) + "s / " + combat.combat().remaining(player));
+            module.send(sender, "<yellow>Effective combat-zone/configured region: <white>"
+                    + insideFlag + " / " + insideConfigured);
+            module.send(sender, "<yellow>Warzone latch/stasis denied: <white>" + latched + " / "
+                    + combat.latch(player.getUniqueId()).map(value -> value.stasisDenied()).orElse(false));
+            module.send(sender, "<yellow>Elytra start allowed: <white>" + elytraAllowed);
+            module.send(sender, "<yellow>MaceGuard bypass: <white>"
+                    + player.hasPermission("warzonerotator.bypass"));
+        }
     }
 
     private void help(CommandSender sender) {

@@ -95,7 +95,10 @@ public final class ModifierSelector {
         @SuppressWarnings("PMD.UseConcurrentHashMap")
         Map<RestrictionTarget, WarzoneConfig.Restriction> restrictions =
                 new LinkedHashMap<>();
+        Map<RestrictionTarget, WarzoneConfig.Restriction> carriedRestrictions =
+                new LinkedHashMap<>();
         Set<WarzoneConfig.Effect> effects = new LinkedHashSet<>();
+        Set<WarzoneConfig.Effect> carriedEffects = new LinkedHashSet<>();
         List<String> displays = new ArrayList<>();
         List<String> descriptions = new ArrayList<>();
         for (String id : normalized) {
@@ -107,6 +110,11 @@ public final class ModifierSelector {
             displays.add(modifier.displayName());
             descriptions.add(modifier.description());
             effects.addAll(modifier.effects());
+            if (modifier.combatCarryover()) {
+                carriedEffects.addAll(modifier.effects());
+                modifier.restrictions().forEach((target, restriction) ->
+                        carriedRestrictions.put(target, restriction));
+            }
             modifier.restrictions().forEach((target, restriction) -> {
                 WarzoneConfig.Restriction previous = restrictions.putIfAbsent(target, restriction);
                 if (previous != null && !previous.equals(restriction))
@@ -120,7 +128,8 @@ public final class ModifierSelector {
                 String.join(" <gray>+ </gray>", displays);
         String description = descriptions.isEmpty() ? "<gray>No Warzone modifiers are active." :
                 String.join(" ", descriptions);
-        return new WarzoneConfig.ActiveSet(normalized, display, description, effects, restrictions);
+        return new WarzoneConfig.ActiveSet(normalized, display, description, effects, restrictions,
+                carriedEffects, carriedRestrictions);
     }
 
     public List<List<String>> validCombinations(WarzoneConfig config) {

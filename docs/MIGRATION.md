@@ -1,6 +1,6 @@
-# MaceGuard 6 migration
+# MaceGuard 6.1 migration
 
-MaceGuard 6 introduces Warzone configuration schema 6 and a versioned automatic-slot/manual-override state model. Migration is backup-first and validates the complete replacement before it can replace the active file.
+MaceGuard 6.1 introduces Warzone configuration schema 7 for combat carryover and stasis settings. Migration is backup-first and validates the complete replacement before it can replace the active file. The existing versioned automatic-slot/manual-override state model remains in place.
 
 ## Main configuration
 
@@ -8,9 +8,24 @@ The existing main `config.yml`, WorldGuard regions and flags, reset profiles, sn
 
 MaceGuard never creates or changes WorldGuard regions, captures snapshots, arms profiles, or enables reset schedules during this migration.
 
-## Schema 5 to schema 6
 
-Before rewriting `warzone.yml`, MaceGuard copies it to `plugins/MaceGuard/migration-backups/`. It then builds a schema-6 candidate from the bundled defaults and preserves the schema-5 values for:
+## Schema 6 to schema 7
+
+Before rewriting `warzone.yml`, MaceGuard copies the schema-6 file to `plugins/MaceGuard/migration-backups/`. The schema-7 candidate preserves all operator-defined enabled states, region scope, rotation and schedule data, messages, cobweb settings, kits, GUI settings, restriction-target policies, modifier definitions and weights, and conflict groups.
+
+Every existing modifier receives `combat-carryover: false` when the field was absent. This prevents an upgrade from unexpectedly extending a restriction outside the configured Warzone. The new stasis setting defaults to:
+
+```yaml
+combat:
+  stasis:
+    minimum-age: 60s
+```
+
+WorldGuard custom flags are registered by the plugin but are not assigned to any region by migration. No staff exemption is created. The complete schema-7 candidate is passed through the strict loader before atomic replacement.
+
+## Schema 5 to schema 7
+
+Before rewriting `warzone.yml`, MaceGuard copies it to `plugins/MaceGuard/migration-backups/`. It then builds a schema-7 candidate from the bundled defaults and preserves the schema-5 values for:
 
 - top-level module enabled state;
 - configured world, outer region, and exclusions;
@@ -43,7 +58,7 @@ The anchor date is selected only to preserve the prior weekday phase. Calendar b
 
 New spear outcomes and the bundled spear kit are disabled during schema-5 migration unless the old file already defined those IDs. This prevents the existing random pool from changing silently. Operators may enable them after reviewing `SPEAR`, `SPEAR_DAMAGE`, `SPEAR_LUNGE`, and the new conflict groups.
 
-The candidate is parsed by the strict schema-6 loader. If any preserved custom modifier, restriction, conflict, kit, schedule, material icon, or selection rule is invalid, migration is rejected and the original file remains active.
+The candidate is parsed by the strict schema-7 loader. If any preserved custom modifier, restriction, conflict, kit, schedule, material icon, or selection rule is invalid, migration is rejected and the original file remains active.
 
 ## Persisted schema-5 selection
 
@@ -58,23 +73,23 @@ selection.emitted-warnings
 selection.sequence
 ```
 
-It is interpreted as the current `RANDOM` result for the one-entry migrated cycle. When its stored boundary and transition match the currently due migrated slot, the exact modifier order and selection sequence are retained and the random result is not rerolled. The next successful state write versions it into the schema-6 state format.
+It is interpreted as the current `RANDOM` result for the one-entry migrated cycle. When its stored boundary and transition match the currently due migrated slot, the exact modifier order and selection sequence are retained and the random result is not rerolled. The next successful state write versions it into the current versioned state format.
 
 If the old selection contains unknown, disabled, conflicting, out-of-range, or otherwise invalid random modifiers, it is rejected and a safe current-slot selection is generated. Invalid state is backed up and logged; it is never used to broaden gameplay scope.
 
-## Schema 4 to schema 6
+## Schema 4 to schema 7
 
-Schema 4 migrates through the existing validated schema-5 representation and then through the schema-5-to-6 process. Existing schema-4 scope, weekly schedule, warnings, messages, cobweb settings, restrictions, modifier definitions, and conflict groups are preserved where valid.
+Schema 4 migrates through the existing validated schema-5 representation and then through the schema-5-to-7 process. Existing schema-4 scope, weekly schedule, warnings, messages, cobweb settings, restrictions, modifier definitions, and conflict groups are preserved where valid.
 
 A custom modifier receives `enabled: true` and `weight: 10` only when those fields were absent. Existing explicit values are retained.
 
 ## Older or incompatible Warzone files
 
-Configurations older than schema 4 do not have a safe one-to-one meaning in the weighted schema-5 model. They are backed up and replaced with the clean bundled schema-6 example, which remains disabled by default. The migration report records that decision.
+Configurations older than schema 4 do not have a safe one-to-one meaning in the weighted schema-5 model. They are backed up and replaced with the clean bundled schema-7 example, which remains disabled by default. The migration report records that decision.
 
 The standalone `plugins/WarzoneRotator` directory is preserved unchanged for rollback. Sequential state that does not contain the recognized schema-5 selection structure is backed up and ignored rather than guessed into a cycle.
 
-## Versioned schema-6 state
+## Versioned Warzone state
 
 `state/warzone-state.yml` now records:
 
@@ -112,7 +127,7 @@ MaceGuard 4.0.1 could treat the configured Bukkit world as inside the Warzone wh
 To roll back:
 
 1. Stop the server.
-2. Preserve the current schema-6 config and state for diagnosis.
+2. Preserve the current schema-7 config and state for diagnosis.
 3. Restore the matching pre-migration `warzone.yml` backup and plugin JAR together.
 4. Restore a matching older state file only when the older plugin expects it.
 5. Leave WorldGuard regions, reset snapshots, and temporary-block recovery files intact unless a separate verified rollback procedure requires otherwise.

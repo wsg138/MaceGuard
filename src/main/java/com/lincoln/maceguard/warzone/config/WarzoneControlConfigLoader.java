@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Strict schema-6 loader. Gameplay parsing remains delegated to the proven schema-5 parser. */
+/** Strict schema-7 loader. Gameplay parsing remains delegated to the proven schema-5 parser. */
 public final class WarzoneControlConfigLoader {
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9_-]*");
 
@@ -33,10 +33,11 @@ public final class WarzoneControlConfigLoader {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         keys(root, "<root>", Set.of("config-version", "enabled", "region", "rotation", "messages",
-                "cobwebs", "restriction-targets", "modifiers", "conflict-groups", "kits", "gui"), errors);
+                "combat", "cobwebs", "restriction-targets", "modifiers", "conflict-groups", "kits", "gui"), errors);
         int version = integer(root.get("config-version"), "config-version", errors, -1);
         if (version != WarzoneControlConfig.VERSION)
             errors.add("config-version must be " + WarzoneControlConfig.VERSION + ".");
+        requireCombatSection(root, errors);
 
         Map<String, Object> rotation = map(root.get("rotation"), "rotation", errors);
         keys(rotation, "rotation", Set.of("schedule", "selection", "special-rules", "warning-times"), errors);
@@ -58,6 +59,7 @@ public final class WarzoneControlConfigLoader {
         copy(rotation, legacyRotation, "warning-times");
         legacy.put("rotation", legacyRotation);
         copy(root, legacy, "messages");
+        copy(root, legacy, "combat");
         copy(root, legacy, "cobwebs");
         copy(root, legacy, "restriction-targets");
         copy(root, legacy, "modifiers");
@@ -80,6 +82,21 @@ public final class WarzoneControlConfigLoader {
         if (!errors.isEmpty()) return new ValidationResult<>(null, List.copyOf(errors), List.copyOf(warnings));
         return new ValidationResult<>(new WarzoneControlConfig(version, gameplay, kits, schedule, gui),
                 List.of(), List.copyOf(warnings));
+    }
+
+    private void requireCombatSection(Map<String, Object> root, List<String> errors) {
+        Object combatValue = root.get("combat");
+        if (!(combatValue instanceof Map<?, ?> combat)) {
+            errors.add("combat must be a section in schema 7.");
+            return;
+        }
+        Object stasisValue = combat.get("stasis");
+        if (!(stasisValue instanceof Map<?, ?> stasis)) {
+            errors.add("combat.stasis must be a section in schema 7.");
+            return;
+        }
+        if (!stasis.containsKey("minimum-age"))
+            errors.add("combat.stasis.minimum-age is required in schema 7.");
     }
 
     private WarzoneControlConfig.Schedule parseSchedule(Map<String, Object> raw, List<String> errors) {

@@ -1,6 +1,6 @@
-# Schema-6 Warzone kits, anchored repeating schedule, and manual override controls.
+# Schema-7 Warzone kits, anchored repeating schedule, and manual override controls.
 # Fresh installs remain inactive until the configured WorldGuard scope passes /warzone validate.
-config-version: 6
+config-version: 7
 enabled: false
 
 region:
@@ -53,6 +53,10 @@ messages:
   blocked-message-cooldown: 2s
   warning-audience: global
   transition-audience: global
+
+combat:
+  stasis:
+    minimum-age: 60s
 
 cobwebs:
   clear-after: 60s
@@ -107,6 +111,7 @@ conflict-groups:
 
 modifiers:
   cobwebs:
+    combat-carryover: false
     enabled: true
     weight: 10
     display-name: "<white>Cobwebs"
@@ -117,6 +122,7 @@ modifiers:
     end-message: "<gray>The Warzone cobweb modifier has ended."
 
   no-lunge:
+    combat-carryover: true
     enabled: true
     weight: 8
     display-name: "<red>No Lunge"
@@ -129,6 +135,7 @@ modifiers:
     end-message: "<gray>Spear Lunge is allowed in the warzone again."
 
   lunge-cooldown-10:
+    combat-carryover: true
     enabled: true
     weight: 6
     display-name: "<gold>10s Lunge Cooldown"
@@ -142,6 +149,7 @@ modifiers:
     end-message: "<gray>The Spear Lunge cooldown has ended."
 
   spear-disabled:
+    combat-carryover: true
     enabled: true
     weight: 4
     display-name: "<dark_red>No Spears"
@@ -154,6 +162,7 @@ modifiers:
     end-message: "<gray>Spears are allowed in the warzone again."
 
   spear-damage-cooldown-10:
+    combat-carryover: true
     enabled: true
     weight: 6
     display-name: "<gold>10s Spear Damage Cooldown"
@@ -167,6 +176,7 @@ modifiers:
     end-message: "<gray>The Spear damage cooldown has ended."
 
   mace-disabled:
+    combat-carryover: true
     enabled: true
     weight: 4
     display-name: "<dark_red>No Maces"
@@ -179,6 +189,7 @@ modifiers:
     end-message: "<gray>The No Maces modifier has ended."
 
   mace-cooldown:
+    combat-carryover: true
     enabled: true
     weight: 8
     display-name: "<gold>Mace Cooldown"
@@ -192,6 +203,7 @@ modifiers:
     end-message: "<gray>The Mace cooldown has ended."
 
   ender-pearl-disabled:
+    combat-carryover: true
     enabled: true
     weight: 3
     display-name: "<dark_purple>No Ender Pearls"
@@ -204,6 +216,7 @@ modifiers:
     end-message: "<gray>Ender Pearls are allowed in the warzone again."
 
   ender-pearl-cooldown-5:
+    combat-carryover: true
     enabled: true
     weight: 9
     display-name: "<light_purple>5s Pearl Cooldown"
@@ -217,6 +230,7 @@ modifiers:
     end-message: "<gray>The five-second Ender Pearl cooldown has ended."
 
   ender-pearl-cooldown-10:
+    combat-carryover: false
     enabled: true
     weight: 6
     display-name: "<light_purple>10s Pearl Cooldown"
@@ -230,6 +244,7 @@ modifiers:
     end-message: "<gray>The ten-second Ender Pearl cooldown has ended."
 
   wind-charge-disabled:
+    combat-carryover: true
     enabled: true
     weight: 3
     display-name: "<blue>No Wind Charges"
@@ -242,6 +257,7 @@ modifiers:
     end-message: "<gray>Wind Charges are allowed in the warzone again."
 
   wind-charge-cooldown-5:
+    combat-carryover: true
     enabled: true
     weight: 9
     display-name: "<aqua>5s Wind Charge Cooldown"
@@ -255,6 +271,7 @@ modifiers:
     end-message: "<gray>The five-second Wind Charge cooldown has ended."
 
   wind-charge-cooldown-10:
+    combat-carryover: false
     enabled: true
     weight: 6
     display-name: "<aqua>10s Wind Charge Cooldown"
@@ -268,6 +285,7 @@ modifiers:
     end-message: "<gray>The ten-second Wind Charge cooldown has ended."
 
   elytra-no-rockets:
+    combat-carryover: true
     enabled: true
     weight: 1
     display-name: "<aqua>Elytra, No Rockets"

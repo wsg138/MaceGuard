@@ -116,7 +116,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
                         temporary.discardResetRestored(entry ->
                                 entry.worldUuid().equals(world.getUID().toString())
                                         && region.contains(entry.x(), entry.y(), entry.z()))));
-        WarzoneModule warzone = new WarzoneModule(this, temporary, io, policyResolver);
+        WarzoneModule warzone = new WarzoneModule(this, temporary, io, policyResolver, queries);
         runtime = new PluginRuntime(settings, queries, policyResolver, resets, temporary,
                 warzone, io);
         warzone.start();

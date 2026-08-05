@@ -2,6 +2,8 @@ package com.lincoln.maceguard.warzone.restriction;
 
 import com.destroystokyo.paper.event.player.PlayerElytraBoostEvent;
 import com.destroystokyo.paper.event.player.PlayerLaunchProjectileEvent;
+import com.lincoln.maceguard.warzone.combat.CombatElytraPolicy;
+import com.lincoln.maceguard.warzone.combat.CombatScopeService;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
 import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
@@ -44,6 +46,7 @@ import java.util.function.Supplier;
 
 public final class ItemRestrictionListener implements Listener {
     private final RestrictionService restrictions;
+    private final CombatScopeService combatScopes;
     private final CooldownService cooldowns;
     private final VisualCooldownService visualCooldowns;
     private final WarzoneRegionService region;
@@ -63,12 +66,14 @@ public final class ItemRestrictionListener implements Listener {
     private final Map<UUID, Boolean> visualInsideState = new HashMap<>();
 
     public ItemRestrictionListener(JavaPlugin plugin, RestrictionService restrictions,
+                                   CombatScopeService combatScopes,
                                    CooldownService cooldowns,
                                    VisualCooldownService visualCooldowns, WarzoneRegionService region,
                                    WarzoneMessageService messages,
                                    Supplier<WarzoneConfig.ActiveSet> activeSet,
                                    LungeVelocityGate lungeGate) {
         this.restrictions = restrictions;
+        this.combatScopes = combatScopes;
         this.cooldowns = cooldowns;
         this.visualCooldowns = visualCooldowns;
         this.region = region;
@@ -335,8 +340,14 @@ public final class ItemRestrictionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onGlideStart(EntityToggleGlideEvent event) {
         if (!(event.getEntity() instanceof Player player) || !event.isGliding()) return;
-        if (bypass(player) || !region.contains(player.getLocation())) return;
-        if (activeSet.get().elytraGlidingAllowed()) return;
+        boolean maceGuardBypass = bypass(player);
+        boolean combatBound = combatScopes.combatBound(player);
+        WarzoneConfig.ActiveSet active = activeSet.get();
+        boolean allowed = CombatElytraPolicy.canStart(combatBound, false, maceGuardBypass,
+                combatScopes.latch(player.getUniqueId()).isPresent(),
+                region.contains(player.getLocation()), active.elytraGlidingAllowed(),
+                active.carriedElytraGlidingAllowed());
+        if (allowed) return;
         event.setCancelled(true);
         messages.elytraUnavailable(player);
     }
@@ -344,8 +355,9 @@ public final class ItemRestrictionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onElytraBoost(PlayerElytraBoostEvent event) {
         Player player = event.getPlayer();
-        if (bypass(player) || !region.contains(player.getLocation())) return;
-        if (!activeSet.get().fireworkBoostBlocked()) return;
+        boolean maceGuardBypass = bypass(player);
+        boolean combatBound = combatScopes.combatBound(player);
+        if (!CombatElytraPolicy.blockBoost(combatBound, false, maceGuardBypass)) return;
         event.setCancelled(true);
         event.setShouldConsume(false);
         messages.rocketUnavailable(player);
@@ -434,10 +446,16 @@ public final class ItemRestrictionListener implements Listener {
     private void reconcileVisualCooldowns(Player player) {
         UUID playerId = player.getUniqueId();
         boolean inside = region.contains(player.getLocation());
-        Boolean previous = visualInsideState.put(playerId, inside);
-        if (inside && !Boolean.TRUE.equals(previous)) {
-            visualCooldowns.reapply(player, cooldowns.activeFor(playerId));
-        } else if (!inside && !Boolean.FALSE.equals(previous)) {
+        boolean visibleScope = inside || combatScopes.carryoverEligible(player);
+        Boolean previous = visualInsideState.put(playerId, visibleScope);
+        if (visibleScope && !Boolean.TRUE.equals(previous)) {
+            Map<RestrictionTarget, java.time.Duration> active = cooldowns.activeFor(playerId);
+            if (!inside) active = active.entrySet().stream()
+                    .filter(entry -> activeSet.get().carriedRestrictions().containsKey(entry.getKey()))
+                    .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                            Map.Entry::getKey, Map.Entry::getValue));
+            visualCooldowns.reapply(player, active);
+        } else if (!visibleScope && !Boolean.FALSE.equals(previous)) {
             visualCooldowns.clearOwned(player);
         }
     }
@@ -505,8 +523,12 @@ public final class ItemRestrictionListener implements Listener {
 
     private void completeSuccess(UUID playerId, Player player, RestrictionDecision decision) {
         restrictions.success(playerId, decision);
-        if (player != null && region.contains(player.getLocation()))
-            visualCooldowns.apply(player, decision);
+        if (player == null) return;
+        boolean inside = region.contains(player.getLocation());
+        boolean carried = combatScopes.carryoverEligible(player)
+                && decision.target() != null
+                && activeSet.get().carriedRestrictions().containsKey(decision.target());
+        if (inside || carried) visualCooldowns.apply(player, decision);
     }
 
     private RestrictionDecision materialDecision(Player player, Material material, boolean targetInside) {

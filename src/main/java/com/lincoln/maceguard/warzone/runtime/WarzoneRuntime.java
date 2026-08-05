@@ -2,6 +2,13 @@ package com.lincoln.maceguard.warzone.runtime;
 
 import com.lincoln.maceguard.temporary.TemporaryBlock;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
+import com.lincoln.maceguard.warzone.combat.CombatIntegrationListener;
+import com.lincoln.maceguard.warzone.combat.CombatPositionListener;
+import com.lincoln.maceguard.warzone.combat.StasisPearlListener;
+import com.lincoln.maceguard.warzone.combat.CombatScopeService;
+import com.lincoln.maceguard.warzone.combat.CombatLogXGateway;
+import com.lincoln.maceguard.warzone.combat.CombatLogXGatewayFactory;
+import com.lincoln.maceguard.warzone.combat.StasisPearlTracker;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneMessages;
 import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
@@ -19,6 +26,7 @@ import com.lincoln.maceguard.warzone.restriction.VisualCooldownService;
 import com.lincoln.maceguard.warzone.rotation.ModifierSelector;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
+import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -47,6 +55,11 @@ public final class WarzoneRuntime {
     private final CooldownService cooldowns;
     private final VisualCooldownService visualCooldowns;
     private final RestrictionService restrictions;
+    private final CombatScopeService combatScopes;
+    private final CombatIntegrationListener combatIntegration;
+    private final CombatPositionListener combatPositionListener;
+    private final StasisPearlListener stasisPearlListener;
+    private final CombatLogXGateway combatLogX;
     private final RotationManager rotations;
     private final WarzoneGuiManager guis;
     private final ItemRestrictionListener restrictionListener;
@@ -58,24 +71,32 @@ public final class WarzoneRuntime {
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
         this(plugin, temporaryBlocks, WarzoneControlConfig.legacy(config), templates, store, clock,
-                RandomGenerator.getDefault());
+                RandomGenerator.getDefault(), null);
     }
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks,
                           WarzoneControlConfig controlConfig, WarzoneMessages templates,
                           WarzoneStateStore store, Clock clock) {
         this(plugin, temporaryBlocks, controlConfig, templates, store, clock,
-                RandomGenerator.getDefault());
+                RandomGenerator.getDefault(), null);
+    }
+
+    public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks,
+                          WarzoneControlConfig controlConfig, WarzoneMessages templates,
+                          WarzoneStateStore store, Clock clock, WorldGuardQueryService queries) {
+        this(plugin, temporaryBlocks, controlConfig, templates, store, clock,
+                RandomGenerator.getDefault(), queries);
     }
 
     WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                    WarzoneMessages templates, WarzoneStateStore store, Clock clock, RandomGenerator random) {
-        this(plugin, temporaryBlocks, WarzoneControlConfig.legacy(config), templates, store, clock, random);
+        this(plugin, temporaryBlocks, WarzoneControlConfig.legacy(config), templates, store, clock, random, null);
     }
 
     WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks,
                    WarzoneControlConfig controlConfig, WarzoneMessages templates,
-                   WarzoneStateStore store, Clock clock, RandomGenerator random) {
+                   WarzoneStateStore store, Clock clock, RandomGenerator random,
+                   WorldGuardQueryService queries) {
         WarzoneConfig config = controlConfig.gameplay();
         validateCooldownTargets(config);
         this.plugin = plugin;
@@ -94,9 +115,22 @@ public final class WarzoneRuntime {
         this.rotations = new RotationManager(controlConfig, store, clock, random, this::transition, this::warning);
         this.messages.bind(rotations);
         this.guis = new WarzoneGuiManager(plugin, this);
-        this.restrictions = new RestrictionService(rotations::active, cooldowns);
-        this.restrictionListener = new ItemRestrictionListener(plugin, restrictions, cooldowns, visualCooldowns,
-                region, messages, rotations::active,
+        this.combatLogX = CombatLogXGatewayFactory.discover(plugin);
+        if (!combatLogX.available()) {
+            plugin.getLogger().warning("CombatLogX integration is inactive: "
+                    + combatLogX.unavailableReason()
+                    + ". Unrelated MaceGuard features remain enabled; combat-bound Warzone features are disabled.");
+        }
+        this.combatScopes = new CombatScopeService(combatLogX, queries);
+        StasisPearlTracker pearls = new StasisPearlTracker();
+        this.combatIntegration = new CombatIntegrationListener(combatScopes, pearls);
+        this.combatPositionListener = new CombatPositionListener(combatScopes, combatIntegration);
+        this.stasisPearlListener = new StasisPearlListener(combatScopes, pearls, messages,
+                config.combat().stasis().minimumAge());
+        this.restrictions = new RestrictionService(rotations::active, cooldowns,
+                combatScopes::carryoverEligible);
+        this.restrictionListener = new ItemRestrictionListener(plugin, restrictions, combatScopes,
+                cooldowns, visualCooldowns, region, messages, rotations::active,
                 new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         clearCobwebsAfterOfflineTransition();
         if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
@@ -112,11 +146,16 @@ public final class WarzoneRuntime {
             cooldowns.discardExpired();
             messages.cleanup();
             restrictionListener.cleanup();
+            combatIntegration.cleanup();
             guis.cleanup();
             if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
         if (!config.enabled()) return;
         plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(combatPositionListener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(stasisPearlListener, plugin);
+        combatLogX.register(combatIntegration);
+        combatIntegration.reconcile(plugin.getServer().getOnlinePlayers());
         restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             boolean resolved = region.refresh();
@@ -131,9 +170,13 @@ public final class WarzoneRuntime {
         clockTask = null;
         regionRefreshTask = null;
         HandlerList.unregisterAll(restrictionListener);
+        HandlerList.unregisterAll(combatPositionListener);
+        HandlerList.unregisterAll(stasisPearlListener);
+        combatLogX.close();
         HandlerList.unregisterAll(guis);
         guis.clear();
         restrictionListener.clear();
+        combatIntegration.clear();
         visualCooldowns.clearOwned();
         cooldowns.clear();
         if (pluginDisable && config.cobwebs().clearOnDisable()) clearTrackedCobwebs();
@@ -203,8 +246,12 @@ public final class WarzoneRuntime {
         Set<RestrictionTarget> targets = new LinkedHashSet<>();
         targets.addAll(previous.restrictions().keySet());
         targets.addAll(current.restrictions().keySet());
+        targets.addAll(previous.carriedRestrictions().keySet());
+        targets.addAll(current.carriedRestrictions().keySet());
         targets.removeIf(target -> java.util.Objects.equals(
-                previous.restrictions().get(target), current.restrictions().get(target)));
+                previous.restrictions().get(target), current.restrictions().get(target))
+                && java.util.Objects.equals(previous.carriedRestrictions().get(target),
+                current.carriedRestrictions().get(target)));
         return Set.copyOf(targets);
     }
 
@@ -257,6 +304,7 @@ public final class WarzoneRuntime {
     public WarzoneMessageService messages() { return messages; }
     public RotationManager rotations() { return rotations; }
     public CooldownService cooldowns() { return cooldowns; }
+    public CombatScopeService combatScopes() { return combatScopes; }
     public WarzoneGuiManager guis() { return guis; }
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 

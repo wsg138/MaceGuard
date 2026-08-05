@@ -2,6 +2,7 @@ package com.lincoln.maceguard.warzone.config;
 
 import com.lincoln.maceguard.warzone.restriction.RestrictionMode;
 import com.lincoln.maceguard.warzone.restriction.RestrictionTarget;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -10,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,10 +40,8 @@ class WarzoneConfigLoaderTest {
     }
 
     @Test void enabledModifierRequiresPositiveWeight() throws IOException {
-        String text = defaultText().replace(
-                "  ender-pearl-disabled:\n    enabled: true\n    weight: 3",
-                "  ender-pearl-disabled:\n    enabled: true\n    weight: 0");
-        var result = load(text);
+        var result = load(modified(yaml ->
+                yaml.set("modifiers.ender-pearl-disabled.weight", 0)));
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
                 value.contains("modifiers.ender-pearl-disabled.weight")
@@ -49,10 +49,10 @@ class WarzoneConfigLoaderTest {
     }
 
     @Test void disabledModifierMayRetainNonPositiveLegacyWeight() throws IOException {
-        String text = defaultText().replace(
-                "  ender-pearl-disabled:\n    enabled: true\n    weight: 3",
-                "  ender-pearl-disabled:\n    enabled: false\n    weight: 0");
-        var result = load(text);
+        var result = load(modified(yaml -> {
+            yaml.set("modifiers.ender-pearl-disabled.enabled", false);
+            yaml.set("modifiers.ender-pearl-disabled.weight", 0);
+        }));
         assertTrue(result.valid(), result.errors().toString());
         assertFalse(result.value().modifiers().get("ender-pearl-disabled").enabled());
     }
@@ -73,11 +73,13 @@ class WarzoneConfigLoaderTest {
 
     @Test void rejectsPartialElytraChanceWithoutANonElytraBranch()
             throws IOException {
-        String text = defaultText()
-                .replace("    enabled: true", "    enabled: false")
-                .replace("  elytra-no-rockets:\n    enabled: false",
-                        "  elytra-no-rockets:\n    enabled: true");
-        var result = load(text);
+        var result = load(modified(yaml -> {
+            var modifiers = yaml.getConfigurationSection("modifiers");
+            assertNotNull(modifiers);
+            for (String id : modifiers.getKeys(false))
+                yaml.set("modifiers." + id + ".enabled", false);
+            yaml.set("modifiers.elytra-no-rockets.enabled", true);
+        }));
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
                 value.contains("non-Elytra combination")));
@@ -135,6 +137,35 @@ class WarzoneConfigLoaderTest {
                 value.contains("All modifiers are disabled")));
     }
 
+
+    @Test void rejectsNonPositiveStasisAge() throws IOException {
+        String text = defaultText().replace("minimum-age: 60s", "minimum-age: 0s");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("combat.stasis.minimum-age must be positive")));
+    }
+
+    @Test void rejectsCobwebEffectCarryover() throws IOException {
+        String text = defaultText().replace(
+                "  cobwebs:\n    combat-carryover: false",
+                "  cobwebs:\n    combat-carryover: true");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("modifiers.cobwebs.combat-carryover")
+                        && value.contains("cannot carry COBWEBS")));
+    }
+
+    @Test void rejectsWorldMutationRestrictionCarryover() throws IOException {
+        String text = defaultText().replace("      MACE:\n        mode: DISABLED",
+                "      END_CRYSTAL:\n        mode: DISABLED");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("combat-carryover is unsupported for restriction target END_CRYSTAL")));
+    }
+
     @Test void rejectsSequentialSchemaInsteadOfSilentlyReinterpretingIt() throws IOException {
         Path file = directory.resolve("old.yml");
         Files.writeString(file, """
@@ -150,7 +181,7 @@ class WarzoneConfigLoaderTest {
         var result = new WarzoneControlConfigLoader().load(file);
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
-                value.contains("config-version must be 6")));
+                value.contains("config-version must be 7")));
         assertTrue(result.errors().stream().anyMatch(value ->
                 value.contains("unknown key 'rotations'")));
     }
@@ -171,6 +202,13 @@ class WarzoneConfigLoaderTest {
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
                 value.toLowerCase().contains("duplicate")));
+    }
+
+    private String modified(Consumer<YamlConfiguration> change) {
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(
+                Path.of("src", "main", "resources", "warzone.yml").toFile());
+        change.accept(yaml);
+        return yaml.saveToString();
     }
 
     private ValidationResult<WarzoneConfig> loadDefault() {

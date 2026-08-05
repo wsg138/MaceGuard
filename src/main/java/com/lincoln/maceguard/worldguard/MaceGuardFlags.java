@@ -15,11 +15,15 @@ public final class MaceGuardFlags {
     public static final String RESET_PROFILE_NAME = "maceguard-reset-profile";
     public static final String BLOCK_POLICY_NAME = "maceguard-block-policy";
     public static final String WARZONE_COBWEBS_NAME = "warzonerotator-cobwebs";
+    public static final String WARZONE_COMBAT_ZONE_NAME = "warzonerotator-combat-zone";
+    public static final String WARZONE_STASIS_NAME = "warzonerotator-stasis";
 
     private StateFlag durability;
     private StateFlag cobwebs;
     private StateFlag explosives;
     private StateFlag warzoneCobwebs;
+    private StateFlag warzoneCombatZone;
+    private StateFlag warzoneStasis;
     private StringFlag resetProfile;
     private StringFlag blockPolicy;
 
@@ -28,6 +32,8 @@ public final class MaceGuardFlags {
         cobwebs = registerState(COBWEBS_NAME, logger);
         explosives = registerState(EXPLOSIVES_NAME, logger);
         warzoneCobwebs = registerState(WARZONE_COBWEBS_NAME, true, logger);
+        warzoneCombatZone = registerState(WARZONE_COMBAT_ZONE_NAME, false, logger);
+        warzoneStasis = registerState(WARZONE_STASIS_NAME, true, logger);
         resetProfile = registerString(RESET_PROFILE_NAME, logger);
         blockPolicy = registerString(BLOCK_POLICY_NAME, logger);
     }
@@ -46,6 +52,10 @@ public final class MaceGuardFlags {
             if (existing instanceof StateFlag state) return state;
             logger.severe("WorldGuard flag '" + name + "' has the wrong type; this feature is disabled.");
             return null;
+        } catch (IllegalStateException locked) {
+            logger.severe("WorldGuard flag '" + name
+                    + "' could not be registered because the registry is already locked; this feature is disabled.");
+            return null;
         }
     }
 
@@ -59,6 +69,10 @@ public final class MaceGuardFlags {
             if (existing instanceof StringFlag string) return string;
             logger.severe("WorldGuard flag '" + name + "' has the wrong type; this feature is disabled.");
             return null;
+        } catch (IllegalStateException locked) {
+            logger.severe("WorldGuard flag '" + name
+                    + "' could not be registered because the registry is already locked; this feature is disabled.");
+            return null;
         }
     }
 
@@ -66,6 +80,9 @@ public final class MaceGuardFlags {
     public StateFlag cobwebs() { return cobwebs; }
     public StateFlag explosives() { return explosives; }
     public StateFlag warzoneCobwebs() { return warzoneCobwebs; }
+    public StateFlag warzoneCombatZone() { return warzoneCombatZone; }
+    public StateFlag warzoneStasis() { return warzoneStasis; }
+    public boolean combatFlagsAvailable() { return warzoneCombatZone != null && warzoneStasis != null; }
     public StringFlag resetProfile() { return resetProfile; }
     public StringFlag blockPolicy() { return blockPolicy; }
 }

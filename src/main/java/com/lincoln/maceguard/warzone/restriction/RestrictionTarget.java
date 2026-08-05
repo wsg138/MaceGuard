@@ -84,6 +84,14 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
     }
 
     public boolean effectOnly() { return kind == Kind.SPEAR_LUNGE; }
+    public boolean combatCarryoverEligible() {
+        if (kind != Kind.MATERIAL) return true;
+        if (material == Material.COBWEB || material == Material.END_CRYSTAL
+                || material == Material.RESPAWN_ANCHOR) return false;
+        return material == Material.MACE || material == Material.ENDER_PEARL
+                || material == Material.WIND_CHARGE || material == Material.TRIDENT
+                || isSpear(material);
+    }
     public boolean supportsCooldown() { return !cooldownCapabilities.contains(CooldownCapability.UNSUPPORTED); }
     public boolean supports(CooldownCapability capability) { return cooldownCapabilities.contains(capability); }
     public Set<CooldownCapability> cooldownCapabilities() { return cooldownCapabilities; }
