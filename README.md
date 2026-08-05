@@ -12,7 +12,7 @@ WorldGuard remains the authority for region geometry, membership, inheritance, p
 - PlaceholderAPI 2.11.6+ is optional
 - CombatLogX 11.6 is optional; combat-dependent Warzone features disable safely when its public API is unavailable
 
-No NMS or private-plugin internals are used. The optional CombatLogX bridge resolves only its documented public API so MaceGuard can still load without CombatLogX.
+No NMS, reflection into CombatLogX, copied CombatLogX source, or private-plugin internals are used. MaceGuard compiles against the published `com.github.sirblobman.combatlogx:api:11.6-SNAPSHOT` API (and its BlueSlimeCore API requirement) with `provided` scope. The direct listener boundary is loaded only after the soft dependency is confirmed present and compatible, so unrelated MaceGuard functionality still loads without CombatLogX. No CombatLogX fork is required.
 
 ## Warzone schema 7
 
@@ -95,7 +95,7 @@ warzonerotator-stasis: deny
 
 The latch is evaluated from the player's own effective WorldGuard flags, respects region priorities and inheritance, survives leaving the region only until CombatLogX ends combat, and is never persisted. Existing modifiers opt into outside-region enforcement individually with `combat-carryover: true`; Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Building, crystal, anchor, cobweb, reset, and other world-mutation policies are rejected for carryover.
 
-CombatLogX remains authoritative for tagging, timers, bypass, logout punishment, ordinary teleport prevention, Ender Pearl retagging, and keeping combat active while gliding. MaceGuard controls dynamic combat Elytra starts, cancels only actual Elytra boosts, and can block an aged Ender Pearl teleport when the acquired latch retained a denied stasis policy. The default stasis threshold is `60s`. `warzonerotator.bypass` bypasses all MaceGuard Rotator restrictions, including stasis; CombatLogX's API bypass prevents acquiring or retaining the latch.
+CombatLogX remains authoritative for tagging, timers, bypass, logout punishment, ordinary teleport prevention, Ender Pearl retagging, and keeping combat active while gliding. Its direct public tag/re-tag callbacks are reconciled after CombatLogX commits tag state, while untag cleanup occurs after removal. MaceGuard controls dynamic combat Elytra starts, cancels only actual Elytra boosts, and can block an aged Ender Pearl teleport when the acquired latch retained a denied stasis policy. The default stasis threshold is `60s`. `warzonerotator.bypass` bypasses all MaceGuard Rotator restrictions, including stasis; CombatLogX's API bypass prevents acquiring or retaining the latch.
 
 ## Commands
 
