@@ -161,43 +161,87 @@ Existing transition safety remains centralized: modifier additions/removals are 
 
 ## Placeholders
 
-New selection and schedule values:
+PlaceholderAPI support uses the `warzone` identifier. The table below lists every supported placeholder in MaceGuard 6.1.0. Example outputs are illustrative and depend on the live configuration, active selection, schedule, and player location.
 
-```text
-%warzone_source_type%
-%warzone_active_kit%
-%warzone_override_active%
-%warzone_override_mode%
-%warzone_override_ends_at%
-%warzone_override_time_left%
-%warzone_schedule_slot%
-%warzone_schedule_cycle_position%
-%warzone_next_source_type%
-%warzone_next_name%
-%warzone_next_changes_at%
-```
+Status and restriction placeholders describe the active Warzone gameplay scope/meta; they do not directly expose an individual player's CombatLogX latch. Values that do not apply return an empty string. Boolean outputs are lowercase `true` or `false`.
 
-Spear status values:
+### Rotation and schedule
+| Placeholder | What it returns | Example output |
+|---|---|---|
+| `%warzone_current_meta%` | Plain-text display name of the current active modifier set. | `Cobwebs + No Lunge` |
+| `%warzone_current_modifiers%` | Alias of `%warzone_current_meta%`. | `Cobwebs + No Lunge` |
+| `%warzone_current_meta_id%` | Stable `+`-joined IDs of the current active modifiers. | `cobwebs+no-lunge` |
+| `%warzone_current_modifier_ids%` | Alias of `%warzone_current_meta_id%`. | `cobwebs+no-lunge` |
+| `%warzone_description%` | Plain-text description of the current active set. | `Temporary cobwebs are enabled and Spear Lunge is disabled.` |
+| `%warzone_time_left%` | Time remaining until the next effective change in clock format. | `01:23:45` |
+| `%warzone_time_left_words%` | Time remaining using compact day/hour/minute/second units. | `1h 23m 45s` |
+| `%warzone_time_left_seconds%` | Whole non-negative seconds remaining. | `5025` |
+| `%warzone_changes_at%` | Formatted time of the next effective transition. Empty for an indefinite override or when no schedule can change the selection. | `Sun, Aug 9 4:00 AM EDT` |
+| `%warzone_next_meta%` | Display name of the next automatic schedule entry. Empty when scheduling is disabled. | `Mace` |
+| `%warzone_next_meta_id%` | Stable identifier for the next entry: kit ID, `+`-joined modifier IDs, `random`, or `none`. | `mace` |
+| `%warzone_source_type%` | How the current final selection was produced. | `KIT` |
+| `%warzone_active_kit%` | Current kit ID when the source type is `KIT`; otherwise empty. | `smp` |
+| `%warzone_override_active%` | Whether a manual override currently controls gameplay. | `true` |
+| `%warzone_override_mode%` | Current override duration mode; empty when no override exists. | `UNTIL_NEXT_SCHEDULED_CHANGE` |
+| `%warzone_override_ends_at%` | Formatted override expiration; empty for no override or an indefinite override. | `Sun, Aug 9 4:00 AM EDT` |
+| `%warzone_override_time_left%` | Override time remaining in clock format; empty when it has no fixed expiration. | `42:17` |
+| `%warzone_schedule_slot%` | Persisted identity of the current automatic slot: start epoch milliseconds plus cycle index. | `1786262400000:2` |
+| `%warzone_schedule_cycle_position%` | Current automatic cycle position, starting at 1. | `3` |
+| `%warzone_next_source_type%` | Source type of the next automatic entry. | `SCHEDULED_MODIFIERS` |
+| `%warzone_next_name%` | Display name of the next automatic entry. | `Cobwebs + No Lunge` |
+| `%warzone_next_changes_at%` | Formatted end of the current automatic slot, even while an override is active. | `Sun, Aug 16 4:00 AM EDT` |
 
-```text
-%warzone_spear_status%
-%warzone_spear_disabled%
-%warzone_spear_damage_status%
-%warzone_spear_damage_cooldown_seconds%
-%warzone_spear_lunge_status%
-%warzone_spear_lunge_disabled%
-%warzone_spear_lunge_cooldown_seconds%
-```
+### Active restrictions and scope
+| Placeholder | What it returns | Example output |
+|---|---|---|
+| `%warzone_disabled_items%` | Comma-separated disabled item/ability targets in the active set, or `None`. | `Mace, Spear Lunge` |
+| `%warzone_disabled_items_count%` | Number of disabled targets in the active set. | `2` |
+| `%warzone_cooldown_items%` | Comma-separated cooldown targets and configured durations, or `None`. | `Ender Pearl — 5s, Wind Charge — 10s` |
+| `%warzone_cooldown_items_count%` | Number of cooldown targets in the active set. | `2` |
+| `%warzone_restrictions%` | All active restrictions with `disabled` or cooldown wording. | `Mace — disabled, Ender Pearl — 5s cooldown` |
+| `%warzone_gameplay_scope_active%` | Whether the configured effective Warzone scope resolved and gameplay enforcement is active. | `true` |
+| `%warzone_cobwebs_allowed%` | Whether the Cobwebs effect is active while gameplay scope is active. | `true` |
+| `%warzone_cobweb_clear_time%` | Configured lifetime of temporary Warzone cobwebs. | `30s` |
+| `%warzone_inside_effective_scope%` | Whether the online player being parsed is currently inside the effective Warzone scope. | `false` |
 
-All existing placeholders remain supported. Indexed modifier placeholders continue to follow the final active order:
+### Item and ability status
+| Placeholder | What it returns | Example output |
+|---|---|---|
+| `%warzone_mace_status%` | Human-readable Mace state: `Inactive`, `Allowed`, `Disabled`, or a cooldown. | `10s cooldown` |
+| `%warzone_mace_disabled%` | Whether Mace is fully disabled by the active scoped selection. | `false` |
+| `%warzone_mace_cooldown_seconds%` | Configured Mace cooldown seconds, or `0` when none/inactive. | `10` |
+| `%warzone_ender_pearl_status%` | Human-readable Ender Pearl state. | `5s cooldown` |
+| `%warzone_ender_pearl_disabled%` | Whether Ender Pearls are fully disabled. | `false` |
+| `%warzone_ender_pearl_cooldown_seconds%` | Configured Ender Pearl cooldown seconds, or `0`. | `5` |
+| `%warzone_wind_charge_status%` | Human-readable Wind Charge state. | `10s cooldown` |
+| `%warzone_wind_charge_disabled%` | Whether Wind Charges are fully disabled. | `false` |
+| `%warzone_wind_charge_cooldown_seconds%` | Configured Wind Charge cooldown seconds, or `0`. | `10` |
+| `%warzone_spear_status%` | Human-readable general Spear-use state. | `Disabled` |
+| `%warzone_spear_disabled%` | Whether general Spear use and correlated damage are disabled. | `true` |
+| `%warzone_spear_damage_status%` | Human-readable independent Spear Damage state. | `7s cooldown` |
+| `%warzone_spear_damage_cooldown_seconds%` | Configured Spear Damage cooldown seconds, or `0`. | `7` |
+| `%warzone_spear_lunge_status%` | Human-readable independent Spear Lunge state. | `Disabled` |
+| `%warzone_spear_lunge_disabled%` | Whether Spear Lunge is disabled. | `true` |
+| `%warzone_spear_lunge_cooldown_seconds%` | Configured Spear Lunge cooldown seconds, or `0`. | `9` |
+| `%warzone_elytra_status%` | Human-readable Elytra effect state for the active scoped meta. | `Gliding allowed; rockets disabled` |
+| `%warzone_elytra_gliding_allowed%` | Whether the active scoped meta includes the Elytra gliding effect. | `true` |
+| `%warzone_firework_boost_blocked%` | Whether the active scoped meta blocks Elytra firework propulsion. | `true` |
 
-```text
-%warzone_modifier_1% ... %warzone_modifier_3%
-%warzone_modifier_1_id% ... %warzone_modifier_3_id%
-%warzone_modifier_1_description% ... %warzone_modifier_3_description%
-```
+### Indexed active modifiers
+| Placeholder | What it returns | Example output |
+|---|---|---|
+| `%warzone_modifier_1%` | Plain display name of active modifier slot 1; empty when unused. | `No Lunge` |
+| `%warzone_modifier_1_id%` | Configured ID of active modifier slot 1. | `no-lunge` |
+| `%warzone_modifier_1_description%` | Plain description of active modifier slot 1. | `The Spear Lunge effect is disabled without blocking normal spear use.` |
+| `%warzone_modifier_2%` | Plain display name of active modifier slot 2; empty when unused. | `Cobwebs` |
+| `%warzone_modifier_2_id%` | Configured ID of active modifier slot 2. | `cobwebs` |
+| `%warzone_modifier_2_description%` | Plain description of active modifier slot 2. | `Temporary cobweb placement is available in the effective warzone.` |
+| `%warzone_modifier_3%` | Plain display name of active modifier slot 3; empty when unused. | `5s Pearl Cooldown` |
+| `%warzone_modifier_3_id%` | Configured ID of active modifier slot 3. | `ender-pearl-cooldown-5` |
+| `%warzone_modifier_3_description%` | Plain description of active modifier slot 3. | `Successful Ender Pearls receive a five-second cooldown.` |
 
-Fields that do not apply return an empty string. Boolean values are stable lowercase plain text.
+Total documented placeholders: **59**.
+
 
 ## Migration
 
