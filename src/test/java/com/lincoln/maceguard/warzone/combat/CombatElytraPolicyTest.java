@@ -29,7 +29,7 @@ class CombatElytraPolicyTest {
                 true, true, false, true));
     }
 
-    @Test voidExplicitBypassesDisableMaceGuardCombatEnforcement() {
+    @Test void explicitBypassesDisableMaceGuardCombatEnforcement() {
         assertTrue(CombatElytraPolicy.canStart(true, true, false,
                 false, false, false, false));
         assertTrue(CombatElytraPolicy.canStart(true, false, true,
