@@ -52,6 +52,10 @@ public final class MaceGuardFlags {
             if (existing instanceof StateFlag state) return state;
             logger.severe("WorldGuard flag '" + name + "' has the wrong type; this feature is disabled.");
             return null;
+        } catch (IllegalStateException locked) {
+            logger.severe("WorldGuard flag '" + name
+                    + "' could not be registered because the registry is already locked; this feature is disabled.");
+            return null;
         }
     }
 
@@ -64,6 +68,10 @@ public final class MaceGuardFlags {
             Flag<?> existing = WorldGuard.getInstance().getFlagRegistry().get(name);
             if (existing instanceof StringFlag string) return string;
             logger.severe("WorldGuard flag '" + name + "' has the wrong type; this feature is disabled.");
+            return null;
+        } catch (IllegalStateException locked) {
+            logger.severe("WorldGuard flag '" + name
+                    + "' could not be registered because the registry is already locked; this feature is disabled.");
             return null;
         }
     }

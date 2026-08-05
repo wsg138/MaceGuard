@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.combat;
 
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
 import java.util.UUID;
@@ -14,7 +15,9 @@ public final class CombatIntegrationListener implements CombatLogXGateway.Lifecy
         this.pearls = pearls;
     }
 
-    @Override public void tagged(Player player) { scopes.acquireIfEligible(player); }
+    @Override public void tagged(Player player, Location tagLocation) {
+        scopes.acquireIfEligible(player, tagLocation);
+    }
     @Override public void untagged(Player player) { clear(player.getUniqueId()); }
 
     public void reconcile(Iterable<? extends Player> players) {

@@ -116,6 +116,11 @@ public final class WarzoneRuntime {
         this.messages.bind(rotations);
         this.guis = new WarzoneGuiManager(plugin, this);
         this.combatLogX = CombatLogXGatewayFactory.discover(plugin);
+        if (!combatLogX.available()) {
+            plugin.getLogger().warning("CombatLogX integration is inactive: "
+                    + combatLogX.unavailableReason()
+                    + ". Unrelated MaceGuard features remain enabled; combat-bound Warzone features are disabled.");
+        }
         this.combatScopes = new CombatScopeService(combatLogX, queries);
         StasisPearlTracker pearls = new StasisPearlTracker();
         this.combatIntegration = new CombatIntegrationListener(combatScopes, pearls);
