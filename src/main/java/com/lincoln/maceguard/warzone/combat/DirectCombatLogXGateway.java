@@ -16,7 +16,6 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
-import java.util.Objects;
 
 /** Direct adapter for CombatLogX 11.6's published public API. */
 final class DirectCombatLogXGateway implements CombatLogXGateway, Listener {
@@ -27,8 +26,9 @@ final class DirectCombatLogXGateway implements CombatLogXGateway, Listener {
 
     private DirectCombatLogXGateway(JavaPlugin owner, ICombatLogX combatLogX) {
         this.owner = owner;
-        this.manager = Objects.requireNonNull(combatLogX.getCombatManager(),
-                "CombatLogX returned no combat manager");
+        ICombatManager resolved = combatLogX.getCombatManager();
+        if (resolved == null) throw new IllegalStateException("CombatLogX returned no combat manager");
+        this.manager = resolved;
     }
 
     static DirectCombatLogXGateway connect(JavaPlugin owner, Plugin candidate) {
