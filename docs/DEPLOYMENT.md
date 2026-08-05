@@ -21,21 +21,24 @@ Missing world or region geometry makes Warzone gameplay inactive. It does not ex
 
 ## Required CombatLogX production configuration
 
-MaceGuard does not edit another plugin's files. Before production, update the installed CombatLogX 11.6 Cheat Prevention expansion to the following behavior.
+MaceGuard does not edit another plugin's files. Before production, update the installed CombatLogX 11.6 / Cheat Prevention 17.8 expansion manually. On the installed server layout, the relevant files are:
 
-`items.yml`:
+- `plugins/CombatLogX/expansions/CheatPrevention/config.yml`
+- `plugins/CombatLogX/expansions/CheatPrevention/items.yml`
+- `plugins/CombatLogX/expansions/CheatPrevention/teleportation.yml`
+
+The option names below were verified against the upstream Cheat Prevention resources. Set `items.yml` to preserve these values:
 
 ```yaml
 prevent-elytra: false
 force-prevent-elytra: false
 elytra-retag: true
+prevent-fireworks: false
 prevent-riptide: true
 riptide-retag: false
 ```
 
-If that expansion exposes `prevent-fireworks`, keep it `false`. MaceGuard cancels only `PlayerElytraBoostEvent`; ordinary firework launching must remain available.
-
-`teleportation.yml`:
+MaceGuard cancels only `PlayerElytraBoostEvent`; ordinary firework launching must remain available. Set `teleportation.yml` to:
 
 ```yaml
 prevent-portals: true
@@ -49,6 +52,15 @@ untag: false
 ```
 
 Remove `PLUGIN` and `UNKNOWN` from the allow list. This leaves successful Ender Pearl teleports available for CombatLogX retagging and MaceGuard's aged-pearl decision while CombatLogX blocks `/tpa`, `/home`, `/spawn`, other plugin teleports, and portals during combat. Validate server-specific plugins in staging rather than weakening the allow list preemptively.
+
+
+### Direct CombatLogX API boundary
+
+MaceGuard compiles against CombatLogX 11.6's published public API, not a fork or copied source. The build uses `com.github.sirblobman.combatlogx:api:11.6-SNAPSHOT` and its required BlueSlimeCore API `com.github.sirblobman.api:core:2.9-SNAPSHOT` from `https://nexus.sirblobman.xyz/public/`, both with Maven `provided` scope. They are supplied by the installed plugins and are not shaded into the MaceGuard JAR.
+
+The direct listener class is instantiated only after the `CombatLogX` soft dependency is present, enabled, and compatible. If that boundary is unavailable, unrelated MaceGuard functionality remains enabled while combat-dependent Warzone behavior is disabled with a clear log reason. CombatLogX remains authoritative for tag state and timers, so no CombatLogX fork is required.
+
+Automated verification covers the dependency boundary, lifecycle policy, schema migration, latch decisions, Elytra policy, and pearl correlation. Source review establishes the upstream event ordering and configuration option names. Exact Leaf/Paper event ordering, Geyser behavior, plugin-teleport compatibility, and real stasis/Elytra gameplay still require the live staging matrix below. No live-server test is claimed by this document.
 
 Assign the custom flags only to the intended WorldGuard regions:
 
