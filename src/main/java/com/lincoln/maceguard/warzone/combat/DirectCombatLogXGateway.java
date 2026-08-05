@@ -57,8 +57,9 @@ final class DirectCombatLogXGateway implements CombatLogXGateway, Listener {
     }
 
     /*
-     * CombatLogX 11.6 fires tag/re-tag before it inserts or updates TagInformation. Defer the
-     * reconciliation until the event call stack returns so the public manager is authoritative.
+     * CombatLogX 11.6 fires tag/re-tag before it inserts or updates TagInformation. Capture the
+     * event-time position, then reconcile after the event call stack returns so both the public
+     * combat manager and the location used for latch acquisition are authoritative for that tag.
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onTag(PlayerTagEvent event) {
