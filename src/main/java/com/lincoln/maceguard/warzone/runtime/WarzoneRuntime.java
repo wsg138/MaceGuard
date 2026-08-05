@@ -3,9 +3,11 @@ package com.lincoln.maceguard.warzone.runtime;
 import com.lincoln.maceguard.temporary.TemporaryBlock;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.combat.CombatIntegrationListener;
-import com.lincoln.maceguard.warzone.combat.CombatLogXEventBridge;
-import com.lincoln.maceguard.warzone.combat.CombatLogXHook;
+import com.lincoln.maceguard.warzone.combat.CombatPositionListener;
+import com.lincoln.maceguard.warzone.combat.StasisPearlListener;
 import com.lincoln.maceguard.warzone.combat.CombatScopeService;
+import com.lincoln.maceguard.warzone.combat.CombatLogXGateway;
+import com.lincoln.maceguard.warzone.combat.CombatLogXGatewayFactory;
 import com.lincoln.maceguard.warzone.combat.StasisPearlTracker;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneMessages;
@@ -55,7 +57,9 @@ public final class WarzoneRuntime {
     private final RestrictionService restrictions;
     private final CombatScopeService combatScopes;
     private final CombatIntegrationListener combatIntegration;
-    private final CombatLogXEventBridge combatEvents;
+    private final CombatPositionListener combatPositionListener;
+    private final StasisPearlListener stasisPearlListener;
+    private final CombatLogXGateway combatLogX;
     private final RotationManager rotations;
     private final WarzoneGuiManager guis;
     private final ItemRestrictionListener restrictionListener;
@@ -111,11 +115,13 @@ public final class WarzoneRuntime {
         this.rotations = new RotationManager(controlConfig, store, clock, random, this::transition, this::warning);
         this.messages.bind(rotations);
         this.guis = new WarzoneGuiManager(plugin, this);
-        CombatLogXHook combat = CombatLogXHook.discover(plugin);
-        this.combatScopes = new CombatScopeService(combat, queries);
-        this.combatIntegration = new CombatIntegrationListener(combatScopes, new StasisPearlTracker(),
-                messages, config.combat().stasis().minimumAge());
-        this.combatEvents = new CombatLogXEventBridge(plugin, combatIntegration);
+        this.combatLogX = CombatLogXGatewayFactory.discover(plugin);
+        this.combatScopes = new CombatScopeService(combatLogX, queries);
+        StasisPearlTracker pearls = new StasisPearlTracker();
+        this.combatIntegration = new CombatIntegrationListener(combatScopes, pearls);
+        this.combatPositionListener = new CombatPositionListener(combatScopes, combatIntegration);
+        this.stasisPearlListener = new StasisPearlListener(combatScopes, pearls, messages,
+                config.combat().stasis().minimumAge());
         this.restrictions = new RestrictionService(rotations::active, cooldowns,
                 combatScopes::carryoverEligible);
         this.restrictionListener = new ItemRestrictionListener(plugin, restrictions, combatScopes,
@@ -141,8 +147,9 @@ public final class WarzoneRuntime {
         }, 20L, 20L);
         if (!config.enabled()) return;
         plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
-        plugin.getServer().getPluginManager().registerEvents(combatIntegration, plugin);
-        combatEvents.register();
+        plugin.getServer().getPluginManager().registerEvents(combatPositionListener, plugin);
+        plugin.getServer().getPluginManager().registerEvents(stasisPearlListener, plugin);
+        combatLogX.register(combatIntegration);
         combatIntegration.reconcile(plugin.getServer().getOnlinePlayers());
         restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
@@ -158,8 +165,9 @@ public final class WarzoneRuntime {
         clockTask = null;
         regionRefreshTask = null;
         HandlerList.unregisterAll(restrictionListener);
-        HandlerList.unregisterAll(combatIntegration);
-        HandlerList.unregisterAll(combatEvents);
+        HandlerList.unregisterAll(combatPositionListener);
+        HandlerList.unregisterAll(stasisPearlListener);
+        combatLogX.close();
         HandlerList.unregisterAll(guis);
         guis.clear();
         restrictionListener.clear();

@@ -11,11 +11,11 @@ import java.util.UUID;
 
 /** Transient per-player Warzone combat latch. Nothing in this service is persisted. */
 public final class CombatScopeService {
-    private final CombatLogXHook combat;
+    private final CombatLogXGateway combat;
     private final WorldGuardQueryService worldGuard;
     private final Map<UUID, Latch> latches = new HashMap<>();
 
-    public CombatScopeService(CombatLogXHook combat, WorldGuardQueryService worldGuard) {
+    public CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard) {
         this.combat = combat;
         this.worldGuard = worldGuard;
     }
@@ -25,19 +25,11 @@ public final class CombatScopeService {
     }
 
     public boolean acquireIfEligible(Player player, Location location) {
-        if (!combat.available() || !combat.inCombat(player) || combat.bypass(player)) {
-            latches.remove(player.getUniqueId());
-            return false;
-        }
-        try {
-            if (worldGuard == null || !worldGuard.warzoneCombatZoneAllowed(location, player)) return false;
-            boolean stasisDenied = worldGuard.warzoneStasisDenied(location, player);
-            latches.merge(player.getUniqueId(), new Latch(stasisDenied),
-                    (oldValue, newValue) -> new Latch(oldValue.stasisDenied() || newValue.stasisDenied()));
-            return true;
-        } catch (RuntimeException queryFailure) {
-            return false;
-        }
+        if (!combatBound(player) || !combatZoneAllowed(location, player)) return false;
+        boolean stasisDenied = stasisDenied(location, player);
+        latches.merge(player.getUniqueId(), new Latch(stasisDenied),
+                (previous, current) -> new Latch(previous.stasisDenied() || current.stasisDenied()));
+        return true;
     }
 
     public boolean combatBound(Player player) {
@@ -58,19 +50,11 @@ public final class CombatScopeService {
     }
 
     public boolean insideCombatZone(Player player) {
-        try {
-            return worldGuard != null && worldGuard.warzoneCombatZoneAllowed(player.getLocation(), player);
-        } catch (RuntimeException queryFailure) {
-            return false;
-        }
+        return combatZoneAllowed(player.getLocation(), player);
     }
 
     public boolean stasisDeniedAtLocation(Player player) {
-        try {
-            return worldGuard != null && worldGuard.warzoneStasisDenied(player.getLocation(), player);
-        } catch (RuntimeException queryFailure) {
-            return false;
-        }
+        return stasisDenied(player.getLocation(), player);
     }
 
     public boolean stasisDenied(Player player) {
@@ -78,11 +62,29 @@ public final class CombatScopeService {
         return carryoverEligible(player) && latch != null && latch.stasisDenied();
     }
 
+    private boolean combatZoneAllowed(Location location, Player player) {
+        if (worldGuard == null) return false;
+        try {
+            return worldGuard.warzoneCombatZoneAllowed(location, player);
+        } catch (IllegalArgumentException | IllegalStateException unavailable) {
+            return false;
+        }
+    }
+
+    private boolean stasisDenied(Location location, Player player) {
+        if (worldGuard == null) return false;
+        try {
+            return worldGuard.warzoneStasisDenied(location, player);
+        } catch (IllegalArgumentException | IllegalStateException unavailable) {
+            return false;
+        }
+    }
+
     public Optional<Latch> latch(UUID playerId) { return Optional.ofNullable(latches.get(playerId)); }
     public void clear(UUID playerId) { latches.remove(playerId); }
     public void clear() { latches.clear(); }
     public int size() { return latches.size(); }
-    public CombatLogXHook combat() { return combat; }
+    public CombatLogXGateway combat() { return combat; }
 
     public record Latch(boolean stasisDenied) { }
 }

@@ -1,9 +1,8 @@
 package com.lincoln.maceguard.warzone.combat;
 
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.ArrayDeque;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,7 +17,7 @@ public final class StasisPearlTracker {
     private static final double MAX_DISTANCE_SQUARED = 9.0;
 
     private final Map<UUID, Pearl> pearls = new HashMap<>();
-    private final Map<UUID, List<Impact>> impacts = new HashMap<>();
+    private final Map<UUID, ArrayDeque<Impact>> impacts = new HashMap<>();
 
     public void launched(UUID pearlId, UUID ownerId, long nowNanos) {
         cleanup(nowNanos);
@@ -31,10 +30,11 @@ public final class StasisPearlTracker {
                           Position position, long nowNanos) {
         Pearl pearl = pearls.remove(pearlId);
         if (pearl == null) return false;
-        List<Impact> ownerImpacts = impacts.computeIfAbsent(pearl.ownerId(), ignored -> new ArrayList<>());
-        ownerImpacts.removeIf(value -> value.expiresAtNanos() <= nowNanos);
+        ArrayDeque<Impact> ownerImpacts = impacts.computeIfAbsent(
+                pearl.ownerId(), ignored -> new ArrayDeque<>());
+        removeExpiredImpacts(ownerImpacts, nowNanos);
         if (ownerImpacts.size() >= MAX_IMPACTS_PER_PLAYER) ownerImpacts.removeFirst();
-        ownerImpacts.add(new Impact(pearlId, ticksLived >= minimumAgeTicks, serverTick,
+        ownerImpacts.addLast(new Impact(pearlId, ticksLived >= minimumAgeTicks, serverTick,
                 position, nowNanos + IMPACT_TTL_NANOS));
         return true;
     }
@@ -42,16 +42,28 @@ public final class StasisPearlTracker {
     public Optional<Impact> correlate(UUID ownerId, long serverTick, Position destination,
                                       long nowNanos) {
         cleanup(nowNanos);
-        List<Impact> ownerImpacts = impacts.get(ownerId);
+        ArrayDeque<Impact> ownerImpacts = impacts.get(ownerId);
         if (ownerImpacts == null) return Optional.empty();
-        Optional<Impact> selected = ownerImpacts.stream()
-                .filter(value -> value.serverTick() <= serverTick
-                        && serverTick - value.serverTick() <= 1)
-                .filter(value -> value.position().distanceSquared(destination) <= MAX_DISTANCE_SQUARED)
-                .min(Comparator.comparingDouble(value -> value.position().distanceSquared(destination)));
-        selected.ifPresent(ownerImpacts::remove);
+
+        Impact selected = null;
+        double selectedDistance = Double.MAX_VALUE;
+        for (Impact impact : ownerImpacts) {
+            long tickDifference = serverTick - impact.serverTick();
+            if (tickDifference < 0 || tickDifference > 1) continue;
+            double distance = impact.position().distanceSquared(destination);
+            if (distance > MAX_DISTANCE_SQUARED || distance >= selectedDistance) continue;
+            selected = impact;
+            selectedDistance = distance;
+        }
+        if (selected == null) return Optional.empty();
+        ownerImpacts.remove(selected);
         if (ownerImpacts.isEmpty()) impacts.remove(ownerId);
-        return selected;
+        return Optional.of(selected);
+    }
+
+    public void discardCorrelated(UUID ownerId, long serverTick, Position destination,
+                                  long nowNanos) {
+        correlate(ownerId, serverTick, destination, nowNanos);
     }
 
     public void removePearl(UUID pearlId) { pearls.remove(pearlId); }
@@ -63,28 +75,55 @@ public final class StasisPearlTracker {
 
     public void cleanup(long nowNanos) {
         pearls.entrySet().removeIf(entry -> entry.getValue().expiresAtNanos() <= nowNanos);
-        impacts.values().forEach(values -> values.removeIf(value -> value.expiresAtNanos() <= nowNanos));
-        impacts.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+        Iterator<Map.Entry<UUID, ArrayDeque<Impact>>> iterator = impacts.entrySet().iterator();
+        while (iterator.hasNext()) {
+            ArrayDeque<Impact> ownerImpacts = iterator.next().getValue();
+            removeExpiredImpacts(ownerImpacts, nowNanos);
+            if (ownerImpacts.isEmpty()) iterator.remove();
+        }
     }
 
     public void clear() { pearls.clear(); impacts.clear(); }
     public int trackedPearls() { return pearls.size(); }
-    public int pendingImpacts() { return impacts.values().stream().mapToInt(List::size).sum(); }
+
+    public int pendingImpacts() {
+        int count = 0;
+        for (ArrayDeque<Impact> ownerImpacts : impacts.values()) count += ownerImpacts.size();
+        return count;
+    }
+
+    private void removeExpiredImpacts(ArrayDeque<Impact> ownerImpacts, long nowNanos) {
+        ownerImpacts.removeIf(value -> value.expiresAtNanos() <= nowNanos);
+    }
 
     private void evictOldestForOwner(UUID ownerId) {
-        long owned = pearls.values().stream().filter(pearl -> pearl.ownerId().equals(ownerId)).count();
-        if (owned < MAX_PEARLS_PER_PLAYER) return;
-        pearls.entrySet().stream()
-                .filter(entry -> entry.getValue().ownerId().equals(ownerId))
-                .min(Map.Entry.comparingByValue(Comparator.comparingLong(Pearl::launchedAtNanos)))
-                .map(Map.Entry::getKey).ifPresent(pearls::remove);
+        int owned = 0;
+        UUID oldestId = null;
+        long oldestLaunch = Long.MAX_VALUE;
+        for (Map.Entry<UUID, Pearl> entry : pearls.entrySet()) {
+            Pearl pearl = entry.getValue();
+            if (!pearl.ownerId().equals(ownerId)) continue;
+            owned++;
+            if (pearl.launchedAtNanos() < oldestLaunch) {
+                oldestLaunch = pearl.launchedAtNanos();
+                oldestId = entry.getKey();
+            }
+        }
+        if (owned >= MAX_PEARLS_PER_PLAYER && oldestId != null) pearls.remove(oldestId);
     }
 
     private void evictOldestGlobally() {
         if (pearls.size() < MAX_TRACKED_PEARLS) return;
-        pearls.entrySet().stream()
-                .min(Map.Entry.comparingByValue(Comparator.comparingLong(Pearl::launchedAtNanos)))
-                .map(Map.Entry::getKey).ifPresent(pearls::remove);
+        UUID oldestId = null;
+        long oldestLaunch = Long.MAX_VALUE;
+        for (Map.Entry<UUID, Pearl> entry : pearls.entrySet()) {
+            long launchedAt = entry.getValue().launchedAtNanos();
+            if (launchedAt < oldestLaunch) {
+                oldestLaunch = launchedAt;
+                oldestId = entry.getKey();
+            }
+        }
+        if (oldestId != null) pearls.remove(oldestId);
     }
 
     private record Pearl(UUID ownerId, long launchedAtNanos, long expiresAtNanos) { }

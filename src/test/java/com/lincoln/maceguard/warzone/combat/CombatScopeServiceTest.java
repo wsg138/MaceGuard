@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CombatScopeServiceTest {
-    private CombatLogXHook combat;
+    private CombatLogXGateway combat;
     private WorldGuardQueryService worldGuard;
     private CombatScopeService scopes;
     private Player player;
@@ -21,7 +21,7 @@ class CombatScopeServiceTest {
     private UUID playerId;
 
     @BeforeEach void setUp() {
-        combat = mock(CombatLogXHook.class);
+        combat = mock(CombatLogXGateway.class);
         worldGuard = mock(WorldGuardQueryService.class);
         scopes = new CombatScopeService(combat, worldGuard);
         player = mock(Player.class);

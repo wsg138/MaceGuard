@@ -132,7 +132,7 @@ public final class WarzoneMigrationService {
         mergeSections(old, migrated, "restriction-targets");
         preserveModifierDefinitions(old, migrated);
         mergeSections(old, migrated, "conflict-groups");
-        if (old.contains("combat")) copyPath(old, migrated, "combat");
+        if (old.contains("combat")) overlaySection(old, migrated, "combat");
         ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
         if (modifiers != null) {
             for (String id : modifiers.getKeys(false)) {
@@ -280,6 +280,23 @@ public final class WarzoneMigrationService {
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) return;
         for (String key : section.getKeys(false)) copyPath(source, target, path + "." + key);
+    }
+
+    private static void overlaySection(YamlConfiguration source,
+                                       YamlConfiguration target, String path) {
+        ConfigurationSection section = source.getConfigurationSection(path);
+        if (section == null) return;
+        overlaySection(section, target, path);
+    }
+
+    private static void overlaySection(ConfigurationSection source,
+                                       YamlConfiguration target, String targetPath) {
+        for (String key : source.getKeys(false)) {
+            String childPath = targetPath + "." + key;
+            ConfigurationSection child = source.getConfigurationSection(key);
+            if (child == null) target.set(childPath, source.get(key));
+            else overlaySection(child, target, childPath);
+        }
     }
 
     private static void copyPath(YamlConfiguration source,

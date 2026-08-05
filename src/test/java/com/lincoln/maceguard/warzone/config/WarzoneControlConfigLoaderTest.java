@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.config;
 
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,13 +14,29 @@ import static org.junit.jupiter.api.Assertions.*;
 class WarzoneControlConfigLoaderTest {
     @TempDir Path directory;
 
-    @Test void bundledSchemaSixConfigurationIsValid() {
+    @Test void bundledSchemaSevenConfigurationIsValid() {
         ValidationResult<WarzoneControlConfig> result = loadDefault();
         assertTrue(result.valid(), result.errors().toString());
-        assertEquals(6, result.value().version());
+        assertEquals(7, result.value().version());
         assertEquals(List.of("cobwebs", "ender-pearl-cooldown-5", "wind-charge-cooldown-5"),
                 result.value().kits().get("smp").modifierIds());
         assertEquals(4, result.value().schedule().cycle().size());
+    }
+
+    @Test void schemaSevenRequiresExplicitCombatStasisConfiguration() throws IOException {
+        YamlConfiguration yaml = defaultYaml();
+        yaml.set("combat", null);
+        ValidationResult<WarzoneControlConfig> missingCombat = load(yaml.saveToString());
+        assertFalse(missingCombat.valid());
+        assertTrue(missingCombat.errors().stream().anyMatch(value ->
+                value.contains("combat must be a section in schema 7")));
+
+        yaml = defaultYaml();
+        yaml.set("combat.stasis.minimum-age", null);
+        ValidationResult<WarzoneControlConfig> missingAge = load(yaml.saveToString());
+        assertFalse(missingAge.valid());
+        assertTrue(missingAge.errors().stream().anyMatch(value ->
+                value.contains("combat.stasis.minimum-age is required")));
     }
 
     @Test void enabledKitRejectsUnknownModifier() throws IOException {
@@ -31,9 +48,9 @@ class WarzoneControlConfigLoaderTest {
     }
 
     @Test void enabledKitRejectsDisabledModifier() throws IOException {
-        String text = defaultText().replace(
-                "  cobwebs:\n    enabled: true", "  cobwebs:\n    enabled: false");
-        ValidationResult<WarzoneControlConfig> result = load(text);
+        YamlConfiguration yaml = defaultYaml();
+        yaml.set("modifiers.cobwebs.enabled", false);
+        ValidationResult<WarzoneControlConfig> result = load(yaml.saveToString());
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value -> value.contains("kits.smp")
                 && value.contains("disabled")));
@@ -121,6 +138,11 @@ class WarzoneControlConfigLoaderTest {
         int end = text.indexOf("  selection:\n", start);
         assertTrue(start >= 0 && end > start, "Default schedule cycle must be present.");
         return text.substring(0, start) + "    cycle: []\n" + text.substring(end);
+    }
+
+    private YamlConfiguration defaultYaml() {
+        return YamlConfiguration.loadConfiguration(
+                Path.of("src", "main", "resources", "warzone.yml").toFile());
     }
 
     private ValidationResult<WarzoneControlConfig> loadDefault() {

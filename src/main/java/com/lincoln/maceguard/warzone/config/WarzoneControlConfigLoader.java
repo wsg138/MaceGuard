@@ -37,6 +37,7 @@ public final class WarzoneControlConfigLoader {
         int version = integer(root.get("config-version"), "config-version", errors, -1);
         if (version != WarzoneControlConfig.VERSION)
             errors.add("config-version must be " + WarzoneControlConfig.VERSION + ".");
+        requireCombatSection(root, errors);
 
         Map<String, Object> rotation = map(root.get("rotation"), "rotation", errors);
         keys(rotation, "rotation", Set.of("schedule", "selection", "special-rules", "warning-times"), errors);
@@ -81,6 +82,21 @@ public final class WarzoneControlConfigLoader {
         if (!errors.isEmpty()) return new ValidationResult<>(null, List.copyOf(errors), List.copyOf(warnings));
         return new ValidationResult<>(new WarzoneControlConfig(version, gameplay, kits, schedule, gui),
                 List.of(), List.copyOf(warnings));
+    }
+
+    private void requireCombatSection(Map<String, Object> root, List<String> errors) {
+        Object combatValue = root.get("combat");
+        if (!(combatValue instanceof Map<?, ?> combat)) {
+            errors.add("combat must be a section in schema 7.");
+            return;
+        }
+        Object stasisValue = combat.get("stasis");
+        if (!(stasisValue instanceof Map<?, ?> stasis)) {
+            errors.add("combat.stasis must be a section in schema 7.");
+            return;
+        }
+        if (!stasis.containsKey("minimum-age"))
+            errors.add("combat.stasis.minimum-age is required in schema 7.");
     }
 
     private WarzoneControlConfig.Schedule parseSchedule(Map<String, Object> raw, List<String> errors) {

@@ -1,6 +1,9 @@
 package com.lincoln.maceguard.warzone.runtime;
 
+import com.lincoln.maceguard.warzone.config.ValidationResult;
+import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneControlConfigLoader;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
@@ -111,7 +114,21 @@ class WarzoneMigrationServiceTest {
         YamlConfiguration schemaSix = bundledDefaults();
         schemaSix.set("config-version", 6);
         schemaSix.set("combat", null);
-        schemaSix.set("modifiers.mace-disabled.combat-carryover", null);
+        ConfigurationSection modifiers = schemaSix.getConfigurationSection("modifiers");
+        assertNotNull(modifiers);
+        for (String id : modifiers.getKeys(false))
+            schemaSix.set("modifiers." + id + ".combat-carryover", null);
+
+        schemaSix.set("rotation.schedule.anchor-date", "2026-08-09");
+        schemaSix.set("rotation.schedule.time", "05:45");
+        schemaSix.set("rotation.schedule.cadence.every", 2);
+        schemaSix.set("rotation.schedule.cadence.unit", "WEEKS");
+        schemaSix.set("rotation.schedule.cycle", List.of(
+                java.util.Map.of("type", "MODIFIERS",
+                        "modifiers", List.of("custom-rule"))));
+        schemaSix.set("messages.blocked-message-cooldown", "7s");
+        schemaSix.set("messages.warning-audience", "global");
+        schemaSix.set("restriction-targets.MACE.maximum-cooldown", "45s");
         schemaSix.set("modifiers.custom-rule.enabled", true);
         schemaSix.set("modifiers.custom-rule.weight", 7);
         schemaSix.set("modifiers.custom-rule.display-name", "Custom Rule");
@@ -119,18 +136,55 @@ class WarzoneMigrationServiceTest {
         schemaSix.set("modifiers.custom-rule.effects", List.of());
         schemaSix.set("modifiers.custom-rule.restrictions.MACE.mode", "DISABLED");
         schemaSix.set("modifiers.custom-rule.start-message", "Custom started.");
+        schemaSix.set("kits.custom-kit.enabled", true);
+        schemaSix.set("kits.custom-kit.display-name", "Custom Kit");
+        schemaSix.set("kits.custom-kit.description", "Preserved custom kit.");
+        schemaSix.set("kits.custom-kit.icon", "MACE");
+        schemaSix.set("kits.custom-kit.modifiers", List.of("custom-rule"));
 
         YamlConfiguration migrated = WarzoneMigrationService.migrateSchema6(
                 schemaSix, bundledDefaults());
 
         assertEquals(7, migrated.getInt("config-version"));
         assertEquals("60s", migrated.getString("combat.stasis.minimum-age"));
-        assertFalse(migrated.getBoolean("modifiers.mace-disabled.combat-carryover"));
+        assertFalse(migrated.getBoolean("modifiers.ender-pearl-disabled.combat-carryover"));
         assertFalse(migrated.getBoolean("modifiers.custom-rule.combat-carryover"));
         assertEquals(7, migrated.getInt("modifiers.custom-rule.weight"));
         assertEquals("DISABLED", migrated.getString(
                 "modifiers.custom-rule.restrictions.MACE.mode"));
+        assertEquals(List.of("custom-rule"),
+                migrated.getStringList("kits.custom-kit.modifiers"));
+        assertEquals("2026-08-09", migrated.getString("rotation.schedule.anchor-date"));
+        assertEquals("05:45", migrated.getString("rotation.schedule.time"));
+        assertEquals(2, migrated.getInt("rotation.schedule.cadence.every"));
+        assertEquals("7s", migrated.getString("messages.blocked-message-cooldown"));
+        assertEquals("45s", migrated.getString(
+                "restriction-targets.MACE.maximum-cooldown"));
+
+        Path migratedFile = directory.resolve("schema-six-to-seven.yml");
+        assertDoesNotThrow(() -> WarzoneMigrationService.saveValidatedAtomically(
+                migrated, migratedFile));
+        ValidationResult<WarzoneControlConfig> loaded =
+                new WarzoneControlConfigLoader().load(migratedFile);
+        assertTrue(loaded.valid(), loaded.errors().toString());
     }
+
+    @Test void schemaSixMigrationPreservesCustomCombatValuesAndFillsMissingDefaults() {
+        YamlConfiguration customCombat = bundledDefaults();
+        customCombat.set("config-version", 6);
+        customCombat.set("combat.stasis.minimum-age", "90s");
+        YamlConfiguration preserved = WarzoneMigrationService.migrateSchema6(
+                customCombat, bundledDefaults());
+        assertEquals("90s", preserved.getString("combat.stasis.minimum-age"));
+
+        YamlConfiguration incompleteCombat = bundledDefaults();
+        incompleteCombat.set("config-version", 6);
+        incompleteCombat.set("combat.stasis.minimum-age", null);
+        YamlConfiguration completed = WarzoneMigrationService.migrateSchema6(
+                incompleteCombat, bundledDefaults());
+        assertEquals("60s", completed.getString("combat.stasis.minimum-age"));
+    }
+
 
     @Test void invalidCustomModifierAbortsWithoutReplacingOriginalFile()
             throws IOException, InvalidConfigurationException {
