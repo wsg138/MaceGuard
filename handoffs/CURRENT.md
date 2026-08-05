@@ -1,18 +1,22 @@
-# Current handoff
+# Current Handoff
 
-Repository: `wsg138/MaceGuard`
-Branch: `agent/warzone-combat-integration`
-PR: `#17`
-Starting main SHA: `9bcb24bbaef6daf2deecdd45979c64e26dc310d8`
-Final branch head SHA: `SELF` — the commit containing this file; resolve with `git rev-parse HEAD`. The exact immutable SHA is also recorded in PR #17's final Worker #1 comment.
-Version: `6.1.0`
-Configuration schema: `7`
-Build result: `./mvnw -B clean verify` on Temurin Java `21.0.11+10` and Maven `3.9.11`; 108 main sources and 58 test sources compiled; 330 tests run, 330 passed, 0 failed, 0 errored, 0 skipped; `BUILD SUCCESS` in `01:03 min`.
-Candidate JAR: `MaceGuard-6.1.0-candidate.jar`
-Candidate JAR SHA-256: `9c4cd59dcc404ba5e9b4e280f704fca45c5f91ce70164c3125abedf00d45c19a`
-Candidate JAR source commit SHA: `SELF`
-GitHub Actions: `Build` green for the final head before handoff publication; rerun and artifact verification required for this exact `SELF` handoff head before review begins.
-Codacy: green with no new findings attributable to PR #17 before handoff publication; rerun required for this exact `SELF` handoff head.
-PR status: draft and unmerged.
+Latest report: `handoffs/worker-2-warzone-combat-integration.md`
 
-Worker #1 implementation is complete subject to the final-head CI/artifact equality check recorded in PR #17. Continue with the independent review instructions in `handoffs/worker-1-warzone-combat-integration.md`.
+## Status
+
+- Verdict: **READY** for the reviewed repository integration.
+- PR #17 was squash-merged.
+- Reviewed feature head: `c07668b7b5b550280e56b343a2c6560492c510e1`
+- Product merge/source commit: `2970635e31afc966f7dd4f86d79d2856a958cffc`
+- Version: `6.1.0`
+- Configuration schema: `7`
+- Post-merge Build and Codacy checks are green.
+- Final JAR: `MaceGuard-6.1.0.jar`, 835,816 bytes, SHA-256 `632ff19cf6757649bd886e4a0bdb61bd812104a98a381e7ba69922bbf4031c27`.
+
+## Operational gate
+
+Live production-equivalent staging was not available to Worker #2. Before production deployment, complete the Leaf/Paper 1.21.11, CombatLogX 11.6.0.0.1286, WorldGuard, Elytra, stasis-pearl, carryover, Java-client, and Bedrock/Geyser matrix recorded in the latest report and `docs/DEPLOYMENT.md`.
+
+## Prior handoff
+
+- `handoffs/worker-1-warzone-combat-integration.md`
