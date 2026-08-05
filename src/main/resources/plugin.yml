@@ -1,11 +1,11 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 6.0.0
+version: 6.1.0
 api-version: '1.21'
 author: P2wn
 description: WorldGuard-scoped Warzone kits, repeating schedules, manual overrides, combat restrictions, temporary cobwebs, and safe region resets.
 depend: [WorldGuard]
-softdepend: [PlaceholderAPI]
+softdepend: [PlaceholderAPI, CombatLogX]
 
 commands:
   maceguard:

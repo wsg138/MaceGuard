@@ -1,6 +1,6 @@
 # MaceGuard
 
-MaceGuard 6 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
+MaceGuard 6.1 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
 
 WorldGuard remains the authority for region geometry, membership, inheritance, priorities, and ordinary protection. MaceGuard never broadens an unresolved Warzone to the whole world.
 
@@ -10,10 +10,11 @@ WorldGuard remains the authority for region geometry, membership, inheritance, p
 - Paper or Leaf 1.21.11-compatible server
 - WorldGuard 7.0.17 with its matching WorldEdit dependency
 - PlaceholderAPI 2.11.6+ is optional
+- CombatLogX 11.6 is optional; combat-dependent Warzone features disable safely when its public API is unavailable
 
-No NMS, reflection-based version bridge, or external GUI framework is used.
+No NMS or private-plugin internals are used. The optional CombatLogX bridge resolves only its documented public API so MaceGuard can still load without CombatLogX.
 
-## Warzone schema 6
+## Warzone schema 7
 
 `plugins/MaceGuard/warzone.yml` now combines the existing weighted modifier system with:
 
@@ -81,6 +82,20 @@ The built-in spear controls are independent:
 - `lunge-cooldown-10` begins only after an accepted Lunge velocity event.
 
 A spear damage cooldown is not started merely by launching a spear; it starts only after accepted positive melee or correlated thrown-spear damage. A Lunge restriction does not block ordinary spear use. All three target policies and cooldown durations remain configurable.
+
+
+## Warzone combat integration
+
+WorldGuard custom flags define where a CombatLogX-tagged player can acquire transient Warzone combat scope:
+
+```text
+warzonerotator-combat-zone: allow
+warzonerotator-stasis: deny
+```
+
+The latch is evaluated from the player's own effective WorldGuard flags, respects region priorities and inheritance, survives leaving the region only until CombatLogX ends combat, and is never persisted. Existing modifiers opt into outside-region enforcement individually with `combat-carryover: true`; Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Building, crystal, anchor, cobweb, reset, and other world-mutation policies are rejected for carryover.
+
+CombatLogX remains authoritative for tagging, timers, bypass, logout punishment, ordinary teleport prevention, Ender Pearl retagging, and keeping combat active while gliding. MaceGuard controls dynamic combat Elytra starts, cancels only actual Elytra boosts, and can block an aged Ender Pearl teleport when the acquired latch retained a denied stasis policy. The default stasis threshold is `60s`. `warzonerotator.bypass` bypasses all MaceGuard Rotator restrictions, including stasis; CombatLogX's API bypass prevents acquiring or retaining the latch.
 
 ## Commands
 
@@ -186,10 +201,8 @@ Fields that do not apply return an empty string. Boolean values are stable lower
 
 ## Migration
 
-Schema 5 is backed up and converted to schema 6 as a one-entry weekly `RANDOM` cycle whose anchor preserves the former weekday, time, and timezone. Existing scope, warnings, weighted selection, special rules, messages, cobweb settings, restriction policies, modifier definitions, conflict groups, and persisted selection state are retained and revalidated.
+Schema 6 is backed up and migrated to schema 7 without replacing operator-defined kits, modifiers, weights, schedules, messages, restriction targets, conflict groups, or GUI settings. Existing modifiers receive `combat-carryover: false` unless explicitly configured after migration, and `combat.stasis.minimum-age` defaults to `60s`.
 
-New spear outcomes and the bundled spear kit are disabled during schema-5 migration so the prior random selection pool does not silently change. They can be enabled after review.
-
-Schema 4 migrates through the validated schema-5 representation. A failed migration never partially replaces the active file. Incompatible older files are backed up and replaced with a disabled clean schema-6 file. WorldGuard regions, reset snapshots, arming state, and reset schedules are never created or enabled by migration.
+Historical schema 5 and schema 4 files continue through the existing validated migration path into schema 7. A failed migration never partially replaces the active file. Incompatible older files are backed up and replaced with a disabled clean schema-7 file. WorldGuard regions, custom flag assignments, reset snapshots, arming state, and reset schedules are never created or enabled by migration.
 
 See [Warzone configuration](docs/WARZONE.md), [deployment and staging](docs/DEPLOYMENT.md), and [migration](docs/MIGRATION.md).

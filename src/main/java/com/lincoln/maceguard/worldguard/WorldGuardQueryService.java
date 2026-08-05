@@ -33,6 +33,20 @@ public final class WorldGuardQueryService {
         return value != StateFlag.State.DENY;
     }
 
+    public boolean warzoneCombatZoneAllowed(Location location, Player player) {
+        return state(location, player, flags.warzoneCombatZone());
+    }
+
+    public boolean warzoneStasisDenied(Location location, Player player) {
+        if (flags.warzoneStasis() == null || location.getWorld() == null) return false;
+        StateFlag.State value = query().queryState(BukkitAdapter.adapt(location),
+                player == null ? null : WorldGuardPlugin.inst().wrapPlayer(player),
+                flags.warzoneStasis());
+        return value == StateFlag.State.DENY;
+    }
+
+    public boolean warzoneCombatFlagsAvailable() { return flags.combatFlagsAvailable(); }
+
     public boolean explosivesDenied(Location location, Player player) {
         if (flags.explosives() == null || location.getWorld() == null) return false;
         StateFlag.State value = query().queryState(BukkitAdapter.adapt(location),

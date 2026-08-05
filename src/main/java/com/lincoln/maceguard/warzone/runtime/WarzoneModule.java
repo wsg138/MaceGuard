@@ -13,6 +13,7 @@ import com.lincoln.maceguard.warzone.integration.PlaceholderHookFactory;
 import com.lincoln.maceguard.warzone.integration.WarzonePlaceholderHook;
 import com.lincoln.maceguard.warzone.restriction.RestrictionDecision;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
+import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -34,29 +35,37 @@ public final class WarzoneModule {
     private final WarzoneStateStore stateStore;
     private final Clock clock;
     private final BlockPolicyResolver blockPolicies;
+    private final WorldGuardQueryService worldGuardQueries;
     private volatile WarzoneRuntime runtime;
     private WarzonePlaceholderHook placeholder;
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC(), null);
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), null, null);
     }
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                          BlockPolicyResolver blockPolicies) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies);
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, null);
+    }
+
+    public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                         BlockPolicyResolver blockPolicies, WorldGuardQueryService worldGuardQueries) {
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, worldGuardQueries);
     }
 
     WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                   Clock clock) {
-        this(plugin, temporaryBlocks, io, clock, null);
+        this(plugin, temporaryBlocks, io, clock, null, null);
     }
 
     WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
-                  Clock clock, BlockPolicyResolver blockPolicies) {
+                  Clock clock, BlockPolicyResolver blockPolicies,
+                  WorldGuardQueryService worldGuardQueries) {
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
         this.clock = clock;
         this.blockPolicies = blockPolicies;
+        this.worldGuardQueries = worldGuardQueries;
         this.configFile = plugin.getDataFolder().toPath().resolve("warzone.yml");
         this.messagesFile = plugin.getDataFolder().toPath().resolve("warzone-messages.yml");
         this.stateStore = new WarzoneStateStore(plugin.getDataFolder().toPath().resolve("state")
@@ -75,7 +84,7 @@ public final class WarzoneModule {
             log(prepared);
             if (prepared.valid()) {
                 runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
-                        prepared.messages(), stateStore, clock);
+                        prepared.messages(), stateStore, clock, worldGuardQueries);
                 runtime.start();
                 plugin.getLogger().info("Integrated Warzone module started with "
                         + prepared.control().gameplay().modifiers().size() + " modifiers and "
@@ -120,7 +129,7 @@ public final class WarzoneModule {
                 old == null ? null : old.rotations().state();
         ReloadGuard.Result<WarzoneRuntime> candidate = ReloadGuard.prepare(old, prepared.valid(),
                 () -> new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
-                        prepared.messages(), stateStore, clock));
+                        prepared.messages(), stateStore, clock, worldGuardQueries));
         if (!candidate.accepted()) {
             if (oldState != null) stateStore.update(oldState);
             if (candidate.failure() != null)
@@ -164,6 +173,10 @@ public final class WarzoneModule {
         errors.addAll(messages.errors());
         List<String> warnings = new ArrayList<>(config.warnings());
         warnings.addAll(messages.warnings());
+        if (!plugin.getServer().getPluginManager().isPluginEnabled("CombatLogX"))
+            warnings.add("CombatLogX is missing or disabled; combat latch, carried restrictions, combat Elytra, and stasis enforcement are inactive.");
+        if (worldGuardQueries == null || !worldGuardQueries.warzoneCombatFlagsAvailable())
+            warnings.add("Warzone combat WorldGuard flags are unavailable; combat scope and stasis fail safely without a world-wide fallback.");
         if (validateResolvedRegion && config.valid()) {
             var region = new com.lincoln.maceguard.warzone.region.WarzoneRegionService(
                     config.value().gameplay().region());

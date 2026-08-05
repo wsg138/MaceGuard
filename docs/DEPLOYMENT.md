@@ -1,6 +1,6 @@
-# MaceGuard 6 deployment and staging
+# MaceGuard 6.1 deployment and staging
 
-MaceGuard 6 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required and PlaceholderAPI remains optional. Keep a new schema-6 build in staging until the checks below are complete.
+MaceGuard 6.1 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required; PlaceholderAPI and CombatLogX are optional integrations. Keep a new schema-7 build in staging until the checks below are complete.
 
 ## Safe Warzone activation
 
@@ -17,6 +17,70 @@ Fresh installations ship with `warzone.yml` disabled. Complete this sequence bef
 9. Confirm `Gameplay scope active: true` and `Whole-world fallback: false`.
 
 Missing world or region geometry makes Warzone gameplay inactive. It does not expand restrictions to the configured world.
+
+
+## Required CombatLogX production configuration
+
+MaceGuard does not edit another plugin's files. Before production, update the installed CombatLogX 11.6 Cheat Prevention expansion to the following behavior.
+
+`items.yml`:
+
+```yaml
+prevent-elytra: false
+force-prevent-elytra: false
+elytra-retag: true
+prevent-riptide: true
+riptide-retag: false
+```
+
+If that expansion exposes `prevent-fireworks`, keep it `false`. MaceGuard cancels only `PlayerElytraBoostEvent`; ordinary firework launching must remain available.
+
+`teleportation.yml`:
+
+```yaml
+prevent-portals: true
+prevent-teleportation: true
+
+allowed-teleport-cause-list:
+  - ENDER_PEARL
+
+ender-pearl-retag: true
+untag: false
+```
+
+Remove `PLUGIN` and `UNKNOWN` from the allow list. This leaves successful Ender Pearl teleports available for CombatLogX retagging and MaceGuard's aged-pearl decision while CombatLogX blocks `/tpa`, `/home`, `/spawn`, other plugin teleports, and portals during combat. Validate server-specific plugins in staging rather than weakening the allow list preemptively.
+
+Assign the custom flags only to the intended WorldGuard regions:
+
+```text
+/rg flag <region> warzonerotator-combat-zone allow
+/rg flag <region> warzonerotator-stasis deny
+```
+
+An unset combat-zone flag never grants a latch. An unset or allowed stasis flag never blocks a stasis teleport. There is no world-wide fallback.
+
+## Combat integration staging matrix
+
+Stage all of the following on the production-equivalent Leaf build:
+
+- start combat inside versus outside the flagged region;
+- cross the border while already tagged, including a normal Ender Pearl teleport into the region;
+- rotate the live meta in both directions during combat;
+- leave the Warzone while Mace, Spear, Spear damage, Spear Lunge, Ender Pearl, and Wind Charge carryover variants are active;
+- verify two variants of the same cooldown target can use different carryover settings without stale enforcement;
+- hold a real bubble-column stasis chamber beyond 60 seconds, then compare a normal pearl below the threshold;
+- suspend several pearls for one player and land normal/aged pearls close together;
+- test simultaneous pearls from multiple players and confirm no cross-player correlation;
+- begin combat while already gliding, then land and attempt to restart;
+- attempt a new Elytra start in ordinary combat and under the Elytra-allowing Warzone meta;
+- attempt actual Elytra boosts and ordinary firework launching separately;
+- verify Riptide is canceled by CombatLogX;
+- verify `/tpa`, `/home`, `/spawn`, plugin teleports, and portals after the configuration change;
+- test death, combat logout, reload, and full restart;
+- test Java and Bedrock/Geyser players;
+- observe event and tracking behavior under realistic load and validate the 100-player assumptions.
+
+The Ender Pearl impact-to-teleport ordering and Elytra behavior must be confirmed on the exact deployed Paper/Leaf build. Automated tests validate the policy and tracker, but they do not replace this staging step.
 
 ## Schedule review
 
@@ -139,7 +203,7 @@ Exercise natural schedule changes, every override operation, config reload, plug
 
 ## Placeholder and command staging
 
-Confirm existing placeholders still work and the schema-6 values return stable plain text:
+Confirm existing placeholders still work and the schema-7 values return stable plain text:
 
 ```text
 %warzone_source_type%

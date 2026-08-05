@@ -36,7 +36,7 @@ public final class WarzoneConfigLoader {
     public ValidationResult<WarzoneConfig> load(Map<String, Object> root) {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
-        keys(root, "<root>", Set.of("config-version", "enabled", "region", "rotation", "messages", "cobwebs",
+        keys(root, "<root>", Set.of("config-version", "enabled", "region", "rotation", "messages", "combat", "cobwebs",
                 "restriction-targets", "modifiers", "conflict-groups"), errors);
 
         int version = integer(root.get("config-version"), "config-version", errors, -1);
@@ -77,6 +77,17 @@ public final class WarzoneConfigLoader {
         WarzoneConfig.Audience transitionAudience = audience(messagesRaw.get("transition-audience"),
                 "messages.transition-audience", errors);
 
+
+        Map<String, Object> combatRaw = map(root.getOrDefault("combat", Map.of()), "combat", errors);
+        keys(combatRaw, "combat", Set.of("stasis"), errors);
+        Map<String, Object> stasisRaw = map(combatRaw.getOrDefault("stasis", Map.of()), "combat.stasis", errors);
+        keys(stasisRaw, "combat.stasis", Set.of("minimum-age"), errors);
+        Duration stasisMinimumAge = duration(stasisRaw.getOrDefault("minimum-age", "60s"),
+                "combat.stasis.minimum-age", errors);
+        if (stasisMinimumAge.isNegative() || stasisMinimumAge.isZero())
+            errors.add("combat.stasis.minimum-age must be positive.");
+        WarzoneConfig.Combat combat = new WarzoneConfig.Combat(new WarzoneConfig.Stasis(stasisMinimumAge));
+
         Map<String, Object> cobwebRaw = map(root.getOrDefault("cobwebs", Map.of()), "cobwebs", errors);
         keys(cobwebRaw, "cobwebs", Set.of("clear-after", "clear-on-meta-change", "clear-on-disable"), errors);
         Duration clearAfter = duration(cobwebRaw.getOrDefault("clear-after", "60s"),
@@ -105,7 +116,7 @@ public final class WarzoneConfigLoader {
 
         WarzoneConfig config = new WarzoneConfig(VERSION, enabled,
                 new WarzoneConfig.Region(world, regionId, excluded), schedule, selection, specialRules, warningTimes,
-                new WarzoneConfig.Messages(blocked, warningAudience, transitionAudience), cobwebs,
+                new WarzoneConfig.Messages(blocked, warningAudience, transitionAudience), combat, cobwebs,
                 policies, modifiers, conflicts);
         if (errors.isEmpty()) {
             try {
@@ -289,12 +300,14 @@ public final class WarzoneConfigLoader {
         String path = "modifiers." + id;
         if (!ID.matcher(id).matches()) errors.add(path + " has an invalid ID.");
         Map<String, Object> section = map(raw, path, errors);
-        keys(section, path, Set.of("enabled", "weight", "display-name", "description", "effects",
+        keys(section, path, Set.of("enabled", "weight", "combat-carryover", "display-name", "description", "effects",
                 "restrictions", "start-message", "end-message", "warning-message"), errors);
         boolean enabled = bool(section.getOrDefault("enabled", Boolean.TRUE),
                 path + ".enabled", errors, true);
         int weight = integer(section.getOrDefault("weight", 10), path + ".weight", errors, 10);
         if (enabled && weight <= 0) errors.add(path + ".weight must be a positive integer while enabled.");
+        boolean combatCarryover = bool(section.getOrDefault("combat-carryover", Boolean.FALSE),
+                path + ".combat-carryover", errors, false);
         String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
         String description = nonBlank(section.get("description"), path + ".description", errors);
         Set<WarzoneConfig.Effect> effects = effectSet(section.getOrDefault("effects", List.of()),
@@ -307,8 +320,20 @@ public final class WarzoneConfigLoader {
         String warning = optionalString(section.get("warning-message"), path + ".warning-message", errors);
         if (effects.isEmpty() && restrictions.isEmpty())
             errors.add(path + " must define at least one effect or restriction.");
-        return new WarzoneConfig.Modifier(id, enabled, weight, display,
+        if (combatCarryover) validateCombatCarryover(path, effects, restrictions.keySet(), errors);
+        return new WarzoneConfig.Modifier(id, enabled, weight, combatCarryover, display,
                 description, effects, restrictions, start, end, warning);
+    }
+
+    private void validateCombatCarryover(String path, Set<WarzoneConfig.Effect> effects,
+                                         Set<RestrictionTarget> targets, List<String> errors) {
+        if (effects.contains(WarzoneConfig.Effect.COBWEBS))
+            errors.add(path + ".combat-carryover cannot carry COBWEBS outside the Warzone.");
+        for (RestrictionTarget target : targets) {
+            if (!target.combatCarryoverEligible())
+                errors.add(path + ".combat-carryover is unsupported for restriction target "
+                        + target.id() + ".");
+        }
     }
 
     private Map<RestrictionTarget, WarzoneConfig.Restriction> parseRestrictions(

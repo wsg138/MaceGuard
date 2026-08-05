@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Strict schema-6 loader. Gameplay parsing remains delegated to the proven schema-5 parser. */
+/** Strict schema-7 loader. Gameplay parsing remains delegated to the proven schema-5 parser. */
 public final class WarzoneControlConfigLoader {
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9_-]*");
 
@@ -33,7 +33,7 @@ public final class WarzoneControlConfigLoader {
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         keys(root, "<root>", Set.of("config-version", "enabled", "region", "rotation", "messages",
-                "cobwebs", "restriction-targets", "modifiers", "conflict-groups", "kits", "gui"), errors);
+                "combat", "cobwebs", "restriction-targets", "modifiers", "conflict-groups", "kits", "gui"), errors);
         int version = integer(root.get("config-version"), "config-version", errors, -1);
         if (version != WarzoneControlConfig.VERSION)
             errors.add("config-version must be " + WarzoneControlConfig.VERSION + ".");
@@ -58,6 +58,7 @@ public final class WarzoneControlConfigLoader {
         copy(rotation, legacyRotation, "warning-times");
         legacy.put("rotation", legacyRotation);
         copy(root, legacy, "messages");
+        copy(root, legacy, "combat");
         copy(root, legacy, "cobwebs");
         copy(root, legacy, "restriction-targets");
         copy(root, legacy, "modifiers");

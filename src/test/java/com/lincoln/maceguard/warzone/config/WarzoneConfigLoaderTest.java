@@ -135,6 +135,35 @@ class WarzoneConfigLoaderTest {
                 value.contains("All modifiers are disabled")));
     }
 
+
+    @Test void rejectsNonPositiveStasisAge() throws IOException {
+        String text = defaultText().replace("minimum-age: 60s", "minimum-age: 0s");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("combat.stasis.minimum-age must be positive")));
+    }
+
+    @Test void rejectsCobwebEffectCarryover() throws IOException {
+        String text = defaultText().replace(
+                "  cobwebs:\n    combat-carryover: false",
+                "  cobwebs:\n    combat-carryover: true");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("modifiers.cobwebs.combat-carryover")
+                        && value.contains("cannot carry COBWEBS")));
+    }
+
+    @Test void rejectsWorldMutationRestrictionCarryover() throws IOException {
+        String text = defaultText().replace("      MACE:\n        mode: DISABLED",
+                "      END_CRYSTAL:\n        mode: DISABLED");
+        var result = load(text);
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(value ->
+                value.contains("combat-carryover is unsupported for restriction target END_CRYSTAL")));
+    }
+
     @Test void rejectsSequentialSchemaInsteadOfSilentlyReinterpretingIt() throws IOException {
         Path file = directory.resolve("old.yml");
         Files.writeString(file, """
@@ -150,7 +179,7 @@ class WarzoneConfigLoaderTest {
         var result = new WarzoneControlConfigLoader().load(file);
         assertFalse(result.valid());
         assertTrue(result.errors().stream().anyMatch(value ->
-                value.contains("config-version must be 6")));
+                value.contains("config-version must be 7")));
         assertTrue(result.errors().stream().anyMatch(value ->
                 value.contains("unknown key 'rotations'")));
     }

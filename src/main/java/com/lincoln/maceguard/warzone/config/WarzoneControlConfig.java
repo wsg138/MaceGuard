@@ -10,7 +10,7 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Map;
 
-/** Complete schema-6 configuration: gameplay modifiers plus operator-facing kits and cycle. */
+/** Complete schema-7 configuration: gameplay modifiers plus operator-facing kits and cycle. */
 public record WarzoneControlConfig(
         int version,
         WarzoneConfig gameplay,
@@ -18,7 +18,7 @@ public record WarzoneControlConfig(
         Schedule schedule,
         Gui gui
 ) {
-    public static final int VERSION = 6;
+    public static final int VERSION = 7;
 
     public WarzoneControlConfig {
         kits = Map.copyOf(kits);

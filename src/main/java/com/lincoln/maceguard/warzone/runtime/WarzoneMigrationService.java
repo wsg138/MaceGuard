@@ -28,8 +28,9 @@ import java.util.Set;
 public final class WarzoneMigrationService {
     private static final int SCHEMA_FOUR = 4;
     private static final int SCHEMA_FIVE = 5;
+    private static final int SCHEMA_SIX = 6;
     private static final Set<String> SAFE_MODIFIER_FIELDS = Set.of(
-            "enabled", "weight", "display-name", "description", "effects", "restrictions",
+            "enabled", "weight", "combat-carryover", "display-name", "description", "effects", "restrictions",
             "start-message", "end-message", "warning-message");
 
     private final JavaPlugin plugin;
@@ -46,7 +47,7 @@ public final class WarzoneMigrationService {
 
     public boolean prepare() {
         List<String> report = new ArrayList<>();
-        report.add("MaceGuard Warzone schema-6 migration review");
+        report.add("MaceGuard Warzone schema-7 migration review");
         report.add("Generated: " + Instant.now());
         report.add("No WorldGuard regions, snapshots, arming state, or reset schedules were created or enabled.");
         try {
@@ -82,6 +83,14 @@ public final class WarzoneMigrationService {
 
         Path backup = timestampedBackup(config, "warzone-v" + version);
         YamlConfiguration defaults = bundledDefaults();
+        if (version == SCHEMA_SIX) {
+            saveValidatedAtomically(migrateSchema6(old, defaults), config);
+            report.add("Backed up schema-6 warzone.yml to " + backup.getFileName() + ".");
+            report.add("Migrated schema 6 to schema 7 while preserving kits, modifiers, weights, "
+                    + "schedules, messages, restriction targets, and GUI settings. Combat carryover "
+                    + "defaults to false for existing modifiers and stasis defaults to 60 seconds.");
+            return;
+        }
         if (version == SCHEMA_FIVE) {
             ValidationResult<com.lincoln.maceguard.warzone.config.WarzoneConfig> oldValidation =
                     new WarzoneConfigLoader().load(config);
@@ -99,7 +108,7 @@ public final class WarzoneMigrationService {
             YamlConfiguration schemaFive = migrateSchema4(old, schemaFiveDefaults(defaults));
             saveValidatedAtomically(migrateSchema5(schemaFive, defaults), config);
             report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
-            report.add("Migrated schema 4 through the validated schema-5 representation into schema 6.");
+            report.add("Migrated schema 4 through the validated schema-5 representation into schema 7.");
             return;
         }
 
@@ -107,6 +116,31 @@ public final class WarzoneMigrationService {
         report.add("Backed up incompatible warzone.yml to " + backup.getFileName() + ".");
         report.add("Installed clean schema-" + WarzoneControlConfig.VERSION
                 + " configuration, disabled by default.");
+    }
+
+    static YamlConfiguration migrateSchema6(YamlConfiguration old,
+                                             YamlConfiguration defaults) {
+        YamlConfiguration migrated = cloneYaml(defaults);
+        migrated.set("config-version", WarzoneControlConfig.VERSION);
+        copyPath(old, migrated, "enabled");
+        copyPath(old, migrated, "region");
+        copyPath(old, migrated, "rotation");
+        copyPath(old, migrated, "messages");
+        copyPath(old, migrated, "cobwebs");
+        copyPath(old, migrated, "kits");
+        copyPath(old, migrated, "gui");
+        mergeSections(old, migrated, "restriction-targets");
+        preserveModifierDefinitions(old, migrated);
+        mergeSections(old, migrated, "conflict-groups");
+        if (old.contains("combat")) copyPath(old, migrated, "combat");
+        ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
+        if (modifiers != null) {
+            for (String id : modifiers.getKeys(false)) {
+                if (!old.contains("modifiers." + id + ".combat-carryover"))
+                    migrated.set("modifiers." + id + ".combat-carryover", false);
+            }
+        }
+        return migrated;
     }
 
     static YamlConfiguration migrateSchema5(YamlConfiguration old,
@@ -336,7 +370,7 @@ public final class WarzoneMigrationService {
     private void writeReport(List<String> lines) throws IOException {
         Path reports = dataFolder.resolve("migration-reports");
         Files.createDirectories(reports);
-        Path report = reports.resolve("warzone-schema-6-" + System.currentTimeMillis() + ".txt");
+        Path report = reports.resolve("warzone-schema-7-" + System.currentTimeMillis() + ".txt");
         Files.writeString(report, String.join(System.lineSeparator(), lines) + System.lineSeparator(),
                 StandardCharsets.UTF_8);
         plugin.getLogger().info("Warzone migration review written to " + report.getFileName() + ".");

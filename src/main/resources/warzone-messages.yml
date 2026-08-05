@@ -14,9 +14,10 @@ cobweb-unavailable: |-
   <red>Cobwebs are unavailable during <white><meta><red>.
   <gray>The meta changes in <white><time_left><gray>.
 elytra-unavailable: |-
-  <red>Elytra gliding is not active in the warzone this week.
+  <red>You cannot begin gliding while combat-tagged under the current Warzone rules.
   <gray>The meta changes in <white><time_left><gray>.
 firework-unavailable: |-
-  <red>Firework boosting is disabled in the warzone this week.
-  <gray>The meta changes in <white><time_left><gray>.
+  <red>Firework boosting is disabled while you are combat-tagged.
+stasis-blocked: |-
+  <red>Your Ender Pearl was identified as a stasis pearl and could not teleport you during Warzone combat. If you believe this was an error, contact a staff member.
 rotation-warning: "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>."

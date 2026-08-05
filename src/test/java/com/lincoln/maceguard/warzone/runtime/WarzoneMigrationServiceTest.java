@@ -83,7 +83,7 @@ class WarzoneMigrationServiceTest {
                 old, WarzoneMigrationService.schemaFiveDefaults(bundledDefaults()));
         YamlConfiguration migrated = WarzoneMigrationService.migrateSchema5(schemaFive, bundledDefaults());
 
-        assertEquals(6, migrated.getInt("config-version"));
+        assertEquals(7, migrated.getInt("config-version"));
         assertTrue(migrated.getBoolean("enabled"));
         assertEquals("custom-world", migrated.getString("region.world"));
         assertFalse(migrated.getBoolean("modifiers.mace-disabled.enabled"));
@@ -104,6 +104,32 @@ class WarzoneMigrationServiceTest {
         assertDoesNotThrow(() -> WarzoneMigrationService.saveValidatedAtomically(
                 migrated, migratedFile));
         assertTrue(new WarzoneControlConfigLoader().load(migratedFile).valid());
+    }
+
+
+    @Test void schemaSixMigrationPreservesDefinitionsAndDefaultsCombatSafely() {
+        YamlConfiguration schemaSix = bundledDefaults();
+        schemaSix.set("config-version", 6);
+        schemaSix.set("combat", null);
+        schemaSix.set("modifiers.mace-disabled.combat-carryover", null);
+        schemaSix.set("modifiers.custom-rule.enabled", true);
+        schemaSix.set("modifiers.custom-rule.weight", 7);
+        schemaSix.set("modifiers.custom-rule.display-name", "Custom Rule");
+        schemaSix.set("modifiers.custom-rule.description", "Preserved custom modifier.");
+        schemaSix.set("modifiers.custom-rule.effects", List.of());
+        schemaSix.set("modifiers.custom-rule.restrictions.MACE.mode", "DISABLED");
+        schemaSix.set("modifiers.custom-rule.start-message", "Custom started.");
+
+        YamlConfiguration migrated = WarzoneMigrationService.migrateSchema6(
+                schemaSix, bundledDefaults());
+
+        assertEquals(7, migrated.getInt("config-version"));
+        assertEquals("60s", migrated.getString("combat.stasis.minimum-age"));
+        assertFalse(migrated.getBoolean("modifiers.mace-disabled.combat-carryover"));
+        assertFalse(migrated.getBoolean("modifiers.custom-rule.combat-carryover"));
+        assertEquals(7, migrated.getInt("modifiers.custom-rule.weight"));
+        assertEquals("DISABLED", migrated.getString(
+                "modifiers.custom-rule.restrictions.MACE.mode"));
     }
 
     @Test void invalidCustomModifierAbortsWithoutReplacingOriginalFile()

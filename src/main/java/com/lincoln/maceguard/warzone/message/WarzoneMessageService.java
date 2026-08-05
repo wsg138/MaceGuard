@@ -82,6 +82,12 @@ public final class WarzoneMessageService {
         player.sendMessage(render(templates.fireworkUnavailable(), target, Duration.ZERO));
     }
 
+    public void stasisBlocked(Player player) {
+        RestrictionTarget target = RestrictionTarget.parse("ENDER_PEARL").orElseThrow();
+        if (!acquire(player, target)) return;
+        player.sendMessage(render(templates.stasisBlocked(), target, Duration.ZERO));
+    }
+
     private boolean acquire(Player player, RestrictionTarget target) {
         return denialThrottle.acquire(player.getUniqueId(), target, clock.millis(),
                 config.messages().blockedMessageCooldown());
