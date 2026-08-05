@@ -16,6 +16,7 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
+import java.util.UUID;
 
 /** Direct adapter for CombatLogX 11.6's published public API. */
 final class DirectCombatLogXGateway implements CombatLogXGateway, Listener {
@@ -79,9 +80,13 @@ final class DirectCombatLogXGateway implements CombatLogXGateway, Listener {
     }
 
     private void reconcileAfterCommit(Player player, Location tagLocation) {
+        UUID playerId = player.getUniqueId();
         owner.getServer().getScheduler().runTask(owner, () -> {
             Lifecycle current = lifecycle;
-            if (registered && current != null) current.tagged(player, tagLocation);
+            if (!registered || current == null) return;
+            Player online = owner.getServer().getPlayer(playerId);
+            if (!player.isOnline() || online != player) return;
+            current.tagged(player, tagLocation);
         });
     }
 

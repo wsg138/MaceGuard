@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -131,8 +132,13 @@ public final class StasisPearlTracker {
     public record Impact(UUID pearlId, boolean aged, long serverTick,
                          Position position, long expiresAtNanos) { }
 
-    public record Position(double x, double y, double z) {
+    public record Position(UUID worldId, double x, double y, double z) {
+        public Position {
+            Objects.requireNonNull(worldId, "worldId");
+        }
+
         public double distanceSquared(Position other) {
+            if (!worldId.equals(other.worldId)) return Double.POSITIVE_INFINITY;
             double dx = x - other.x;
             double dy = y - other.y;
             double dz = z - other.z;

@@ -8,16 +8,28 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 /** Transient per-player Warzone combat latch. Nothing in this service is persisted. */
 public final class CombatScopeService {
     private final CombatLogXGateway combat;
     private final WorldGuardQueryService worldGuard;
+    private final Consumer<String> warningSink;
     private final Map<UUID, Latch> latches = new HashMap<>();
+    private boolean combatQueryFailureReported;
+    private boolean stasisQueryFailureReported;
 
     public CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard) {
+        this(combat, worldGuard, message ->
+                Logger.getLogger(CombatScopeService.class.getName()).warning(message));
+    }
+
+    CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard,
+                       Consumer<String> warningSink) {
         this.combat = combat;
         this.worldGuard = worldGuard;
+        this.warningSink = warningSink;
     }
 
     public boolean acquireIfEligible(Player player) {
@@ -66,7 +78,8 @@ public final class CombatScopeService {
         if (worldGuard == null) return false;
         try {
             return worldGuard.warzoneCombatZoneAllowed(location, player);
-        } catch (IllegalArgumentException | IllegalStateException unavailable) {
+        } catch (IllegalArgumentException | IllegalStateException | LinkageError unavailable) {
+            reportCombatQueryFailure(unavailable);
             return false;
         }
     }
@@ -75,9 +88,31 @@ public final class CombatScopeService {
         if (worldGuard == null) return false;
         try {
             return worldGuard.warzoneStasisDenied(location, player);
-        } catch (IllegalArgumentException | IllegalStateException unavailable) {
+        } catch (IllegalArgumentException | IllegalStateException | LinkageError unavailable) {
+            reportStasisQueryFailure(unavailable);
             return false;
         }
+    }
+
+    private void reportCombatQueryFailure(Throwable failure) {
+        if (combatQueryFailureReported) return;
+        combatQueryFailureReported = true;
+        warningSink.accept("WorldGuard warzonerotator-combat-zone query failed closed; "
+                + "this acquisition was rejected and later checks will retry: "
+                + failureSummary(failure));
+    }
+
+    private void reportStasisQueryFailure(Throwable failure) {
+        if (stasisQueryFailureReported) return;
+        stasisQueryFailureReported = true;
+        warningSink.accept("WorldGuard warzonerotator-stasis query failed closed; "
+                + "the failed query will not mark stasis as denied: " + failureSummary(failure));
+    }
+
+    private String failureSummary(Throwable failure) {
+        String message = failure.getMessage();
+        return failure.getClass().getSimpleName()
+                + (message == null || message.isBlank() ? "" : ": " + message);
     }
 
     public Optional<Latch> latch(UUID playerId) { return Optional.ofNullable(latches.get(playerId)); }

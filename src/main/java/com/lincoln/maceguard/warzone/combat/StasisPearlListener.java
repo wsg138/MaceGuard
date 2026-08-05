@@ -62,13 +62,17 @@ public final class StasisPearlListener implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onCancelledPearlTeleport(PlayerTeleportEvent event) {
         if (!event.isCancelled() || !isPearlTeleport(event)) return;
+        Location destination = event.getTo();
+        if (destination == null || destination.getWorld() == null) return;
         pearls.discardCorrelated(event.getPlayer().getUniqueId(), currentTick(event),
-                position(event.getTo()), System.nanoTime());
+                position(destination), System.nanoTime());
     }
 
     private Optional<StasisPearlTracker.Impact> correlate(PlayerTeleportEvent event) {
+        Location destination = event.getTo();
+        if (destination == null || destination.getWorld() == null) return Optional.empty();
         return pearls.correlate(event.getPlayer().getUniqueId(), currentTick(event),
-                position(event.getTo()), System.nanoTime());
+                position(destination), System.nanoTime());
     }
 
     private boolean shouldBlock(Player player, StasisPearlTracker.Impact impact) {
@@ -88,6 +92,7 @@ public final class StasisPearlListener implements Listener {
     }
 
     private StasisPearlTracker.Position position(Location location) {
-        return new StasisPearlTracker.Position(location.getX(), location.getY(), location.getZ());
+        return new StasisPearlTracker.Position(location.getWorld().getUID(),
+                location.getX(), location.getY(), location.getZ());
     }
 }

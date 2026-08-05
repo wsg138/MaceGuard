@@ -9,8 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StasisPearlTrackerTest {
+    private static final UUID WORLD = UUID.randomUUID();
     private static final StasisPearlTracker.Position HERE =
-            new StasisPearlTracker.Position(10.0, 64.0, 10.0);
+            new StasisPearlTracker.Position(WORLD, 10.0, 64.0, 10.0);
 
     @Test void exactThresholdIsAged() {
         StasisPearlTracker tracker = new StasisPearlTracker();
@@ -45,6 +46,20 @@ class StasisPearlTrackerTest {
         tracker.landed(secondPearl, 30, 1_200, 30L, HERE, 2L);
         assertTrue(tracker.correlate(first, 30L, HERE, 3L).orElseThrow().aged());
         assertFalse(tracker.correlate(second, 30L, HERE, 3L).orElseThrow().aged());
+    }
+
+    @Test void sameCoordinatesInAnotherWorldNeverCorrelate() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        UUID pearl = UUID.randomUUID();
+        StasisPearlTracker.Position otherWorld =
+                new StasisPearlTracker.Position(UUID.randomUUID(), 10.0, 64.0, 10.0);
+        tracker.launched(pearl, owner, 1L);
+        tracker.landed(pearl, 1_300, 1_200, 30L, HERE, 2L);
+
+        assertTrue(tracker.correlate(owner, 30L, otherWorld, 3L).isEmpty());
+        assertEquals(1, tracker.pendingImpacts());
+        assertTrue(tracker.correlate(owner, 30L, HERE, 4L).orElseThrow().aged());
     }
 
     @Test void canceledOrRemovedPearlCanBeDiscardedWithoutMarkerLeak() {

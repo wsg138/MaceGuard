@@ -6,6 +6,8 @@ import org.bukkit.entity.Player;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -95,11 +97,19 @@ class CombatScopeServiceTest {
         assertTrue(scopes.latch(playerId).isEmpty());
     }
 
-    @Test void worldGuardQueryFailureDoesNotBroadenRestriction() {
+    @Test void worldGuardQueryFailureDoesNotBroadenRestrictionAndWarnsOnce() {
+        List<String> warnings = new ArrayList<>();
+        scopes = new CombatScopeService(combat, worldGuard, warnings::add);
         when(worldGuard.warzoneCombatZoneAllowed(inside, player))
                 .thenThrow(new IllegalStateException("unavailable"));
+
         assertFalse(scopes.acquireIfEligible(player, inside));
+        assertFalse(scopes.acquireIfEligible(player, inside));
+
         assertTrue(scopes.latch(playerId).isEmpty());
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.getFirst().contains("failed closed"));
+        assertTrue(warnings.getFirst().contains("IllegalStateException: unavailable"));
     }
 
     @Test void clearModelsDeathLogoutUntagAndReloadCleanup() {

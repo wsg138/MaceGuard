@@ -15,6 +15,7 @@ import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.when;
 
@@ -75,10 +77,14 @@ class DirectCombatLogXGatewayTest {
         gateway.register(lifecycle);
 
         Player player = mock(Player.class);
+        UUID playerId = UUID.randomUUID();
         Location source = mock(Location.class);
         Location captured = mock(Location.class);
         PlayerTagEvent event = mock(PlayerTagEvent.class);
         when(event.getPlayer()).thenReturn(player);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.isOnline()).thenReturn(true);
+        when(server.getPlayer(playerId)).thenReturn(player);
         when(player.getLocation()).thenReturn(source);
         when(source.clone()).thenReturn(captured);
         AtomicReference<Runnable> deferred = new AtomicReference<>();
@@ -91,6 +97,45 @@ class DirectCombatLogXGatewayTest {
         deferred.get().run();
 
         verify(lifecycle).tagged(player, captured);
+    }
+
+    @Test void deferredTagCannotCrossAReconnectSession() {
+        JavaPlugin owner = mock(JavaPlugin.class);
+        Server server = mock(Server.class);
+        PluginManager pluginManager = mock(PluginManager.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        when(owner.getServer()).thenReturn(server);
+        when(server.getPluginManager()).thenReturn(pluginManager);
+        when(server.getScheduler()).thenReturn(scheduler);
+
+        Plugin candidate = combatLogXPlugin();
+        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(mock(ICombatManager.class));
+        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
+        gateway.register(lifecycle);
+
+        Player original = mock(Player.class);
+        Player replacement = mock(Player.class);
+        UUID playerId = UUID.randomUUID();
+        Location source = mock(Location.class);
+        Location captured = mock(Location.class);
+        PlayerTagEvent event = mock(PlayerTagEvent.class);
+        when(event.getPlayer()).thenReturn(original);
+        when(original.getUniqueId()).thenReturn(playerId);
+        when(original.isOnline()).thenReturn(true);
+        when(server.getPlayer(playerId)).thenReturn(replacement);
+        when(original.getLocation()).thenReturn(source);
+        when(source.clone()).thenReturn(captured);
+        AtomicReference<Runnable> deferred = new AtomicReference<>();
+        when(scheduler.runTask(eq(owner), any(Runnable.class))).thenAnswer(invocation -> {
+            deferred.set(invocation.getArgument(1));
+            return mock(BukkitTask.class);
+        });
+
+        gateway.onTag(event);
+        deferred.get().run();
+
+        verifyNoInteractions(lifecycle);
     }
 
     @Test void forwardsPostRemovalUntagImmediately() {
