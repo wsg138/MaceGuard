@@ -2,13 +2,12 @@ package com.lincoln.maceguard.warzone.combat;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Bounded launch cache and ordered impact correlation for PDC-marked Ender Pearls. */
 public final class StasisPearlTracker {
@@ -22,15 +21,12 @@ public final class StasisPearlTracker {
     private static final int MIN_AMBIGUOUS_CANDIDATES = 2;
     private static final int MIN_RETAINED_OVERFLOW_COUNT = 2;
 
-    // Bukkit-primary-thread state. PDC remains authoritative if this bounded accelerator evicts.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
-    private final Map<UUID, Launch> launches = new HashMap<>();
-    // Bukkit-primary-thread ordered queues preserve verified callback order.
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
-    private final Map<UUID, ArrayDeque<Impact>> impacts = new HashMap<>();
+    /** PDC remains authoritative if this bounded accelerator evicts. */
+    private final Map<UUID, Launch> launches = new ConcurrentHashMap<>();
+    /** Per-owner callback order is retained by each ArrayDeque, not by this owner lookup map. */
+    private final Map<UUID, ArrayDeque<Impact>> impacts = new ConcurrentHashMap<>();
     /** One count-based overflow bucket per affected owner/world; memory does not grow per impact. */
-    @SuppressWarnings("PMD.UseConcurrentHashMap")
-    private final Map<UUID, Map<UUID, Overflow>> overflow = new HashMap<>();
+    private final Map<UUID, Map<UUID, Overflow>> overflow = new ConcurrentHashMap<>();
     private long nextSequence;
 
     public void launched(UUID pearlId, UUID ownerId, long launchEpochMillis, long launchNanos) {
@@ -116,7 +112,7 @@ public final class StasisPearlTracker {
                                      Impact selectedImpact, Position destination,
                                      int candidateCount, boolean anyEnforce) {
         ownerImpacts.remove(selectedImpact);
-        if (ownerImpacts.isEmpty()) impacts.remove(ownerId);
+        if (ownerImpacts.isEmpty()) impacts.remove(ownerId, ownerImpacts);
         boolean distanceMatched = selectedImpact.position().distanceSquared(destination)
                 <= DIAGNOSTIC_DISTANCE_SQUARED;
         return new Correlation(Optional.of(selectedImpact), selectedImpact.pearlId(), anyEnforce,
@@ -166,7 +162,10 @@ public final class StasisPearlTracker {
     public void clearOwner(UUID ownerId) {
         impacts.remove(ownerId);
         overflow.remove(ownerId);
-        launches.entrySet().removeIf(entry -> entry.getValue().ownerId().equals(ownerId));
+        for (Map.Entry<UUID, Launch> entry : launches.entrySet()) {
+            if (entry.getValue().ownerId().equals(ownerId))
+                launches.remove(entry.getKey(), entry.getValue());
+        }
     }
 
     /**
@@ -176,9 +175,7 @@ public final class StasisPearlTracker {
      * lifecycle cleanup clears the affected owner; neither time nor tick lag creates a bypass.
      */
     public void cleanup(long nowNanos) {
-        Iterator<Map.Entry<UUID, ArrayDeque<Impact>>> impactIterator = impacts.entrySet().iterator();
-        while (impactIterator.hasNext()) {
-            Map.Entry<UUID, ArrayDeque<Impact>> entry = impactIterator.next();
+        for (Map.Entry<UUID, ArrayDeque<Impact>> entry : impacts.entrySet()) {
             ArrayDeque<Impact> ownerImpacts = entry.getValue();
             Iterator<Impact> values = ownerImpacts.iterator();
             while (values.hasNext()) {
@@ -187,14 +184,15 @@ public final class StasisPearlTracker {
                 values.remove();
                 addOverflow(entry.getKey(), impact, true, EXPIRED_IMPACT_MAX_TICK_LAG);
             }
-            if (ownerImpacts.isEmpty()) impactIterator.remove();
+            if (ownerImpacts.isEmpty()) impacts.remove(entry.getKey(), ownerImpacts);
         }
-        Iterator<Map.Entry<UUID, Map<UUID, Overflow>>> overflowIterator =
-                overflow.entrySet().iterator();
-        while (overflowIterator.hasNext()) {
-            Map<UUID, Overflow> values = overflowIterator.next().getValue();
-            values.entrySet().removeIf(entry -> entry.getValue().count() <= 0);
-            if (values.isEmpty()) overflowIterator.remove();
+        for (Map.Entry<UUID, Map<UUID, Overflow>> ownerEntry : overflow.entrySet()) {
+            Map<UUID, Overflow> values = ownerEntry.getValue();
+            for (Map.Entry<UUID, Overflow> entry : values.entrySet()) {
+                if (entry.getValue().count() <= 0)
+                    values.remove(entry.getKey(), entry.getValue());
+            }
+            if (values.isEmpty()) overflow.remove(ownerEntry.getKey(), values);
         }
     }
 
@@ -210,7 +208,7 @@ public final class StasisPearlTracker {
 
     private void addOverflow(UUID ownerId, Impact impact, boolean forceEnforce, long maxTickLag) {
         Map<UUID, Overflow> byWorld = overflow.computeIfAbsent(ownerId,
-                ignored -> new LinkedHashMap<>());
+                ignored -> new ConcurrentHashMap<>());
         UUID worldId = impact.position().worldId();
         Overflow existing = byWorld.get(worldId);
         boolean enforce = forceEnforce || impact.enforce();
@@ -228,7 +226,7 @@ public final class StasisPearlTracker {
         if (selected.count() >= MIN_RETAINED_OVERFLOW_COUNT)
             values.put(selected.worldId(), selected.withCount(selected.count() - 1));
         else values.remove(selected.worldId());
-        if (values.isEmpty()) overflow.remove(ownerId);
+        if (values.isEmpty()) overflow.remove(ownerId, values);
     }
 
     private void evictOldestForOwner(UUID ownerId) {
