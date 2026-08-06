@@ -25,6 +25,11 @@ import java.util.Locale;
 
 /** Central player-facing feedback for all Warzone restrictions and cooldowns. */
 public final class WarzoneMessageService {
+    private static final long MILLIS_PER_TENTH = 100L;
+    private static final long TENTHS_PER_SECOND = 10L;
+    private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
+    private static final long MILLIS_PER_SECOND = 1_000L;
+
     private final MiniMessage mini = MiniMessage.miniMessage();
     private final PlainTextComponentSerializer plain =
             PlainTextComponentSerializer.plainText();
@@ -182,7 +187,7 @@ public final class WarzoneMessageService {
     public String rotationWarning() { return templates.rotationWarning(); }
 
     public void cleanup() {
-        denialThrottle.discardOlderThan(clock.millis() - Math.max(1_000L,
+        denialThrottle.discardOlderThan(clock.millis() - Math.max(MILLIS_PER_SECOND,
                 config.messages().blockedMessageCooldown().toMillis()));
     }
 
@@ -209,10 +214,12 @@ public final class WarzoneMessageService {
     public static String playerDuration(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return "0 seconds";
         long millis = duration.toMillis();
-        long tenths = Math.max(1L, divideCeil(millis, 100L));
-        if (tenths < 100L && tenths % 10L != 0L)
-            return "%d.%d seconds".formatted(tenths / 10L, tenths % 10L);
-        long seconds = tenths < 100L ? tenths / 10L : divideCeil(millis, 1_000L);
+        long tenths = Math.max(1L, divideCeil(millis, MILLIS_PER_TENTH));
+        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS && tenths % TENTHS_PER_SECOND != 0L)
+            return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
+                    tenths % TENTHS_PER_SECOND);
+        long seconds = tenths < DECIMAL_SECONDS_LIMIT_TENTHS
+                ? tenths / TENTHS_PER_SECOND : divideCeil(millis, MILLIS_PER_SECOND);
         return seconds == 1L ? "1 second" : seconds + " seconds";
     }
 
@@ -222,30 +229,36 @@ public final class WarzoneMessageService {
     }
 
     private FeedbackText feedback(RestrictionTarget target, Material actualMaterial) {
-        if (target == null) return new FeedbackText("Item", "Ability", "using this item again",
-                "You can use this item again");
-        if (target == RestrictionTarget.SPEAR_DAMAGE)
-            return new FeedbackText("Spear", "Spear Damage", "dealing Spear damage again",
-                    "You can deal Spear damage again");
-        if (target == RestrictionTarget.SPEAR_LUNGE)
-            return new FeedbackText("Spear", "Spear Lunge", "Lunging again",
+        if (target == null) return genericFeedback();
+        return switch (target.kind()) {
+            case SPEAR_DAMAGE -> new FeedbackText("Spear", "Spear Damage",
+                    "dealing Spear damage again", "You can deal Spear damage again");
+            case SPEAR_LUNGE -> new FeedbackText("Spear", "Spear Lunge", "Lunging again",
                     "You can Lunge again");
-        if (target == RestrictionTarget.SPEAR)
-            return new FeedbackText("Spear", "Spear", "using your Spear again",
+            case SPEAR_GROUP -> new FeedbackText("Spear", "Spear", "using your Spear again",
                     "You can use your Spear again");
-        Material material = actualMaterial != null ? actualMaterial : target.material();
+            case MATERIAL -> materialFeedback(
+                    actualMaterial != null ? actualMaterial : target.material());
+        };
+    }
+
+    private FeedbackText materialFeedback(Material material) {
         String item = friendly(material);
-        if (material == Material.ENDER_PEARL)
-            return new FeedbackText(item, item, "throwing another Ender Pearl",
-                    "You can throw another Ender Pearl");
-        if (material == Material.WIND_CHARGE)
-            return new FeedbackText(item, item, "using another Wind Charge",
-                    "You can use another Wind Charge");
-        if (material == Material.MACE)
-            return new FeedbackText(item, item, "using your Mace again",
+        return switch (material) {
+            case ENDER_PEARL -> new FeedbackText(item, item,
+                    "throwing another Ender Pearl", "You can throw another Ender Pearl");
+            case WIND_CHARGE -> new FeedbackText(item, item,
+                    "using another Wind Charge", "You can use another Wind Charge");
+            case MACE -> new FeedbackText(item, item, "using your Mace again",
                     "You can use your Mace again");
-        return new FeedbackText(item, item, "using " + item + " again",
-                "You can use " + item + " again");
+            default -> new FeedbackText(item, item, "using " + item + " again",
+                    "You can use " + item + " again");
+        };
+    }
+
+    private FeedbackText genericFeedback() {
+        return new FeedbackText("Item", "Ability", "using this item again",
+                "You can use this item again");
     }
 
     private static long divideCeil(long value, long divisor) {

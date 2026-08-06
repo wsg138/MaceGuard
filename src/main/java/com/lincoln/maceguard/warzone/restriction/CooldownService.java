@@ -16,7 +16,9 @@ import java.util.function.Predicate;
 /** Authoritative MaceGuard cooldown state. Bukkit item cooldowns are only a visual projection. */
 public final class CooldownService {
     private final LongSupplier clock;
-    private final Map<Key, ActiveCooldown> active = new HashMap<>();
+    // Bukkit listeners and scheduled maintenance invoke this state on the primary server thread.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    private final Map<Key, ActiveCooldown> activeCooldowns = new HashMap<>();
 
     public CooldownService(LongSupplier clock) { this.clock = clock; }
 
@@ -28,16 +30,17 @@ public final class CooldownService {
                       Material concreteMaterial) {
         long expiry = Math.addExact(clock.getAsLong(), duration.toMillis());
         Material visualMaterial = normalizeConcreteMaterial(target, concreteMaterial);
-        active.put(new Key(playerId, target), new ActiveCooldown(expiry, visualMaterial));
+        activeCooldowns.put(new Key(playerId, target),
+                new ActiveCooldown(expiry, visualMaterial));
     }
 
     public Duration remaining(UUID playerId, RestrictionTarget target) {
         Key key = new Key(playerId, target);
-        ActiveCooldown cooldown = active.get(key);
+        ActiveCooldown cooldown = activeCooldowns.get(key);
         if (cooldown == null) return Duration.ZERO;
         long remaining = cooldown.expiresAtMillis() - clock.getAsLong();
         if (remaining <= 0) {
-            active.remove(key);
+            activeCooldowns.remove(key);
             return Duration.ZERO;
         }
         return Duration.ofMillis(remaining);
@@ -45,7 +48,7 @@ public final class CooldownService {
 
     public Map<RestrictionTarget, Duration> activeFor(UUID playerId) {
         Map<RestrictionTarget, Duration> result = new LinkedHashMap<>();
-        for (Key key : Set.copyOf(active.keySet())) {
+        for (Key key : Set.copyOf(activeCooldowns.keySet())) {
             if (!key.playerId().equals(playerId)) continue;
             Duration remaining = remaining(playerId, key.target());
             if (!remaining.isZero()) result.put(key.target(), remaining);
@@ -60,12 +63,14 @@ public final class CooldownService {
 
     public Map<Material, Duration> activeVisualsFor(UUID playerId,
                                                      Predicate<RestrictionTarget> included) {
+        // This deterministic aggregation is method-local and is never shared across threads.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
         Map<Material, Duration> result = new LinkedHashMap<>();
-        for (Key key : Set.copyOf(active.keySet())) {
+        for (Key key : Set.copyOf(activeCooldowns.keySet())) {
             if (!key.playerId().equals(playerId) || !included.test(key.target())) continue;
             Duration remaining = remaining(playerId, key.target());
             if (remaining.isZero()) continue;
-            ActiveCooldown cooldown = active.get(key);
+            ActiveCooldown cooldown = activeCooldowns.get(key);
             if (cooldown == null || cooldown.visualMaterial() == null) continue;
             result.merge(cooldown.visualMaterial(), remaining,
                     (left, right) -> left.compareTo(right) >= 0 ? left : right);
@@ -75,7 +80,7 @@ public final class CooldownService {
 
     public Material concreteMaterial(UUID playerId, RestrictionTarget target) {
         if (remaining(playerId, target).isZero()) return null;
-        ActiveCooldown cooldown = active.get(new Key(playerId, target));
+        ActiveCooldown cooldown = activeCooldowns.get(new Key(playerId, target));
         return cooldown == null ? null : cooldown.visualMaterial();
     }
 
@@ -86,7 +91,8 @@ public final class CooldownService {
     public int discardExpired() {
         long now = clock.getAsLong();
         int removed = 0;
-        Iterator<Map.Entry<Key, ActiveCooldown>> iterator = active.entrySet().iterator();
+        Iterator<Map.Entry<Key, ActiveCooldown>> iterator =
+                activeCooldowns.entrySet().iterator();
         while (iterator.hasNext()) {
             if (iterator.next().getValue().expiresAtMillis() > now) continue;
             iterator.remove();
@@ -97,7 +103,7 @@ public final class CooldownService {
 
     public Snapshot snapshot() {
         discardExpired();
-        return new Snapshot(active.entrySet().stream()
+        return new Snapshot(activeCooldowns.entrySet().stream()
                 .map(entry -> new SnapshotEntry(entry.getKey().playerId(),
                         entry.getKey().target(), entry.getValue().expiresAtMillis(),
                         entry.getValue().visualMaterial()))
@@ -106,7 +112,7 @@ public final class CooldownService {
 
     /** Restores only still-configured cooldown targets, clamping to any shorter new duration. */
     public void restore(Snapshot snapshot, Map<RestrictionTarget, Duration> allowedDurations) {
-        active.clear();
+        activeCooldowns.clear();
         long now = clock.getAsLong();
         for (SnapshotEntry entry : snapshot.entries()) {
             Duration maximum = allowedDurations.get(entry.target());
@@ -120,7 +126,7 @@ public final class CooldownService {
     }
 
     private void restoreEntry(SnapshotEntry entry, long expiry) {
-        active.put(new Key(entry.playerId(), entry.target()), new ActiveCooldown(expiry,
+        activeCooldowns.put(new Key(entry.playerId(), entry.target()), new ActiveCooldown(expiry,
                 normalizeConcreteMaterial(entry.target(), entry.concreteMaterial())));
     }
 
@@ -131,11 +137,11 @@ public final class CooldownService {
         return null;
     }
 
-    public void clear() { active.clear(); }
+    public void clear() { activeCooldowns.clear(); }
     public void clearTargets(Set<RestrictionTarget> targets) {
-        active.keySet().removeIf(key -> targets.contains(key.target()));
+        activeCooldowns.keySet().removeIf(key -> targets.contains(key.target()));
     }
-    public int size() { discardExpired(); return active.size(); }
+    public int size() { discardExpired(); return activeCooldowns.size(); }
 
     public record Snapshot(List<SnapshotEntry> entries) {
         public Snapshot { entries = List.copyOf(entries); }

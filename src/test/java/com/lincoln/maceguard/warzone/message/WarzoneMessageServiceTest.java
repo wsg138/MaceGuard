@@ -34,6 +34,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class WarzoneMessageServiceTest {
+    private static final String MACE_TARGET = "MACE";
+    private static final String PEARL_TARGET = "ENDER_PEARL";
+
     private final MutableClock clock = new MutableClock(1_000L);
     private final Player player = mock(Player.class);
     private WarzoneMessageService messages;
@@ -71,13 +74,13 @@ class WarzoneMessageServiceTest {
     }
 
     @Test void disabledItemSendsOneClearMessage() {
-        messages.denial(player, decision(target("MACE"), RestrictionMode.DISABLED,
+        messages.denial(player, decision(target(MACE_TARGET), RestrictionMode.DISABLED,
                 RestrictionDecision.Result.DISABLED, Duration.ZERO, Duration.ZERO), Material.MACE);
         assertEquals("Mace is disabled during No Mace.", onlyMessage());
     }
 
     @Test void activeCooldownUsesAuthoritativeRoundedUpRemainingTime() {
-        messages.denial(player, decision(target("ENDER_PEARL"), RestrictionMode.COOLDOWN,
+        messages.denial(player, decision(target(PEARL_TARGET), RestrictionMode.COOLDOWN,
                 RestrictionDecision.Result.COOLDOWN_ACTIVE, Duration.ofSeconds(5),
                 Duration.ofMillis(3_301)), Material.ENDER_PEARL);
         assertEquals("You must wait 3.4 seconds before throwing another Ender Pearl.",
@@ -92,7 +95,7 @@ class WarzoneMessageServiceTest {
     }
 
     @Test void maceSpearDamageAndLungeUseIndependentActionLanguage() {
-        messages.cooldownStarted(player, ready(target("MACE")), Material.MACE);
+        messages.cooldownStarted(player, ready(target(MACE_TARGET)), Material.MACE);
         messages.cooldownStarted(player, ready(RestrictionTarget.SPEAR_DAMAGE), null);
         messages.cooldownStarted(player, ready(RestrictionTarget.SPEAR_LUNGE), null);
         assertEquals(List.of(
@@ -101,8 +104,24 @@ class WarzoneMessageServiceTest {
                 "You can Lunge again in 10 seconds."), allMessages());
     }
 
+    @Test void wholeSpearAndGenericMaterialKeepDistinctFeedbackWording() {
+        messages.cooldownStarted(player, ready(RestrictionTarget.SPEAR), Material.IRON_SPEAR);
+        messages.cooldownStarted(player, ready(target("DIAMOND_SWORD")), Material.DIAMOND_SWORD);
+        assertEquals(List.of(
+                "You can use your Spear again in 10 seconds.",
+                "You can use Diamond Sword again in 10 seconds."), allMessages());
+    }
+
+    @Test void nullFeedbackContextUsesSafeGenericPlaceholders() {
+        Component rendered = messages.render(
+                "<item>|<ability>|<action>|<ready_action>", null, null,
+                Duration.ZERO, Duration.ZERO);
+        assertEquals("Item|Ability|using this item again|You can use this item again",
+                PlainTextComponentSerializer.plainText().serialize(rendered));
+    }
+
     @Test void firstDenialAlwaysSendsAndRapidDuplicateIsBounded() {
-        RestrictionDecision active = decision(target("MACE"), RestrictionMode.COOLDOWN,
+        RestrictionDecision active = decision(target(MACE_TARGET), RestrictionMode.COOLDOWN,
                 RestrictionDecision.Result.COOLDOWN_ACTIVE, Duration.ofSeconds(10),
                 Duration.ofSeconds(8));
         messages.denial(player, active, Material.MACE);
@@ -114,8 +133,8 @@ class WarzoneMessageServiceTest {
     }
 
     @Test void differentTargetsHaveIndependentThrottleKeys() {
-        messages.denial(player, active(target("MACE")), Material.MACE);
-        messages.denial(player, active(target("ENDER_PEARL")), Material.ENDER_PEARL);
+        messages.denial(player, active(target(MACE_TARGET)), Material.MACE);
+        messages.denial(player, active(target(PEARL_TARGET)), Material.ENDER_PEARL);
         assertEquals(2, allMessages().size());
     }
 
@@ -156,9 +175,9 @@ class WarzoneMessageServiceTest {
     }
 
     private String onlyMessage() {
-        List<String> messages = allMessages();
-        assertEquals(1, messages.size());
-        return messages.getFirst();
+        List<String> capturedMessages = allMessages();
+        assertEquals(1, capturedMessages.size());
+        return capturedMessages.getFirst();
     }
 
     private List<String> allMessages() {
@@ -181,12 +200,12 @@ class WarzoneMessageServiceTest {
     }
 
     private static final class MutableClock extends Clock {
-        private long millis;
-        private MutableClock(long millis) { this.millis = millis; }
-        void advance(long amount) { millis += amount; }
+        private long currentMillis;
+        private MutableClock(long millis) { currentMillis = millis; }
+        void advance(long amount) { currentMillis += amount; }
         @Override public ZoneId getZone() { return ZoneOffset.UTC; }
         @Override public Clock withZone(ZoneId zone) { return this; }
-        @Override public Instant instant() { return Instant.ofEpochMilli(millis); }
-        @Override public long millis() { return millis; }
+        @Override public Instant instant() { return Instant.ofEpochMilli(currentMillis); }
+        @Override public long millis() { return currentMillis; }
     }
 }

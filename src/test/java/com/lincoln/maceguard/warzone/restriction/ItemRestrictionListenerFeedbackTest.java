@@ -34,15 +34,17 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class ItemRestrictionListenerFeedbackTest {
+    private static final String PEARL_TARGET = "ENDER_PEARL";
+    private static final String MACE_TARGET = "MACE";
+
     @Test void successfulPearlLaunchStartsCooldownOverlayAndOneMessage() {
-        Harness harness = harness(Material.ENDER_PEARL, RestrictionTarget.parse("ENDER_PEARL")
-                .orElseThrow(), RestrictionMode.COOLDOWN);
+        Harness harness = harness(target(PEARL_TARGET), RestrictionMode.COOLDOWN);
         Launch launch = launch(harness.player, Material.ENDER_PEARL);
 
         harness.listener.onAcceptedPlayerLaunch(launch.accepted);
         harness.listener.onProjectileLaunchFinalized(launch.finalized(false));
 
-        assertTrue(harness.cooldowns.active(harness.playerId, target("ENDER_PEARL")));
+        assertTrue(harness.cooldowns.active(harness.playerId, target(PEARL_TARGET)));
         verify(harness.messages, times(1)).cooldownStarted(eq(harness.player),
                 any(RestrictionDecision.class), eq(Material.ENDER_PEARL));
         verify(harness.visuals, times(1)).apply(eq(harness.player),
@@ -50,8 +52,7 @@ class ItemRestrictionListenerFeedbackTest {
     }
 
     @Test void anotherPluginCancellationStartsNothingAndSendsNoStartMessage() {
-        Harness harness = harness(Material.ENDER_PEARL, target("ENDER_PEARL"),
-                RestrictionMode.COOLDOWN);
+        Harness harness = harness(target(PEARL_TARGET), RestrictionMode.COOLDOWN);
         Launch launch = launch(harness.player, Material.ENDER_PEARL);
         when(launch.projectile.getPersistentDataContainer())
                 .thenReturn(mock(PersistentDataContainer.class));
@@ -59,18 +60,17 @@ class ItemRestrictionListenerFeedbackTest {
         harness.listener.onAcceptedPlayerLaunch(launch.accepted);
         harness.listener.onProjectileLaunchFinalized(launch.finalized(true));
 
-        assertFalse(harness.cooldowns.active(harness.playerId, target("ENDER_PEARL")));
+        assertFalse(harness.cooldowns.active(harness.playerId, target(PEARL_TARGET)));
         verify(harness.messages, never()).cooldownStarted(any(), any(), any());
         verify(harness.visuals, never()).apply(any(), any(), any());
     }
 
     @Test void activePearlCooldownPreservesItemAndReportsRemainingWithoutRestarting() {
-        Harness harness = harness(Material.ENDER_PEARL, target("ENDER_PEARL"),
-                RestrictionMode.COOLDOWN);
+        Harness harness = harness(target(PEARL_TARGET), RestrictionMode.COOLDOWN);
         RestrictionDecision ready = harness.restrictions.material(harness.playerId,
                 Material.ENDER_PEARL, false, true, false);
         harness.restrictions.success(harness.playerId, ready, Material.ENDER_PEARL);
-        Duration before = harness.cooldowns.remaining(harness.playerId, target("ENDER_PEARL"));
+        Duration before = harness.cooldowns.remaining(harness.playerId, target(PEARL_TARGET));
         PlayerLaunchProjectileEvent event = mock(PlayerLaunchProjectileEvent.class);
         ItemStack item = mock(ItemStack.class);
         when(item.getType()).thenReturn(Material.ENDER_PEARL);
@@ -84,12 +84,11 @@ class ItemRestrictionListenerFeedbackTest {
         verify(harness.messages).denial(eq(harness.player),
                 argThat(RestrictionDecision::denied), eq(Material.ENDER_PEARL));
         assertEquals(before, harness.cooldowns.remaining(harness.playerId,
-                target("ENDER_PEARL")));
+                target(PEARL_TARGET)));
     }
 
     @Test void successfulWindChargeLaunchHasNoInteractionLaunchDuplicate() {
-        Harness harness = harness(Material.WIND_CHARGE, target("WIND_CHARGE"),
-                RestrictionMode.COOLDOWN);
+        Harness harness = harness(target("WIND_CHARGE"), RestrictionMode.COOLDOWN);
         Launch launch = launch(harness.player, Material.WIND_CHARGE);
         harness.listener.onAcceptedPlayerLaunch(launch.accepted);
         harness.listener.onProjectileLaunchFinalized(launch.finalized(false));
@@ -108,25 +107,25 @@ class ItemRestrictionListenerFeedbackTest {
     }
 
     @Test void positiveMaceDamageStartsCooldownButZeroDamageDoesNot() {
-        Harness positive = harness(Material.MACE, target("MACE"), RestrictionMode.COOLDOWN);
+        Harness positive = harness(target(MACE_TARGET), RestrictionMode.COOLDOWN);
         damageItem(positive.player, Material.MACE);
         EntityDamageByEntityEvent hit = damageEvent(positive.player, 4.0D);
         positive.listener.onDirectDamage(hit);
         positive.listener.onSuccessfulDirectDamage(hit);
         verify(positive.messages).cooldownStarted(eq(positive.player),
                 any(RestrictionDecision.class), eq(Material.MACE));
-        assertTrue(positive.cooldowns.active(positive.playerId, target("MACE")));
+        assertTrue(positive.cooldowns.active(positive.playerId, target(MACE_TARGET)));
 
-        Harness zero = harness(Material.MACE, target("MACE"), RestrictionMode.COOLDOWN);
+        Harness zero = harness(target(MACE_TARGET), RestrictionMode.COOLDOWN);
         damageItem(zero.player, Material.MACE);
         EntityDamageByEntityEvent zeroHit = damageEvent(zero.player, 0.0D);
         zero.listener.onSuccessfulDirectDamage(zeroHit);
         verify(zero.messages, never()).cooldownStarted(any(), any(), any());
-        assertFalse(zero.cooldowns.active(zero.playerId, target("MACE")));
+        assertFalse(zero.cooldowns.active(zero.playerId, target(MACE_TARGET)));
     }
 
     @Test void disabledMaceReportsDisabledInsteadOfCountdown() {
-        Harness harness = harness(Material.MACE, target("MACE"), RestrictionMode.DISABLED);
+        Harness harness = harness(target(MACE_TARGET), RestrictionMode.DISABLED);
         damageItem(harness.player, Material.MACE);
         EntityDamageByEntityEvent event = damageEvent(harness.player, 4.0D);
         harness.listener.onDirectDamage(event);
@@ -138,8 +137,7 @@ class ItemRestrictionListenerFeedbackTest {
     }
 
     @Test void wholeSpearMeleeUsesConcreteMaterialAndSpearDamageRemainsIndependent() {
-        Harness whole = harness(Material.IRON_SPEAR, RestrictionTarget.SPEAR,
-                RestrictionMode.COOLDOWN);
+        Harness whole = harness(RestrictionTarget.SPEAR, RestrictionMode.COOLDOWN);
         damageItem(whole.player, Material.IRON_SPEAR);
         EntityDamageByEntityEvent wholeHit = damageEvent(whole.player, 4.0D);
         whole.listener.onSuccessfulDirectDamage(wholeHit);
@@ -148,8 +146,7 @@ class ItemRestrictionListenerFeedbackTest {
         verify(whole.messages).cooldownStarted(eq(whole.player), any(),
                 eq(Material.IRON_SPEAR));
 
-        Harness damage = harness(Material.IRON_SPEAR, RestrictionTarget.SPEAR_DAMAGE,
-                RestrictionMode.COOLDOWN);
+        Harness damage = harness(RestrictionTarget.SPEAR_DAMAGE, RestrictionMode.COOLDOWN);
         damageItem(damage.player, Material.IRON_SPEAR);
         EntityDamageByEntityEvent damageHit = damageEvent(damage.player, 4.0D);
         damage.listener.onSuccessfulDirectDamage(damageHit);
@@ -178,7 +175,7 @@ class ItemRestrictionListenerFeedbackTest {
         verifyNoInteractions(harness.visuals);
     }
 
-    private Harness harness(Material material, RestrictionTarget target, RestrictionMode mode) {
+    private Harness harness(RestrictionTarget target, RestrictionMode mode) {
         Duration cooldown = mode == RestrictionMode.COOLDOWN ? Duration.ofSeconds(10) : Duration.ZERO;
         return harness(Map.of(target, new WarzoneConfig.Restriction(target, mode, cooldown)));
     }
