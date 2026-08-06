@@ -224,24 +224,29 @@ public final class WarzoneMessageService {
     /** Readable, deterministic and rounded upward so an active denial never displays zero. */
     public static String playerDuration(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return "0 seconds";
-        long secondsPart = duration.getSeconds();
-        int nanosPart = duration.getNano();
-        if (secondsPart < TENTHS_PER_SECOND) {
-            long tenths = secondsPart * TENTHS_PER_SECOND
-                    + divideCeil(nanosPart, NANOS_PER_TENTH);
-            tenths = Math.max(ONE, tenths);
-            if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS
-                    && tenths % TENTHS_PER_SECOND != ZERO)
-                return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
-                        tenths % TENTHS_PER_SECOND);
-            if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS)
-                return tenths == TENTHS_PER_SECOND ? "1 second"
-                        : tenths / TENTHS_PER_SECOND + " seconds";
-        }
-        BigInteger roundedSeconds = BigInteger.valueOf(secondsPart);
-        if (nanosPart != ZERO) roundedSeconds = roundedSeconds.add(BigInteger.ONE);
-        return roundedSeconds.equals(BigInteger.ONE) ? "1 second"
-                : roundedSeconds + " seconds";
+        return duration.getSeconds() < TENTHS_PER_SECOND
+                ? subTenSecondDuration(duration) : wholeSecondDuration(duration);
+    }
+
+    private static String subTenSecondDuration(Duration duration) {
+        long tenths = duration.getSeconds() * TENTHS_PER_SECOND
+                + divideCeil(duration.getNano(), NANOS_PER_TENTH);
+        tenths = Math.max(ONE, tenths);
+        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS
+                && tenths % TENTHS_PER_SECOND != ZERO)
+            return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
+                    tenths % TENTHS_PER_SECOND);
+        return wholeSeconds(BigInteger.valueOf(divideCeil(tenths, TENTHS_PER_SECOND)));
+    }
+
+    private static String wholeSecondDuration(Duration duration) {
+        BigInteger seconds = BigInteger.valueOf(duration.getSeconds());
+        if (duration.getNano() != ZERO) seconds = seconds.add(BigInteger.ONE);
+        return wholeSeconds(seconds);
+    }
+
+    private static String wholeSeconds(BigInteger seconds) {
+        return seconds.equals(BigInteger.ONE) ? "1 second" : seconds + " seconds";
     }
 
     private Duration totalCooldown(RestrictionDecision decision) {

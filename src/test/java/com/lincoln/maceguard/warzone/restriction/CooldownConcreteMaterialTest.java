@@ -31,18 +31,19 @@ class CooldownConcreteMaterialTest {
                 .filter(RestrictionTarget::isSpear)
                 .toList();
         assertFalse(spearMaterials.isEmpty(), "Paper API must expose concrete Spear materials.");
+        spearMaterials.forEach(this::assertSharedSpearAuthorityAndOverlay);
+    }
 
-        for (Material material : spearMaterials) {
-            CooldownService cooldowns = new CooldownService(() -> 1_000L);
-            UUID player = UUID.randomUUID();
-            cooldowns.start(player, RestrictionTarget.SPEAR, Duration.ofSeconds(10), material);
+    private void assertSharedSpearAuthorityAndOverlay(Material material) {
+        CooldownService cooldowns = new CooldownService(() -> 1_000L);
+        UUID player = UUID.randomUUID();
+        cooldowns.start(player, RestrictionTarget.SPEAR, Duration.ofSeconds(10), material);
 
-            assertTrue(cooldowns.active(player, RestrictionTarget.SPEAR), material.name());
-            assertEquals(material,
-                    cooldowns.concreteMaterial(player, RestrictionTarget.SPEAR), material.name());
-            assertEquals(Map.of(material, Duration.ofSeconds(10)),
-                    cooldowns.activeVisualsFor(player), material.name());
-        }
+        assertTrue(cooldowns.active(player, RestrictionTarget.SPEAR), material.name());
+        assertEquals(material,
+                cooldowns.concreteMaterial(player, RestrictionTarget.SPEAR), material.name());
+        assertEquals(Map.of(material, Duration.ofSeconds(10)),
+                cooldowns.activeVisualsFor(player), material.name());
     }
 
     @Test void wholeSpearConcreteMaterialSurvivesReloadAndClamping() {
