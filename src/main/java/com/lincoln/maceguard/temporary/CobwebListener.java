@@ -12,6 +12,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 
 public final class CobwebListener implements Listener {
+    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+
     private final WorldGuardQueryService worldGuard;
     private final WarzoneModule warzone;
     private final TemporaryBlockService temporary;
@@ -38,6 +40,7 @@ public final class CobwebListener implements Listener {
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
         var location = event.getBlockPlaced().getLocation();
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);

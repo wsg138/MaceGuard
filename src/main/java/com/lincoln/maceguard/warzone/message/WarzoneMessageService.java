@@ -17,6 +17,7 @@ import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.math.BigInteger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,12 +26,13 @@ import java.util.Locale;
 
 /** Central player-facing feedback for all Warzone restrictions and cooldowns. */
 public final class WarzoneMessageService {
+    private static final int EQUAL = 0;
     private static final long ZERO = 0L;
     private static final long ONE = 1L;
-    private static final long MILLIS_PER_TENTH = 100L;
     private static final long TENTHS_PER_SECOND = 10L;
     private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
-    private static final long MILLIS_PER_SECOND = 1_000L;
+    private static final int NANOS_PER_TENTH = 100_000_000;
+    private static final Duration MINIMUM_THROTTLE_RETENTION = Duration.ofSeconds(1);
 
     private final MiniMessage mini = MiniMessage.miniMessage();
     private final PlainTextComponentSerializer plain =
@@ -118,6 +120,10 @@ public final class WarzoneMessageService {
     }
 
     private void policyDenied(Player player, Material material, String template) {
+        if (material == null) {
+            player.sendMessage(render(template, null, null, Duration.ZERO, Duration.ZERO));
+            return;
+        }
         RestrictionTarget target = RestrictionTarget.parse(material.name()).orElseThrow();
         if (!acquire(player, target)) return;
         player.sendMessage(render(template, target, material, Duration.ZERO, Duration.ZERO));
@@ -189,8 +195,11 @@ public final class WarzoneMessageService {
     public String rotationWarning() { return templates.rotationWarning(); }
 
     public void cleanup() {
-        denialThrottle.discardOlderThan(clock.millis() - Math.max(MILLIS_PER_SECOND,
-                config.messages().blockedMessageCooldown().toMillis()));
+        Duration configured = config.messages().blockedMessageCooldown();
+        Duration retention = configured == null
+                || configured.compareTo(MINIMUM_THROTTLE_RETENTION) < EQUAL
+                ? MINIMUM_THROTTLE_RETENTION : configured;
+        denialThrottle.discardOutsideWindow(clock.millis(), retention);
     }
 
     public static String friendly(RestrictionTarget target) {
@@ -215,14 +224,24 @@ public final class WarzoneMessageService {
     /** Readable, deterministic and rounded upward so an active denial never displays zero. */
     public static String playerDuration(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return "0 seconds";
-        long millis = duration.toMillis();
-        long tenths = Math.max(ONE, divideCeil(millis, MILLIS_PER_TENTH));
-        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS && tenths % TENTHS_PER_SECOND != ZERO)
-            return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
-                    tenths % TENTHS_PER_SECOND);
-        long seconds = tenths < DECIMAL_SECONDS_LIMIT_TENTHS
-                ? tenths / TENTHS_PER_SECOND : divideCeil(millis, MILLIS_PER_SECOND);
-        return seconds == ONE ? "1 second" : seconds + " seconds";
+        long secondsPart = duration.getSeconds();
+        int nanosPart = duration.getNano();
+        if (secondsPart < TENTHS_PER_SECOND) {
+            long tenths = secondsPart * TENTHS_PER_SECOND
+                    + divideCeil(nanosPart, NANOS_PER_TENTH);
+            tenths = Math.max(ONE, tenths);
+            if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS
+                    && tenths % TENTHS_PER_SECOND != ZERO)
+                return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
+                        tenths % TENTHS_PER_SECOND);
+            if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS)
+                return tenths == TENTHS_PER_SECOND ? "1 second"
+                        : tenths / TENTHS_PER_SECOND + " seconds";
+        }
+        BigInteger roundedSeconds = BigInteger.valueOf(secondsPart);
+        if (nanosPart != ZERO) roundedSeconds = roundedSeconds.add(BigInteger.ONE);
+        return roundedSeconds.equals(BigInteger.ONE) ? "1 second"
+                : roundedSeconds + " seconds";
     }
 
     private Duration totalCooldown(RestrictionDecision decision) {

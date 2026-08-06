@@ -4,6 +4,8 @@ import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,6 +24,25 @@ class CooldownConcreteMaterialTest {
         assertEquals(Map.of(Material.IRON_SPEAR, Duration.ofSeconds(10)),
                 cooldowns.activeVisualsFor(player));
         assertFalse(cooldowns.activeVisualsFor(player).containsKey(Material.WOODEN_SPEAR));
+    }
+
+    @Test void everySupportedSpearMaterialUsesSharedAuthorityAndItsOwnOverlay() {
+        List<Material> spearMaterials = Arrays.stream(Material.values())
+                .filter(RestrictionTarget::isSpear)
+                .toList();
+        assertFalse(spearMaterials.isEmpty(), "Paper API must expose concrete Spear materials.");
+
+        for (Material material : spearMaterials) {
+            CooldownService cooldowns = new CooldownService(() -> 1_000L);
+            UUID player = UUID.randomUUID();
+            cooldowns.start(player, RestrictionTarget.SPEAR, Duration.ofSeconds(10), material);
+
+            assertTrue(cooldowns.active(player, RestrictionTarget.SPEAR), material.name());
+            assertEquals(material,
+                    cooldowns.concreteMaterial(player, RestrictionTarget.SPEAR), material.name());
+            assertEquals(Map.of(material, Duration.ofSeconds(10)),
+                    cooldowns.activeVisualsFor(player), material.name());
+        }
     }
 
     @Test void wholeSpearConcreteMaterialSurvivesReloadAndClamping() {

@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -36,6 +37,9 @@ import static org.mockito.Mockito.*;
 class WarzoneMessageServiceTest {
     private static final String MACE_TARGET = "MACE";
     private static final String PEARL_TARGET = "ENDER_PEARL";
+    private static final String ONE_TENTH_SECOND = "0.1 seconds";
+    private static final String ONE_SECOND = "1 second";
+    private static final String TEN_SECONDS = "10 seconds";
 
     private final MutableClock clock = new MutableClock(1_000L);
     private final Player player = mock(Player.class);
@@ -120,6 +124,11 @@ class WarzoneMessageServiceTest {
                 PlainTextComponentSerializer.plainText().serialize(rendered));
     }
 
+    @Test void nullPolicyMaterialCannotBreakFeedbackRendering() {
+        assertDoesNotThrow(() -> messages.blockPlaceDenied(player, null));
+        assertEquals("place", onlyMessage());
+    }
+
     @Test void firstDenialAlwaysSendsAndRapidDuplicateIsBounded() {
         RestrictionDecision active = decision(target(MACE_TARGET), RestrictionMode.COOLDOWN,
                 RestrictionDecision.Result.COOLDOWN_ACTIVE, Duration.ofSeconds(10),
@@ -128,6 +137,15 @@ class WarzoneMessageServiceTest {
         clock.advance(500L);
         messages.denial(player, active, Material.MACE);
         clock.advance(500L);
+        messages.denial(player, active, Material.MACE);
+        assertEquals(2, allMessages().size());
+    }
+
+    @Test void backwardClockRebasesThrottleInsteadOfSilencingThePlayer() {
+        RestrictionDecision active = active(target(MACE_TARGET));
+        messages.denial(player, active, Material.MACE);
+        clock.set(500L);
+        messages.cleanup();
         messages.denial(player, active, Material.MACE);
         assertEquals(2, allMessages().size());
     }
@@ -145,11 +163,26 @@ class WarzoneMessageServiceTest {
         assertEquals("Spear Lunge is disabled during No Mace.", onlyMessage());
     }
 
-    @Test void playerDurationIsReadableAndNeverRoundsActiveTimeToZero() {
-        assertEquals("10 seconds", WarzoneMessageService.playerDuration(Duration.ofSeconds(10)));
-        assertEquals("1 second", WarzoneMessageService.playerDuration(Duration.ofMillis(999)));
-        assertEquals("0.1 seconds", WarzoneMessageService.playerDuration(Duration.ofMillis(1)));
-        assertEquals("3.4 seconds", WarzoneMessageService.playerDuration(Duration.ofMillis(3_301)));
+    @Test void playerDurationCoversEveryRoundingBoundaryWithoutOverflow() {
+        assertEquals(ONE_TENTH_SECOND,
+                WarzoneMessageService.playerDuration(Duration.ofMillis(10)));
+        assertEquals(ONE_TENTH_SECOND,
+                WarzoneMessageService.playerDuration(Duration.ofMillis(90)));
+        assertEquals(ONE_TENTH_SECOND,
+                WarzoneMessageService.playerDuration(Duration.ofMillis(100)));
+        assertEquals(ONE_SECOND, WarzoneMessageService.playerDuration(Duration.ofMillis(950)));
+        assertEquals(ONE_SECOND, WarzoneMessageService.playerDuration(Duration.ofMillis(990)));
+        assertEquals(ONE_SECOND, WarzoneMessageService.playerDuration(Duration.ofSeconds(1)));
+        assertEquals("1.1 seconds", WarzoneMessageService.playerDuration(Duration.ofMillis(1_010)));
+        assertEquals("3.5 seconds", WarzoneMessageService.playerDuration(Duration.ofMillis(3_410)));
+        assertEquals(TEN_SECONDS, WarzoneMessageService.playerDuration(Duration.ofMillis(9_990)));
+        assertEquals(TEN_SECONDS, WarzoneMessageService.playerDuration(Duration.ofSeconds(10)));
+        assertEquals("60 seconds", WarzoneMessageService.playerDuration(Duration.ofSeconds(60)));
+        assertEquals(Long.MAX_VALUE + " seconds",
+                WarzoneMessageService.playerDuration(Duration.ofSeconds(Long.MAX_VALUE)));
+        assertEquals("9223372036854775808 seconds",
+                WarzoneMessageService.playerDuration(
+                        Duration.ofSeconds(Long.MAX_VALUE, 1)));
     }
 
     private RestrictionDecision ready(RestrictionTarget target) {
@@ -203,6 +236,7 @@ class WarzoneMessageServiceTest {
         private long currentMillis;
         private MutableClock(long millis) { currentMillis = millis; }
         void advance(long amount) { currentMillis += amount; }
+        void set(long millis) { currentMillis = millis; }
         @Override public ZoneId getZone() { return ZoneOffset.UTC; }
         @Override public Clock withZone(ZoneId zone) { return this; }
         @Override public Instant instant() { return Instant.ofEpochMilli(currentMillis); }
