@@ -2,7 +2,7 @@ name: Run post-merge review repairs
 
 on:
   pull_request:
-    branches: [main]
+    branches: [agent/review-fix-runner]
 
 permissions:
   contents: write
@@ -33,9 +33,13 @@ jobs:
                          if line.strip().startswith('H4sI'))
           Path('tools/apply_review_fixes.py').write_bytes(
               gzip.decompress(base64.b64decode(payload)))
+          tightener = Path('.github/workflows/tighten-review-fixes.py.gz.b64').read_text().strip()
+          Path('tools/tighten_review_fixes.py').write_bytes(
+              gzip.decompress(base64.b64decode(tightener)))
           PY
-          python3 -m py_compile tools/apply_review_fixes.py
+          python3 -m py_compile tools/apply_review_fixes.py tools/tighten_review_fixes.py
           python3 tools/apply_review_fixes.py
+          python3 tools/tighten_review_fixes.py
       - name: Verify complete Maven build
         run: ./mvnw -B clean verify
       - name: Collapse transport into one review commit
@@ -44,8 +48,10 @@ jobs:
         run: |
           set -euxo pipefail
           rm -f tools/apply_review_fixes.py \
+            tools/tighten_review_fixes.py \
             .github/workflows/apply-review-fixes.yml \
-            .github/workflows/run-review-fixes-on-pr.yml
+            .github/workflows/run-review-fixes-on-pr.yml \
+            .github/workflows/tighten-review-fixes.py.gz.b64
           git add -A
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
