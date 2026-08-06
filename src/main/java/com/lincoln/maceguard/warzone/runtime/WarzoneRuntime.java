@@ -236,8 +236,9 @@ public final class WarzoneRuntime {
 
     public void successfulCobweb(Player player, RestrictionDecision decision) {
         if (!gameplayScopeActive()) return;
-        restrictions.success(player.getUniqueId(), decision);
-        visualCooldowns.apply(player, decision);
+        restrictions.success(player.getUniqueId(), decision, Material.COBWEB);
+        messages.cooldownStarted(player, decision, Material.COBWEB);
+        visualCooldowns.apply(player, decision, Material.COBWEB);
     }
 
     public void sendCobwebDenial(Player player, CobwebDecision decision) {

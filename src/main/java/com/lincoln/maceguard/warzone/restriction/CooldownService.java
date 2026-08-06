@@ -1,5 +1,7 @@
 package com.lincoln.maceguard.warzone.restriction;
 
+import org.bukkit.Material;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -9,25 +11,36 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 
+/** Authoritative MaceGuard cooldown state. Bukkit item cooldowns are only a visual projection. */
 public final class CooldownService {
     private final LongSupplier clock;
-    private final Map<Key, Long> expiresAt = new HashMap<>();
+    // Bukkit listeners and scheduled maintenance invoke this state on the primary server thread.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    private final Map<Key, ActiveCooldown> activeCooldowns = new HashMap<>();
 
     public CooldownService(LongSupplier clock) { this.clock = clock; }
 
     public void start(UUID playerId, RestrictionTarget target, Duration duration) {
+        start(playerId, target, duration, null);
+    }
+
+    public void start(UUID playerId, RestrictionTarget target, Duration duration,
+                      Material concreteMaterial) {
         long expiry = Math.addExact(clock.getAsLong(), duration.toMillis());
-        expiresAt.put(new Key(playerId, target), expiry);
+        Material visualMaterial = normalizeConcreteMaterial(target, concreteMaterial);
+        activeCooldowns.put(new Key(playerId, target),
+                new ActiveCooldown(expiry, visualMaterial));
     }
 
     public Duration remaining(UUID playerId, RestrictionTarget target) {
         Key key = new Key(playerId, target);
-        Long expiry = expiresAt.get(key);
-        if (expiry == null) return Duration.ZERO;
-        long remaining = expiry - clock.getAsLong();
+        ActiveCooldown cooldown = activeCooldowns.get(key);
+        if (cooldown == null) return Duration.ZERO;
+        long remaining = cooldown.expiresAtMillis() - clock.getAsLong();
         if (remaining <= 0) {
-            expiresAt.remove(key);
+            activeCooldowns.remove(key);
             return Duration.ZERO;
         }
         return Duration.ofMillis(remaining);
@@ -35,12 +48,40 @@ public final class CooldownService {
 
     public Map<RestrictionTarget, Duration> activeFor(UUID playerId) {
         Map<RestrictionTarget, Duration> result = new LinkedHashMap<>();
-        for (Key key : Set.copyOf(expiresAt.keySet())) {
+        for (Key key : Set.copyOf(activeCooldowns.keySet())) {
             if (!key.playerId().equals(playerId)) continue;
             Duration remaining = remaining(playerId, key.target());
             if (!remaining.isZero()) result.put(key.target(), remaining);
         }
         return Map.copyOf(result);
+    }
+
+    /** Concrete visual materials for active cooldowns. Effect-only targets are deliberately absent. */
+    public Map<Material, Duration> activeVisualsFor(UUID playerId) {
+        return activeVisualsFor(playerId, ignored -> true);
+    }
+
+    public Map<Material, Duration> activeVisualsFor(UUID playerId,
+                                                     Predicate<RestrictionTarget> included) {
+        // This deterministic aggregation is method-local and is never shared across threads.
+        @SuppressWarnings("PMD.UseConcurrentHashMap")
+        Map<Material, Duration> result = new LinkedHashMap<>();
+        for (Key key : Set.copyOf(activeCooldowns.keySet())) {
+            if (!key.playerId().equals(playerId) || !included.test(key.target())) continue;
+            Duration remaining = remaining(playerId, key.target());
+            if (remaining.isZero()) continue;
+            ActiveCooldown cooldown = activeCooldowns.get(key);
+            if (cooldown == null || cooldown.visualMaterial() == null) continue;
+            result.merge(cooldown.visualMaterial(), remaining,
+                    (left, right) -> left.compareTo(right) >= 0 ? left : right);
+        }
+        return Map.copyOf(result);
+    }
+
+    public Material concreteMaterial(UUID playerId, RestrictionTarget target) {
+        if (remaining(playerId, target).isZero()) return null;
+        ActiveCooldown cooldown = activeCooldowns.get(new Key(playerId, target));
+        return cooldown == null ? null : cooldown.visualMaterial();
     }
 
     public boolean active(UUID playerId, RestrictionTarget target) {
@@ -50,9 +91,10 @@ public final class CooldownService {
     public int discardExpired() {
         long now = clock.getAsLong();
         int removed = 0;
-        Iterator<Map.Entry<Key, Long>> iterator = expiresAt.entrySet().iterator();
+        Iterator<Map.Entry<Key, ActiveCooldown>> iterator =
+                activeCooldowns.entrySet().iterator();
         while (iterator.hasNext()) {
-            if (iterator.next().getValue() > now) continue;
+            if (iterator.next().getValue().expiresAtMillis() > now) continue;
             iterator.remove();
             removed++;
         }
@@ -61,15 +103,16 @@ public final class CooldownService {
 
     public Snapshot snapshot() {
         discardExpired();
-        return new Snapshot(expiresAt.entrySet().stream()
+        return new Snapshot(activeCooldowns.entrySet().stream()
                 .map(entry -> new SnapshotEntry(entry.getKey().playerId(),
-                        entry.getKey().target(), entry.getValue()))
+                        entry.getKey().target(), entry.getValue().expiresAtMillis(),
+                        entry.getValue().visualMaterial()))
                 .toList());
     }
 
     /** Restores only still-configured cooldown targets, clamping to any shorter new duration. */
     public void restore(Snapshot snapshot, Map<RestrictionTarget, Duration> allowedDurations) {
-        expiresAt.clear();
+        activeCooldowns.clear();
         long now = clock.getAsLong();
         for (SnapshotEntry entry : snapshot.entries()) {
             Duration maximum = allowedDurations.get(entry.target());
@@ -83,19 +126,33 @@ public final class CooldownService {
     }
 
     private void restoreEntry(SnapshotEntry entry, long expiry) {
-        expiresAt.put(new Key(entry.playerId(), entry.target()), expiry);
+        activeCooldowns.put(new Key(entry.playerId(), entry.target()), new ActiveCooldown(expiry,
+                normalizeConcreteMaterial(entry.target(), entry.concreteMaterial())));
     }
 
-    public void clear() { expiresAt.clear(); }
-    public void clearTargets(Set<RestrictionTarget> targets) {
-        expiresAt.keySet().removeIf(key -> targets.contains(key.target()));
+    private Material normalizeConcreteMaterial(RestrictionTarget target, Material requested) {
+        if (target == null) return null;
+        if (target.kind() == RestrictionTarget.Kind.MATERIAL) return target.material();
+        if (target == RestrictionTarget.SPEAR && RestrictionTarget.isSpear(requested)) return requested;
+        return null;
     }
-    public int size() { discardExpired(); return expiresAt.size(); }
+
+    public void clear() { activeCooldowns.clear(); }
+    public void clearTargets(Set<RestrictionTarget> targets) {
+        activeCooldowns.keySet().removeIf(key -> targets.contains(key.target()));
+    }
+    public int size() { discardExpired(); return activeCooldowns.size(); }
 
     public record Snapshot(List<SnapshotEntry> entries) {
         public Snapshot { entries = List.copyOf(entries); }
         public static Snapshot empty() { return new Snapshot(List.of()); }
     }
-    public record SnapshotEntry(UUID playerId, RestrictionTarget target, long expiresAtMillis) { }
+    public record SnapshotEntry(UUID playerId, RestrictionTarget target, long expiresAtMillis,
+                                Material concreteMaterial) {
+        public SnapshotEntry(UUID playerId, RestrictionTarget target, long expiresAtMillis) {
+            this(playerId, target, expiresAtMillis, null);
+        }
+    }
     private record Key(UUID playerId, RestrictionTarget target) { }
+    private record ActiveCooldown(long expiresAtMillis, Material visualMaterial) { }
 }

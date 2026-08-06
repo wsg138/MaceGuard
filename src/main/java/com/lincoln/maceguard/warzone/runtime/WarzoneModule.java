@@ -246,6 +246,28 @@ public final class WarzoneModule {
         return appliesAt(location) ? runtime.config().cobwebs().clearAfter() : fallback;
     }
 
+    public void sendBlockPlaceDenied(Player player, org.bukkit.Material material) {
+        if (runtime != null) runtime.messages().blockPlaceDenied(player, material);
+        else send(player, "<red>You cannot place <white>" + friendly(material)
+                + "<red> under the current MaceGuard block rules.");
+    }
+
+    public void sendBlockBreakDenied(Player player, org.bukkit.Material material) {
+        if (runtime != null) runtime.messages().blockBreakDenied(player, material);
+        else send(player, "<red>You cannot break <white>" + friendly(material)
+                + "<red> under the current MaceGuard block rules.");
+    }
+
+    public void sendBucketUseDenied(Player player, org.bukkit.Material material) {
+        if (runtime != null) runtime.messages().bucketUseDenied(player, material);
+        else send(player, "<red>You cannot use <white>" + friendly(material)
+                + "<red> here under the current MaceGuard block rules.");
+    }
+
+    private String friendly(org.bukkit.Material material) {
+        return com.lincoln.maceguard.warzone.message.WarzoneMessageService.friendly(material);
+    }
+
     public WarzoneRuntime runtime() { return runtime; }
     public boolean enabled() { return runtime != null && runtime.config().enabled(); }
     public boolean placeholderActive() { return placeholder != null && placeholder.active(); }

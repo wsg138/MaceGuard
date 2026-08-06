@@ -3,6 +3,7 @@ package com.lincoln.maceguard.policy;
 import com.lincoln.maceguard.config.BlockPolicy;
 import com.lincoln.maceguard.config.MaceGuardConfig;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
+import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -27,40 +28,61 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class BlockPolicyListener implements Listener {
+    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+
     private final BlockPolicyResolver resolver;
+    private final WarzoneModule warzone;
 
     public BlockPolicyListener(MaceGuardConfig config, WorldGuardQueryService worldGuard) {
-        this(new BlockPolicyResolver(config, worldGuard));
+        this(new BlockPolicyResolver(config, worldGuard), null);
     }
 
     public BlockPolicyListener(BlockPolicyResolver resolver) {
+        this(resolver, null);
+    }
+
+    public BlockPolicyListener(BlockPolicyResolver resolver, WarzoneModule warzone) {
         this.resolver = resolver;
+        this.warzone = warzone;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlace(BlockPlaceEvent event) {
-        if (!placeAllowed(resolve(event.getBlockPlaced().getLocation()),
-                event.getBlockPlaced().getType())) event.setCancelled(true);
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
+        if (placeAllowed(resolve(event.getBlockPlaced().getLocation()),
+                event.getBlockPlaced().getType())) return;
+        event.setCancelled(true);
+        if (warzone != null) warzone.sendBlockPlaceDenied(event.getPlayer(),
+                event.getBlockPlaced().getType());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
-        if (!breakAllowed(resolve(event.getBlock().getLocation()),
-                event.getBlock().getType())) event.setCancelled(true);
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
+        if (breakAllowed(resolve(event.getBlock().getLocation()),
+                event.getBlock().getType())) return;
+        event.setCancelled(true);
+        if (warzone != null) warzone.sendBlockBreakDenied(event.getPlayer(),
+                event.getBlock().getType());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
         Block target = event.getBlockClicked().getRelative(event.getBlockFace());
-        if (!bucketEmptyAllowed(resolve(target.getLocation()), fluid(event.getBucket())))
-            event.setCancelled(true);
+        Material fluid = fluid(event.getBucket());
+        if (bucketEmptyAllowed(resolve(target.getLocation()), fluid)) return;
+        event.setCancelled(true);
+        if (warzone != null) warzone.sendBucketUseDenied(event.getPlayer(), fluid);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketFill(PlayerBucketFillEvent event) {
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
         Block source = event.getBlockClicked();
-        if (!bucketFillAllowed(resolve(source.getLocation()), source.getType()))
-            event.setCancelled(true);
+        if (bucketFillAllowed(resolve(source.getLocation()), source.getType())) return;
+        event.setCancelled(true);
+        if (warzone != null) warzone.sendBucketUseDenied(event.getPlayer(), source.getType());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

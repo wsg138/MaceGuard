@@ -34,6 +34,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CobwebListenerPlacementTest {
+    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+
     @Test
     void creativeAndSurvivalPlacementsUseTheSameGuaranteedTrackingPath() {
         Harness harness = harness(true, true);
@@ -95,6 +97,25 @@ class CobwebListenerPlacementTest {
                 .track(any(Block.class), anyString(), anyLong(), anyBoolean());
     }
 
+    @Test
+    void bypassedPolicyCobwebIsSilentAndNotCancelled() {
+        Harness harness = harness(true, true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 6, Material.AIR);
+        when(event.getPlayer().hasPermission(BYPASS_PERMISSION)).thenReturn(true);
+        when(harness.policies.resolve(any(Location.class))).thenReturn(
+                new BlockPolicyResolver.Resolution("scope", "missing", null, true,
+                        "region", false,
+                        BlockPolicyResolver.Status.REFERENCED_POLICY_MISSING));
+
+        harness.listener.onRestriction(event);
+
+        verify(event, never()).setCancelled(true);
+        verify(harness.warzone, never()).sendBlockPlaceDenied(any(Player.class),
+                any(Material.class));
+        verify(harness.warzone, never()).sendCobwebDenial(any(Player.class),
+                any(WarzoneRuntime.CobwebDecision.class));
+    }
+
     private Harness harness(boolean trackResult, boolean warzoneApplies) {
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
         WarzoneModule warzone = mock(WarzoneModule.class);
@@ -120,7 +141,7 @@ class CobwebListenerPlacementTest {
         when(worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
         when(temporary.track(any(Block.class), anyString(), anyLong(), eq(true)))
                 .thenReturn(trackResult);
-        return new Harness(listener, warzone, temporary, config);
+        return new Harness(listener, warzone, temporary, config, policies);
     }
 
     private BlockPlaceEvent event(GameMode mode, int x, Material originalMaterial) {
@@ -161,5 +182,6 @@ class CobwebListenerPlacementTest {
     }
 
     private record Harness(CobwebListener listener, WarzoneModule warzone,
-                           TemporaryBlockService temporary, MaceGuardConfig config) { }
+                           TemporaryBlockService temporary, MaceGuardConfig config,
+                           BlockPolicyResolver policies) { }
 }

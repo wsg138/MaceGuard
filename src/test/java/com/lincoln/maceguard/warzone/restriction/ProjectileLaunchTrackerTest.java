@@ -1,6 +1,7 @@
 package com.lincoln.maceguard.warzone.restriction;
 
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
+import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -17,12 +18,13 @@ class ProjectileLaunchTrackerTest {
         UUID projectile = UUID.randomUUID();
         UUID player = UUID.randomUUID();
         RestrictionDecision decision = cooldownDecision();
-        tracker.record(projectile, player, decision, 5_000L);
+        tracker.record(projectile, player, decision, Material.ENDER_PEARL, 5_000L);
 
         var completion = tracker.finalizeLaunch(projectile, false);
         assertTrue(completion.isPresent());
         assertEquals(player, completion.orElseThrow().playerId());
         assertSame(decision, completion.orElseThrow().decision());
+        assertEquals(Material.ENDER_PEARL, completion.orElseThrow().concreteMaterial());
         assertTrue(tracker.finalizeLaunch(projectile, false).isEmpty(),
                 "A duplicate ProjectileLaunchEvent must not start a second cooldown.");
     }

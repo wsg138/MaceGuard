@@ -69,7 +69,7 @@ public final class WarzoneConfigLoader {
         Map<String, Object> messagesRaw = map(root.getOrDefault("messages", Map.of()), "messages", errors);
         keys(messagesRaw, "messages", Set.of("blocked-message-cooldown", "warning-audience",
                 "transition-audience"), errors);
-        Duration blocked = duration(messagesRaw.getOrDefault("blocked-message-cooldown", "2s"),
+        Duration blocked = duration(messagesRaw.getOrDefault("blocked-message-cooldown", "1s"),
                 "messages.blocked-message-cooldown", errors);
         if (blocked.isNegative()) errors.add("messages.blocked-message-cooldown must not be negative.");
         WarzoneConfig.Audience warningAudience = audience(messagesRaw.get("warning-audience"),

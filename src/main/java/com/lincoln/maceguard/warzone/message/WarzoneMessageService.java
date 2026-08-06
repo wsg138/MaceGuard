@@ -17,12 +17,24 @@ import org.bukkit.Material;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
+import java.math.BigInteger;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
+/** Central player-facing feedback for all Warzone restrictions and cooldowns. */
 public final class WarzoneMessageService {
+    private static final int EQUAL = 0;
+    private static final long ZERO = 0L;
+    private static final long ONE = 1L;
+    private static final long TENTHS_PER_SECOND = 10L;
+    private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
+    private static final int NANOS_PER_TENTH = 100_000_000;
+    private static final String STASIS_THROTTLE_KEY = "STASIS_PEARL";
+    private static final Duration MINIMUM_THROTTLE_RETENTION = Duration.ofSeconds(1);
+
     private final MiniMessage mini = MiniMessage.miniMessage();
     private final PlainTextComponentSerializer plain =
             PlainTextComponentSerializer.plainText();
@@ -50,42 +62,79 @@ public final class WarzoneMessageService {
     }
 
     public void denial(Player player, RestrictionDecision decision) {
+        denial(player, decision, null);
+    }
+
+    public void denial(Player player, RestrictionDecision decision, Material actualMaterial) {
         RestrictionTarget target = decision.target();
-        if (target == null) return;
-        if (!acquire(player, target)) return;
-        String template;
-        if (target.effectOnly()) {
-            template = decision.result() == RestrictionDecision.Result.DISABLED
-                    ? templates.abilityDisabled() : templates.abilityCooldown();
-        } else {
-            template = decision.result() == RestrictionDecision.Result.DISABLED
-                    ? templates.itemDisabled() : templates.itemCooldown();
-        }
-        player.sendMessage(render(template, target, decision.remaining()));
+        if (target == null || !decision.denied() || !acquire(player, target)) return;
+        boolean ability = target.effectOnly();
+        String template = decision.result() == RestrictionDecision.Result.DISABLED
+                ? ability ? templates.abilityDisabled() : templates.itemDisabled()
+                : ability ? templates.abilityCooldown() : templates.itemCooldown();
+        player.sendMessage(render(template, target, actualMaterial,
+                totalCooldown(decision), decision.remaining()));
+    }
+
+    /** Sent exactly once by a finalized successful-action path after the authoritative cooldown starts. */
+    public void cooldownStarted(Player player, RestrictionDecision decision, Material actualMaterial) {
+        RestrictionTarget target = decision.target();
+        if (target == null || !decision.startsCooldownAfterSuccess()
+                || decision.restriction() == null) return;
+        String template = target.effectOnly()
+                ? templates.abilityCooldownStarted() : templates.itemCooldownStarted();
+        Duration total = decision.restriction().cooldown();
+        player.sendMessage(render(template, target, actualMaterial, total, total));
     }
 
     public void cobwebUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("COBWEB").orElseThrow();
         if (!acquire(player, target)) return;
-        player.sendMessage(render(templates.cobwebUnavailable(), target, Duration.ZERO));
+        player.sendMessage(render(templates.cobwebUnavailable(), target, Material.COBWEB,
+                Duration.ZERO, Duration.ZERO));
     }
 
     public void elytraUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("ELYTRA").orElseThrow();
         if (!acquire(player, target)) return;
-        player.sendMessage(render(templates.elytraUnavailable(), target, Duration.ZERO));
+        player.sendMessage(render(templates.elytraUnavailable(), target, Material.ELYTRA,
+                Duration.ZERO, Duration.ZERO));
     }
 
     public void rocketUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("FIREWORK_ROCKET").orElseThrow();
         if (!acquire(player, target)) return;
-        player.sendMessage(render(templates.fireworkUnavailable(), target, Duration.ZERO));
+        player.sendMessage(render(templates.fireworkUnavailable(), target, Material.FIREWORK_ROCKET,
+                Duration.ZERO, Duration.ZERO));
+    }
+
+    public void blockPlaceDenied(Player player, Material material) {
+        policyDenied(player, material, templates.blockPlaceDenied());
+    }
+
+    public void blockBreakDenied(Player player, Material material) {
+        policyDenied(player, material, templates.blockBreakDenied());
+    }
+
+    public void bucketUseDenied(Player player, Material material) {
+        policyDenied(player, material, templates.bucketUseDenied());
+    }
+
+    private void policyDenied(Player player, Material material, String template) {
+        if (material == null) {
+            player.sendMessage(render(template, null, null, Duration.ZERO, Duration.ZERO));
+            return;
+        }
+        RestrictionTarget target = RestrictionTarget.parse(material.name()).orElseThrow();
+        if (!acquire(player, target)) return;
+        player.sendMessage(render(template, target, material, Duration.ZERO, Duration.ZERO));
     }
 
     public void stasisBlocked(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("ENDER_PEARL").orElseThrow();
-        if (!acquire(player, target)) return;
-        player.sendMessage(render(templates.stasisBlocked(), target, Duration.ZERO));
+        if (!acquire(player, STASIS_THROTTLE_KEY)) return;
+        player.sendMessage(render(templates.stasisBlocked(), target, Material.ENDER_PEARL,
+                Duration.ZERO, Duration.ZERO));
     }
 
     private boolean acquire(Player player, RestrictionTarget target) {
@@ -93,8 +142,13 @@ public final class WarzoneMessageService {
                 config.messages().blockedMessageCooldown());
     }
 
+    private boolean acquire(Player player, String targetKey) {
+        return denialThrottle.acquire(player.getUniqueId(), targetKey, clock.millis(),
+                config.messages().blockedMessageCooldown());
+    }
+
     public void broadcast(String template, WarzoneConfig.Audience audience) {
-        Component component = render(template, null, Duration.ZERO);
+        Component component = render(template, null, null, Duration.ZERO, Duration.ZERO);
         Bukkit.getOnlinePlayers().stream()
                 .filter(player -> audience == WarzoneConfig.Audience.GLOBAL
                         || region.contains(player.getLocation()))
@@ -103,29 +157,33 @@ public final class WarzoneMessageService {
     }
 
     public void send(CommandSender sender, String template) {
-        sender.sendMessage(render(template, null, Duration.ZERO));
+        sender.sendMessage(render(template, null, null, Duration.ZERO, Duration.ZERO));
     }
 
     public Component render(String template, RestrictionTarget target,
                             Duration cooldownRemaining) {
+        return render(template, target, null, cooldownRemaining, cooldownRemaining);
+    }
+
+    public Component render(String template, RestrictionTarget target, Material actualMaterial,
+                            Duration cooldown, Duration cooldownRemaining) {
         WarzoneConfig.ActiveSet active = rotations.active();
+        FeedbackText feedback = feedback(target, actualMaterial);
         return mini.deserialize(template,
                 Placeholder.component("meta", mini.deserialize(active.displayName())),
                 Placeholder.unparsed("meta_id", active.id()),
                 Placeholder.unparsed("modifiers", String.join(", ", active.modifierIds())),
-                Placeholder.unparsed("item", friendly(target)),
-                Placeholder.unparsed("ability",
-                        target == RestrictionTarget.SPEAR_LUNGE
-                                ? "Spear Lunge" : friendly(target)),
+                Placeholder.unparsed("item", feedback.item()),
+                Placeholder.unparsed("ability", feedback.ability()),
+                Placeholder.unparsed("action", feedback.action()),
+                Placeholder.unparsed("ready_action", feedback.readyAction()),
                 Placeholder.unparsed("time_left", DurationFormatter.words(rotations.remaining())),
                 Placeholder.unparsed("changes_at",
                         formatInstant(rotations.state().transitionAtMillis())),
                 Placeholder.unparsed("next_meta", rotations.entryName(rotations.nextSlot().entry())),
                 Placeholder.unparsed("next_meta_id", rotations.nextSlot().entry().type().name()),
-                Placeholder.unparsed("cooldown_remaining", precise(cooldownRemaining)),
-                Placeholder.unparsed("cooldown",
-                        cooldownRemaining.isZero() ? "0s"
-                                : DurationFormatter.words(cooldownRemaining)),
+                Placeholder.unparsed("cooldown_remaining", playerDuration(cooldownRemaining)),
+                Placeholder.unparsed("cooldown", playerDuration(cooldown)),
                 Placeholder.unparsed("cobweb_clear_time",
                         DurationFormatter.words(config.cobwebs().clearAfter())));
     }
@@ -143,12 +201,15 @@ public final class WarzoneMessageService {
     public String rotationWarning() { return templates.rotationWarning(); }
 
     public void cleanup() {
-        denialThrottle.discardOlderThan(clock.millis() - Math.max(1_000L,
-                config.messages().blockedMessageCooldown().toMillis()));
+        Duration configured = config.messages().blockedMessageCooldown();
+        Duration retention = configured == null
+                || configured.compareTo(MINIMUM_THROTTLE_RETENTION) < EQUAL
+                ? MINIMUM_THROTTLE_RETENTION : configured;
+        denialThrottle.discardOutsideWindow(clock.millis(), retention);
     }
 
     public static String friendly(RestrictionTarget target) {
-        if (target == null) return "item";
+        if (target == null) return "Item";
         if (target == RestrictionTarget.SPEAR_LUNGE) return "Spear Lunge";
         if (target == RestrictionTarget.SPEAR_DAMAGE) return "Spear Damage";
         if (target == RestrictionTarget.SPEAR) return "Spear";
@@ -157,7 +218,7 @@ public final class WarzoneMessageService {
 
     public static String friendly(Material material) {
         if (material == null) return "Item";
-        String[] parts = material.name().toLowerCase(java.util.Locale.ROOT).split("_");
+        String[] parts = material.name().toLowerCase(Locale.ROOT).split("_");
         StringBuilder result = new StringBuilder();
         for (String part : parts) {
             if (!result.isEmpty()) result.append(' ');
@@ -166,12 +227,76 @@ public final class WarzoneMessageService {
         return result.toString();
     }
 
-    private String precise(Duration duration) {
-        if (duration.isZero() || duration.isNegative()) return "0s";
-        long millis = duration.toMillis();
-        if (millis >= 10_000 || millis % 1_000 == 0)
-            return DurationFormatter.words(Duration.ofSeconds((millis + 999) / 1_000));
-        return "%.1fs".formatted(java.util.Locale.ROOT,
-                Math.ceil(millis / 100.0D) / 10.0D);
+    /** Readable, deterministic and rounded upward so an active denial never displays zero. */
+    public static String playerDuration(Duration duration) {
+        if (duration == null || duration.isZero() || duration.isNegative()) return "0 seconds";
+        return duration.getSeconds() < TENTHS_PER_SECOND
+                ? subTenSecondDuration(duration) : wholeSecondDuration(duration);
     }
+
+    private static String subTenSecondDuration(Duration duration) {
+        long tenths = duration.getSeconds() * TENTHS_PER_SECOND
+                + divideCeil(duration.getNano(), NANOS_PER_TENTH);
+        tenths = Math.max(ONE, tenths);
+        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS
+                && tenths % TENTHS_PER_SECOND != ZERO)
+            return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
+                    tenths % TENTHS_PER_SECOND);
+        return wholeSeconds(BigInteger.valueOf(divideCeil(tenths, TENTHS_PER_SECOND)));
+    }
+
+    private static String wholeSecondDuration(Duration duration) {
+        BigInteger seconds = BigInteger.valueOf(duration.getSeconds());
+        if (duration.getNano() != ZERO) seconds = seconds.add(BigInteger.ONE);
+        return wholeSeconds(seconds);
+    }
+
+    private static String wholeSeconds(BigInteger seconds) {
+        return seconds.equals(BigInteger.ONE) ? "1 second" : seconds + " seconds";
+    }
+
+    private Duration totalCooldown(RestrictionDecision decision) {
+        return decision.restriction() == null || decision.restriction().cooldown() == null
+                ? Duration.ZERO : decision.restriction().cooldown();
+    }
+
+    private FeedbackText feedback(RestrictionTarget target, Material actualMaterial) {
+        if (target == null) return genericFeedback();
+        return switch (target.kind()) {
+            case SPEAR_DAMAGE -> new FeedbackText("Spear", "Spear Damage",
+                    "dealing Spear damage again", "You can deal Spear damage again");
+            case SPEAR_LUNGE -> new FeedbackText("Spear", "Spear Lunge", "Lunging again",
+                    "You can Lunge again");
+            case SPEAR_GROUP -> new FeedbackText("Spear", "Spear", "using your Spear again",
+                    "You can use your Spear again");
+            case MATERIAL -> materialFeedback(
+                    actualMaterial != null ? actualMaterial : target.material());
+        };
+    }
+
+    private FeedbackText materialFeedback(Material material) {
+        String item = friendly(material);
+        return switch (material) {
+            case ENDER_PEARL -> new FeedbackText(item, item,
+                    "throwing another Ender Pearl", "You can throw another Ender Pearl");
+            case WIND_CHARGE -> new FeedbackText(item, item,
+                    "using another Wind Charge", "You can use another Wind Charge");
+            case MACE -> new FeedbackText(item, item, "using your Mace again",
+                    "You can use your Mace again");
+            default -> new FeedbackText(item, item, "using " + item + " again",
+                    "You can use " + item + " again");
+        };
+    }
+
+    private FeedbackText genericFeedback() {
+        return new FeedbackText("Item", "Ability", "using this item again",
+                "You can use this item again");
+    }
+
+    private static long divideCeil(long value, long divisor) {
+        if (value <= ZERO) return ZERO;
+        return ONE + (value - ONE) / divisor;
+    }
+
+    private record FeedbackText(String item, String ability, String action, String readyAction) { }
 }

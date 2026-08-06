@@ -83,7 +83,7 @@ public final class LegacyWarzoneConverter {
         if (!oldRotationSettings.containsKey("warning-times")) yaml.set("rotation.warning-times", List.of());
         Map<String, Object> oldMessages = map(oldRoot.get("messages"));
         copySection(yaml, "messages", oldMessages);
-        if (!oldMessages.containsKey("blocked-message-cooldown")) yaml.set("messages.blocked-message-cooldown", "2s");
+        if (!oldMessages.containsKey("blocked-message-cooldown")) yaml.set("messages.blocked-message-cooldown", "1s");
         if (!oldMessages.containsKey("warning-audience")) yaml.set("messages.warning-audience", "global");
         if (!oldMessages.containsKey("transition-audience")) yaml.set("messages.transition-audience", "global");
         Map<String, Object> oldCobwebs = map(oldRoot.get("cobwebs"));

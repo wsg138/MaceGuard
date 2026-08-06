@@ -1,23 +1,23 @@
 item-disabled: |-
   <red><item> is disabled during <white><meta><red>.
   <gray>The meta changes in <white><time_left><gray>.
-item-cooldown: |-
-  <red><item> is on cooldown for <white><cooldown_remaining><red>.
-  <gray>The meta changes in <white><time_left><gray>.
+item-cooldown: "<red>You must wait <white><cooldown_remaining><red> before <action>."
+item-cooldown-started: "<yellow><ready_action> in <white><cooldown><yellow>."
 ability-disabled: |-
   <red><ability> is disabled during <white><meta><red>.
   <gray>The ordinary item remains usable.
-ability-cooldown: |-
-  <red><ability> is on cooldown for <white><cooldown_remaining><red>.
-  <gray>The ordinary item remains usable.
+ability-cooldown: "<red>You must wait <white><cooldown_remaining><red> before <action>."
+ability-cooldown-started: "<yellow><ready_action> in <white><cooldown><yellow>."
 cobweb-unavailable: |-
   <red>Cobwebs are unavailable during <white><meta><red>.
   <gray>The meta changes in <white><time_left><gray>.
 elytra-unavailable: |-
   <red>You cannot begin gliding while combat-tagged under the current Warzone rules.
   <gray>The meta changes in <white><time_left><gray>.
-firework-unavailable: |-
-  <red>Firework boosting is disabled while you are combat-tagged.
+firework-unavailable: "<red>You cannot boost with a Firework Rocket while combat-tagged under the current Warzone rules."
+block-place-denied: "<red>You cannot place <white><item><red> under the current MaceGuard block rules."
+block-break-denied: "<red>You cannot break <white><item><red> under the current MaceGuard block rules."
+bucket-use-denied: "<red>You cannot use <white><item><red> here under the current MaceGuard block rules."
 stasis-blocked: |-
   <red>Your Ender Pearl was identified as a stasis pearl and could not teleport you during Warzone combat. If you believe this was an error, contact a staff member.
 rotation-warning: "<yellow><meta> changes in <white><time_left><yellow>. Next: <next_meta><yellow>."

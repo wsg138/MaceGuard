@@ -50,7 +50,7 @@ rotation:
     - 1m
 
 messages:
-  blocked-message-cooldown: 2s
+  blocked-message-cooldown: 1s
   warning-audience: global
   transition-audience: global
 

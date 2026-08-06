@@ -77,7 +77,7 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
         return material != null && material.name().endsWith("_SPEAR");
     }
 
-    public boolean effectOnly() { return kind == Kind.SPEAR_LUNGE; }
+    public boolean effectOnly() { return kind == Kind.SPEAR_DAMAGE || kind == Kind.SPEAR_LUNGE; }
     public boolean combatCarryoverEligible() {
         if (kind != Kind.MATERIAL) return true;
         if (material == Material.COBWEB || material == Material.END_CRYSTAL

@@ -12,6 +12,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 
 public final class CobwebListener implements Listener {
+    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+
     private final WorldGuardQueryService worldGuard;
     private final WarzoneModule warzone;
     private final TemporaryBlockService temporary;
@@ -38,6 +40,7 @@ public final class CobwebListener implements Listener {
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
+        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
         var location = event.getBlockPlaced().getLocation();
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
@@ -45,8 +48,10 @@ public final class CobwebListener implements Listener {
             boolean allowed = policyTemporaryAllowed(policy,
                     worldGuard.buildAllowed(location, event.getPlayer()),
                     worldGuard.cobwebsAllowed(location, event.getPlayer()));
-            if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType()))
+            if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType())) {
                 event.setCancelled(true);
+                warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
+            }
             return;
         }
 
@@ -61,6 +66,7 @@ public final class CobwebListener implements Listener {
         if (allowed) return;
         event.setCancelled(true);
         if (!decision.allowed()) warzone.sendCobwebDenial(event.getPlayer(), decision);
+        else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -88,6 +94,7 @@ public final class CobwebListener implements Listener {
         }
         if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
 
@@ -100,12 +107,14 @@ public final class CobwebListener implements Listener {
                             location).toMillis());
         } catch (ArithmeticException ex) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
         boolean tracked = temporary.track(event.getBlockPlaced(), original, expiresAt,
                 warzoneApplies && !policyOverride);
         if (!tracked) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
         if (decision != null) warzone.successfulCobweb(event.getPlayer(), decision.restriction());

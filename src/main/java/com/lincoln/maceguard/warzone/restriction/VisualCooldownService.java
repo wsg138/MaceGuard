@@ -28,10 +28,14 @@ public final class VisualCooldownService {
     }
 
     public void apply(Player player, RestrictionDecision decision) {
+        apply(player, decision, null);
+    }
+
+    public void apply(Player player, RestrictionDecision decision, Material concreteMaterial) {
         if (!decision.startsCooldownAfterSuccess() || decision.target() == null
-                || decision.target().kind() != RestrictionTarget.Kind.MATERIAL
-                || decision.target().material() == null || decision.restriction() == null) return;
-        apply(player, decision.target().material(), decision.restriction().cooldown());
+                || decision.restriction() == null) return;
+        Material material = visualMaterial(decision.target(), concreteMaterial);
+        if (material != null) apply(player, material, decision.restriction().cooldown());
     }
 
     /** Reconciles this player's complete desired visual state, including transferred ownership. */
@@ -39,14 +43,25 @@ public final class VisualCooldownService {
     public void reapply(Player player, Map<RestrictionTarget, Duration> activeCooldowns) {
         Map<Material, Duration> desired = new LinkedHashMap<>();
         activeCooldowns.forEach((target, remaining) -> {
-            if (target.kind() == RestrictionTarget.Kind.MATERIAL && target.material() != null)
-                desired.put(target.material(), remaining);
+            Material material = visualMaterial(target, null);
+            if (material != null) desired.put(material, remaining);
         });
+        reapplyMaterials(player, desired);
+    }
+
+    /** Reconciles exact concrete materials, including whole-Spear cooldown projections. */
+    public void reapplyMaterials(Player player, Map<Material, Duration> desired) {
         for (Key key : java.util.Set.copyOf(owned.keySet())) {
             if (key.playerId().equals(player.getUniqueId()) && !desired.containsKey(key.material()))
                 clearOwned(player, key.material());
         }
         desired.forEach((material, remaining) -> reconcile(player, material, remaining));
+    }
+
+    private Material visualMaterial(RestrictionTarget target, Material concreteMaterial) {
+        if (target.kind() == RestrictionTarget.Kind.MATERIAL) return target.material();
+        return target == RestrictionTarget.SPEAR && RestrictionTarget.isSpear(concreteMaterial)
+                ? concreteMaterial : null;
     }
 
     private void apply(Player player, Material material, Duration duration) {
