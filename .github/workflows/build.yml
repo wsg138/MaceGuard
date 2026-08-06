@@ -131,9 +131,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          JAR=dist/target/MaceGuard.jar
+          test -f "$JAR"
           if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload latest dist/MaceGuard.jar --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload latest "$JAR" --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit latest --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
           else
-            gh release create latest dist/MaceGuard.jar --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
+            gh release create latest "$JAR" --title "Latest automated build" --prerelease --target "$GITHUB_SHA" --notes "Automatically updated from main." --repo "$GITHUB_REPOSITORY"
           fi
