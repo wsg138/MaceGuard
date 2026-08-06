@@ -25,6 +25,8 @@ import java.util.Locale;
 
 /** Central player-facing feedback for all Warzone restrictions and cooldowns. */
 public final class WarzoneMessageService {
+    private static final long ZERO = 0L;
+    private static final long ONE = 1L;
     private static final long MILLIS_PER_TENTH = 100L;
     private static final long TENTHS_PER_SECOND = 10L;
     private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
@@ -214,13 +216,13 @@ public final class WarzoneMessageService {
     public static String playerDuration(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return "0 seconds";
         long millis = duration.toMillis();
-        long tenths = Math.max(1L, divideCeil(millis, MILLIS_PER_TENTH));
-        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS && tenths % TENTHS_PER_SECOND != 0L)
+        long tenths = Math.max(ONE, divideCeil(millis, MILLIS_PER_TENTH));
+        if (tenths < DECIMAL_SECONDS_LIMIT_TENTHS && tenths % TENTHS_PER_SECOND != ZERO)
             return "%d.%d seconds".formatted(tenths / TENTHS_PER_SECOND,
                     tenths % TENTHS_PER_SECOND);
         long seconds = tenths < DECIMAL_SECONDS_LIMIT_TENTHS
                 ? tenths / TENTHS_PER_SECOND : divideCeil(millis, MILLIS_PER_SECOND);
-        return seconds == 1L ? "1 second" : seconds + " seconds";
+        return seconds == ONE ? "1 second" : seconds + " seconds";
     }
 
     private Duration totalCooldown(RestrictionDecision decision) {
@@ -262,8 +264,8 @@ public final class WarzoneMessageService {
     }
 
     private static long divideCeil(long value, long divisor) {
-        if (value <= 0L) return 0L;
-        return 1L + (value - 1L) / divisor;
+        if (value <= ZERO) return ZERO;
+        return ONE + (value - ONE) / divisor;
     }
 
     private record FeedbackText(String item, String ability, String action, String readyAction) { }
