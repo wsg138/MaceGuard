@@ -1,55 +1,36 @@
 # Current Handoff
 
-Latest report: `handoffs/worker-2-warzone-combat-review-blockers.md`
+Latest report: `handoffs/worker-2-warzone-combat-review-followup.md`
 
-## Final status
+## Corrective review status
 
-- Repository verdict: **READY — MERGED**.
+- Repository verdict: **READY AFTER EXACT-SELF CHECKS**.
 - Production verdict: **STAGING REQUIRED**.
 - Repository: `wsg138/MaceGuard`
-- PR: `#18`, closed as merged.
-- Verified starting `main`: `f823ae7041c3072c6e853a0606419646a9bbbb05`
-- Verified initial PR head: `ce693db7bde72fb6f7529bb53527543558907d4e`
-- Reviewed and merged PR head: `d0bd89774feb83f12664f5b23f05f7e6911fc250`
-- Merge commit: `a6aff2f877debdd16446c8098e6bb7b5072ed6dd`
-- Final main: `SELF`
-- Version: `6.1.1`
-- Configuration schema: `7`
-- Worker #2 first and second independent review passes: complete.
-- Review threads: none.
-- Requested changes: none.
+- PR #18: merged at reviewed head `d0bd89774feb83f12664f5b23f05f7e6911fc250`.
+- PR #18 merge commit: `a6aff2f877debdd16446c8098e6bb7b5072ed6dd`.
+- Corrective base: `cf7cfbf9b0a54e0070a75bdbcb39b83445841df4`.
+- Corrective branch: `agent/fix-worker2-final-review-followup`.
+- Corrective commit: `SELF`; resolve exact CI and artifact provenance from corrective PR #19.
+- Version: `6.1.1`.
+- Configuration schema: `7`.
+- Scope: replacement-runtime authority after old cleanup failure and removal of three additional tracker PMD suppressions, plus focused regression coverage.
+- Post-merge publish-path repair from `cf7cfbf9b0a54e0070a75bdbcb39b83445841df4`: preserved.
+- Live production-equivalent staging: unperformed.
 
-## Verification provenance
+PR #18 became technically inaccessible after its auto-merge. Corrective PR #19 is the minimal follow-up permitted by the original prompt; it does not replace or redesign the merged implementation.
 
-Exact reviewed PR head:
+## Prior verified PR #18 provenance
 
-- Build run `31075590692`: success.
-- Codacy CLI run `31075590680`: success.
+- Exact reviewed PR head Build `31075590692`: success.
+- Exact reviewed PR head Codacy CLI `31075590680`: success.
 - Codacy Cloud: success with zero findings.
 - Tests: 375 passed; 0 failures, 0 errors, 0 skipped.
-- Candidate artifact ID: `8957377975`.
-
-Merged source commit:
-
-- Build run `31076016921`: compile, test, dependency, and JAR inspection job succeeded.
-- Codacy run `31076016911`: success.
+- Reviewed artifact ID: `8957377975`.
 - Merged-main artifact ID: `8957547059`.
-- Merged JAR: `881,544` bytes.
-- Merged JAR SHA-256: `4fb8744eede094300833f0120529b5638bbde91e2c7bf55ea8d26ac7044c55da`.
-- The merged-main JAR is byte-identical to the reviewed exact-head JAR.
+- Reviewed and merged JAR: `881,544` bytes, SHA-256 `4fb8744eede094300833f0120529b5638bbde91e2c7bf55ea8d26ac7044c55da`.
 
-The merged Build workflow's separate `publish-latest` job failed because the downloaded artifact retained `target/MaceGuard.jar` while the script addressed `dist/MaceGuard.jar`. `SELF` changes the publish path to `dist/target/MaceGuard.jar`, requires that file to exist, and retains the repository's existing automated `latest` prerelease behavior. Exact-`SELF` Build, publish, Codacy, and artifact verification supersede the merge-commit workflow status.
-
-## Confirmed Worker #2 repairs
-
-- Enforced exact critical dependency hashes and source provenance.
-- Prevented timer or extreme tick advancement from erasing owner/world pearl enforcement authority.
-- Removed class-wide PMD suppressions and retained only narrow ownership suppressions.
-- Kept disabled pearl tracing free of diagnostic string formatting.
-- Added durable-cleanup and extreme-delay regression tests.
-- Corrected nested overflow storage after the valid Codacy finding.
-- Updated Warzone, dependency, repair, and review documentation.
-- Corrected the post-merge automated publish artifact path.
+These values do not verify the corrective PR. Corrective exact-head evidence must supersede them before merge.
 
 ## Operational gate
 
@@ -59,6 +40,7 @@ Repository readiness does not imply production deployment readiness.
 
 ## Prior handoffs
 
+- `handoffs/worker-2-warzone-combat-review-blockers.md`
 - `handoffs/worker-1-warzone-combat-review-blockers.md`
 - `handoffs/worker-2-warzone-combat-integration.md`
 - `handoffs/worker-1-warzone-combat-integration.md`

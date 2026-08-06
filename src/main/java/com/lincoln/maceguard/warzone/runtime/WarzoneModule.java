@@ -153,16 +153,36 @@ public final class WarzoneModule {
             send(sender, "<red>Reload rejected; the current runtime remains active.");
             return;
         }
-        if (old != null) {
-            old.releaseReloadState();
-            old.shutdown(false);
-        }
-        runtime = replacement;
-        replacement.reconcileVisualCooldowns();
-        if (oldSet != null && oldSet.cobwebsAllowed()
+        boolean clearOldCobwebs = oldSet != null && oldSet.cobwebsAllowed()
                 && !replacement.rotations().active().cobwebsAllowed()
-                && prepared.control().gameplay().cobwebs().clearOnMetaChange()) old.clearTrackedCobwebs();
+                && prepared.control().gameplay().cobwebs().clearOnMetaChange();
+        activateReplacement(old, replacement, clearOldCobwebs);
         send(sender, "<green>Warzone configuration reloaded atomically; valid automatic, override, and cooldown state was preserved when possible.");
+    }
+
+    void activateReplacement(WarzoneRuntime old, WarzoneRuntime replacement,
+                             boolean clearOldCobwebs) {
+        if (old != null) old.releaseReloadState();
+        runtime = replacement;
+        if (old != null) {
+            try {
+                old.shutdown(false);
+            } catch (RuntimeException ex) {
+                plugin.getLogger().severe("Previous Warzone runtime cleanup failed after replacement "
+                        + "activation: " + ex.getMessage() + ". The replacement remains authoritative; "
+                        + "perform a full server restart before production use.");
+            }
+            if (clearOldCobwebs) {
+                try {
+                    old.clearTrackedCobwebs();
+                } catch (RuntimeException ex) {
+                    plugin.getLogger().severe("Previous Warzone cobweb cleanup failed after replacement "
+                            + "activation: " + ex.getMessage() + ". The replacement remains authoritative; "
+                            + "perform a full server restart before production use.");
+                }
+            }
+        }
+        replacement.reconcileVisualCooldowns();
     }
 
     public void validate(CommandSender sender) {
