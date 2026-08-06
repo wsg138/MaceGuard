@@ -1,6 +1,6 @@
-# MaceGuard 6.1 migration
+# MaceGuard 6.1.1 migration
 
-MaceGuard 6.1 introduces Warzone configuration schema 7 for combat carryover and stasis settings. Migration is backup-first and validates the complete replacement before it can replace the active file. The existing versioned automatic-slot/manual-override state model remains in place.
+MaceGuard 6.1.1 retains Warzone configuration schema 7 for combat carryover and stasis settings. Migration is backup-first and validates the complete replacement before it can replace the active file. The existing versioned automatic-slot/manual-override state model remains in place.
 
 ## Main configuration
 
@@ -56,9 +56,11 @@ rotation:
 
 The anchor date is selected only to preserve the prior weekday phase. Calendar boundaries remain aligned to the former weekday, time, and timezone.
 
-New spear outcomes and the bundled spear kit are disabled during schema-5 migration unless the old file already defined those IDs. This prevents the existing random pool from changing silently. Operators may enable them after reviewing `SPEAR`, `SPEAR_DAMAGE`, `SPEAR_LUNGE`, and the new conflict groups.
+For every built-in or custom modifier that exists in the source schema-5 file, a missing `combat-carryover` field is written as `false`. Explicit `false` remains false and explicit `true` is preserved because schema-7 validation supports the field. The bundled schema-7 value is never inherited merely because an old modifier ID matches a bundled ID. New modifiers that did not exist in the source retain their bundled definition and remain disabled where the schema-5 migration contract requires it.
 
-The candidate is parsed by the strict schema-7 loader. If any preserved custom modifier, restriction, conflict, kit, schedule, material icon, or selection rule is invalid, migration is rejected and the original file remains active.
+New spear outcomes and the bundled spear kit are disabled during schema-5 migration unless the old file already defined those IDs. This prevents the existing random pool from changing silently. Operators may enable them after reviewing `SPEAR`, `SPEAR_DAMAGE`, `SPEAR_LUNGE`, and the new conflict groups. Trident remains location-bound and is not a combat-carryover target.
+
+The candidate is written to a temporary sibling and parsed by the strict schema-7 loader. If any preserved custom modifier, restriction, conflict, kit, schedule, material icon, or selection rule is invalid, the temporary file is deleted, migration is rejected, and the original active file is never replaced.
 
 ## Persisted schema-5 selection
 
@@ -79,9 +81,9 @@ If the old selection contains unknown, disabled, conflicting, out-of-range, or o
 
 ## Schema 4 to schema 7
 
-Schema 4 migrates through the existing validated schema-5 representation and then through the schema-5-to-7 process. Existing schema-4 scope, weekly schedule, warnings, messages, cobweb settings, restrictions, modifier definitions, and conflict groups are preserved where valid.
+Schema 4 migrates through the existing validated schema-5 representation and then through the schema-5-to-7 process. Existing schema-4 scope, weekly schedule, warnings, messages, cobweb settings, restrictions, modifier definitions, and conflict groups are preserved where valid. Before the intermediate representation is passed forward, every source modifier missing `combat-carryover` is explicitly assigned `false`; this prevents schema-7 defaults from leaking through either migration stage. Explicit `true` and `false` remain unchanged.
 
-A custom modifier receives `enabled: true` and `weight: 10` only when those fields were absent. Existing explicit values are retained.
+A custom modifier receives `enabled: true` and `weight: 10` only when those fields were absent. Existing explicit values are retained. Custom names, weights, restrictions, messages, enabled states, and carryover values are copied before strict validation.
 
 ## Older or incompatible Warzone files
 

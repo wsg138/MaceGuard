@@ -50,12 +50,6 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
         }
     }
 
-    /**
-     * Capability classification must remain usable in plain unit tests, before Paper installs
-     * its runtime registries. Only actions with stable, registry-independent success events are
-     * accepted here. Other arbitrary materials remain valid DISABLED targets but cannot use
-     * COOLDOWN mode.
-     */
     private static Set<CooldownCapability> capabilities(Material material) {
         EnumSet<CooldownCapability> result = EnumSet.noneOf(CooldownCapability.class);
         if (PROJECTILE_MATERIALS.contains(material) || isSpear(material))
@@ -87,10 +81,9 @@ public final class RestrictionTarget implements Comparable<RestrictionTarget> {
     public boolean combatCarryoverEligible() {
         if (kind != Kind.MATERIAL) return true;
         if (material == Material.COBWEB || material == Material.END_CRYSTAL
-                || material == Material.RESPAWN_ANCHOR) return false;
+                || material == Material.RESPAWN_ANCHOR || material == Material.TRIDENT) return false;
         return material == Material.MACE || material == Material.ENDER_PEARL
-                || material == Material.WIND_CHARGE || material == Material.TRIDENT
-                || isSpear(material);
+                || material == Material.WIND_CHARGE || isSpear(material);
     }
     public boolean supportsCooldown() { return !cooldownCapabilities.contains(CooldownCapability.UNSUPPORTED); }
     public boolean supports(CooldownCapability capability) { return cooldownCapabilities.contains(capability); }

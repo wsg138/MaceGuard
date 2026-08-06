@@ -1,6 +1,6 @@
-# MaceGuard 6.1 deployment and staging
+# MaceGuard 6.1.1 deployment and staging
 
-MaceGuard 6.1 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required; PlaceholderAPI and CombatLogX are optional integrations. Keep a new schema-7 build in staging until the checks below are complete.
+MaceGuard 6.1.1 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required; PlaceholderAPI and CombatLogX are optional integrations. Keep a new schema-7 build in staging until the checks below are complete.
 
 ## Safe Warzone activation
 
@@ -56,11 +56,11 @@ Remove `PLUGIN` and `UNKNOWN` from the allow list. This leaves successful Ender 
 
 ### Direct CombatLogX API boundary
 
-MaceGuard compiles against CombatLogX 11.6's published public API, not a fork or copied source. The build uses `com.github.sirblobman.combatlogx:api:11.6-SNAPSHOT` and its required BlueSlimeCore API `com.github.sirblobman.api:core:2.9-SNAPSHOT` from `https://nexus.sirblobman.xyz/public/`, both with Maven `provided` scope. They are supplied by the installed plugins and are not shaded into the MaceGuard JAR.
+MaceGuard compiles against immutable public API artifacts, not a fork or copied source: CombatLogX `com.github.sirblobman.combatlogx:api:11.6-20251210.005328-47`, BlueSlimeCore `com.github.sirblobman.api:core:2.9-20260720.221205-67` from `https://nexus.sirblobman.xyz/public/`, and Paper API `io.papermc.paper:paper-api:1.21.11-R0.1-20251209.165129-1` from Paper's public repository. All use Maven `provided` scope and are not shaded into the MaceGuard JAR. See `docs/DEPENDENCIES.md`.
 
-The direct listener class is instantiated only after the `CombatLogX` soft dependency is present, enabled, and compatible. If that boundary is unavailable, unrelated MaceGuard functionality remains enabled while combat-dependent Warzone behavior is disabled with a clear log reason. CombatLogX remains authoritative for tag state and timers, so no CombatLogX fork is required.
+The direct listener class is instantiated only after the `CombatLogX` soft dependency is present, enabled, and compatible. If that boundary is unavailable, unrelated MaceGuard functionality remains enabled while combat-dependent Warzone behavior is disabled with a clear log reason. A dependency disable event closes and drops the adapter, clears combat latches/transient pearl caches, and fences delayed callbacks by runtime generation. A compatible enable event builds a fresh adapter and reconciles online players exactly once; an incompatible enable leaves only combat integration disabled. Full restart remains the supported deployment path.
 
-Automated verification covers the dependency boundary, lifecycle policy, schema migration, latch decisions, Elytra policy, and pearl correlation. Source review establishes the upstream event ordering and configuration option names. Exact Leaf/Paper event ordering, Geyser behavior, plugin-teleport compatibility, and real stasis/Elytra gameplay still require the live staging matrix below. No live-server test is claimed by this document.
+Automated verification covers the dependency boundary, lifecycle policy, schema migration, latch decisions, Elytra policy, and the intended pearl-correlation model. Source review confirms the API shapes and configuration option names, but does not establish the exact deployed event order. Leaf/Paper event ordering, Geyser behavior, plugin-teleport compatibility, and real stasis/Elytra gameplay still require the live staging matrix below. No live-server test is claimed by this document.
 
 Assign the custom flags only to the intended WorldGuard regions:
 
@@ -78,21 +78,33 @@ Stage all of the following on the production-equivalent Leaf build:
 - start combat inside versus outside the flagged region;
 - cross the border while already tagged, including a normal Ender Pearl teleport into the region;
 - rotate the live meta in both directions during combat;
-- leave the Warzone while Mace, Spear, Spear damage, Spear Lunge, Ender Pearl, and Wind Charge carryover variants are active;
+- leave the Warzone while Mace, Spear, Spear damage, Spear Lunge, Ender Pearl, and Wind Charge carryover variants are active; confirm Trident remains location-bound;
 - verify two variants of the same cooldown target can use different carryover settings without stale enforcement;
-- hold a real bubble-column stasis chamber beyond 60 seconds, then compare a normal pearl below the threshold;
-- suspend several pearls for one player and land normal/aged pearls close together;
-- test simultaneous pearls from multiple players and confirm no cross-player correlation;
+- hold a real bubble-column stasis chamber for exactly and beyond 60 elapsed seconds, then compare a normal pearl below the threshold under normal and low TPS;
+- test two same-owner pearls, including normal+aged, aged+aged, normal+normal, equal/different impact distances, modified teleport destinations, and two blocked teleports back-to-back;
+- suspend more than 32 live pearls for one owner, create more than 4,096 globally in a controlled staging environment, and create nine pending impacts without any marked pearl becoming unrestricted;
+- reload with a marked live pearl, keep a pearl alive beyond the former 24-hour cache TTL when practical, and test malformed PDC in an isolated staging copy;
+- test simultaneous pearls from multiple players and confirm no cross-player or cross-world correlation;
+- disable and re-enable CombatLogX, then confirm stale callbacks/listeners are absent and online tag state is reconciled;
 - begin combat while already gliding, then land and attempt to restart;
 - attempt a new Elytra start in ordinary combat and under the Elytra-allowing Warzone meta;
 - attempt actual Elytra boosts and ordinary firework launching separately;
 - verify Riptide is canceled by CombatLogX;
 - verify `/tpa`, `/home`, `/spawn`, plugin teleports, and portals after the configuration change;
 - test death, combat logout, reload, and full restart;
-- test Java and Bedrock/Geyser players;
+- test Java glide start, continued glide, rocket boost, and ordinary firework separately;
+- test Bedrock/Geyser glide start, continued glide, rocket boost, and ordinary firework separately; do not claim Bedrock enforcement proven until these pass;
 - observe event and tracking behavior under realistic load and validate the 100-player assumptions.
 
-The Ender Pearl impact-to-teleport ordering and Elytra behavior must be confirmed on the exact deployed Paper/Leaf build. Automated tests validate the policy and tracker, but they do not replace this staging step.
+The Ender Pearl impact-to-teleport ordering and Elytra behavior must be confirmed on the exact deployed Paper/Leaf build. Enable bounded tracing only for the selected test player with:
+
+```text
+/maceguardpearltrace on <player>
+/maceguardpearltrace show <player>
+/maceguardpearltrace off <player>
+```
+
+The trace requires `warzonerotator.command.debug`, expires after ten minutes, retains 128 records, and changes no enforcement decision. Automated tests validate the policy and tracker, but they do not replace this staging step.
 
 ## Schedule review
 
@@ -197,7 +209,7 @@ Verify the existing Mace, Ender Pearl, Wind Charge, Elytra, and firework behavio
 - automated Wind Charges remain allowed in cooldown mode and blocked in disabled mode;
 - visual cooldown overlays do not shorten stronger vanilla or plugin cooldowns;
 - a modifier transition clears cooldowns only for restriction targets whose policy changed;
-- region exit/re-entry, reconnect, reload, and lag reconcile owned overlays correctly;
+- region exit/re-entry, reconnect, lag, and `/warzone reload` reconcile owned overlays correctly; verify unchanged overlays never disappear, removed modifiers clear stale overlays, changed durations reconcile, failed reload preserves the old overlay, and plugin disable clears an owned overlay once;
 - Elytra gliding and firework boosting follow the active final set.
 
 ## Transition and persistence staging
@@ -262,6 +274,7 @@ For unexpected restrictions, do not grant a broad bypass as the first response. 
 /warzone info
 /warzone items
 /maceguard here
+/maceguardpearltrace show <player>
 ```
 
 Disable the top-level Warzone module or restore missing required geometry before returning gameplay to service. Review `state/warzone-state.yml` and migration backups before deleting any state.

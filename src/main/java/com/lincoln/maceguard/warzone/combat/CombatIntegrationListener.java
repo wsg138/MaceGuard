@@ -19,6 +19,8 @@ public final class CombatIntegrationListener implements CombatLogXGateway.Lifecy
         scopes.acquireIfEligible(player, tagLocation);
     }
     @Override public void untagged(Player player) { clear(player.getUniqueId()); }
+    @Override public void integrationUnavailable() { clear(); }
+    @Override public void integrationAvailable() { scopes.clear(); }
 
     public void reconcile(Iterable<? extends Player> players) {
         for (Player player : players) scopes.acquireIfEligible(player);

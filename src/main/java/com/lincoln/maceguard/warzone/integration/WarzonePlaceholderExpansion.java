@@ -12,10 +12,29 @@ import org.bukkit.plugin.Plugin;
 
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Supplier;
 
 public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
         implements WarzonePlaceholderHook {
+    private static final Set<String> SUPPORTED_PARAMETERS = Set.of(
+            "current_meta", "current_modifiers", "current_meta_id", "current_modifier_ids",
+            "description", "time_left", "time_left_words", "time_left_seconds", "changes_at",
+            "next_meta", "next_meta_id", "source_type", "active_kit", "override_active",
+            "override_mode", "override_ends_at", "override_time_left", "schedule_slot",
+            "schedule_cycle_position", "next_source_type", "next_name", "next_changes_at",
+            "disabled_items", "disabled_items_count", "cooldown_items", "cooldown_items_count",
+            "restrictions", "gameplay_scope_active", "cobwebs_allowed", "cobweb_clear_time",
+            "inside_effective_scope", "mace_status", "mace_disabled", "mace_cooldown_seconds",
+            "ender_pearl_status", "ender_pearl_disabled", "ender_pearl_cooldown_seconds",
+            "wind_charge_status", "wind_charge_disabled", "wind_charge_cooldown_seconds",
+            "spear_status", "spear_disabled", "spear_damage_status",
+            "spear_damage_cooldown_seconds", "spear_lunge_status", "spear_lunge_disabled",
+            "spear_lunge_cooldown_seconds", "elytra_status", "elytra_gliding_allowed",
+            "firework_boost_blocked", "modifier_1", "modifier_1_id", "modifier_1_description",
+            "modifier_2", "modifier_2_id", "modifier_2_description", "modifier_3",
+            "modifier_3_id", "modifier_3_description");
+
     private final Plugin plugin;
     private final Supplier<WarzoneRuntime> runtime;
 
@@ -23,6 +42,8 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
         this.plugin = plugin;
         this.runtime = runtime;
     }
+
+    static Set<String> supportedParameters() { return SUPPORTED_PARAMETERS; }
 
     @Override public String getIdentifier() { return "warzone"; }
     @Override public String getAuthor() { return "P2wn"; }
@@ -32,12 +53,13 @@ public final class WarzonePlaceholderExpansion extends PlaceholderExpansion
     @Override public void close() { if (isRegistered()) unregister(); }
 
     @Override public String onRequest(OfflinePlayer player, String params) {
+        String parameter = params.toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_PARAMETERS.contains(parameter)) return null;
         WarzoneRuntime live = runtime.get();
         if (live == null) return "";
         var active = live.rotations().active();
         var remaining = live.rotations().remaining();
         boolean scopeActive = live.gameplayScopeActive();
-        String parameter = params.toLowerCase(Locale.ROOT);
         String modifierValue = WarzoneStatusValues.resolveModifier(
                 parameter, live.config().modifiers(), active);
         if (modifierValue != null) {

@@ -2,98 +2,251 @@ package com.lincoln.maceguard.warzone.combat;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class StasisPearlTrackerTest {
     private static final UUID WORLD = UUID.randomUUID();
     private static final StasisPearlTracker.Position HERE =
             new StasisPearlTracker.Position(WORLD, 10.0, 64.0, 10.0);
+    private static final Duration MINIMUM = Duration.ofSeconds(60);
 
-    @Test void exactThresholdIsAged() {
+    @Test void elapsedThresholdUsesMonotonicTimeAtAndAroundBoundary() {
+        UUID owner = UUID.randomUUID();
+        assertFalse(impact(owner, 59_999, 59_999_000_000L).aged());
+        assertTrue(impact(owner, 60_000, 60_000_000_000L).aged());
+        assertTrue(impact(owner, 60_001, 60_001_000_000L).aged());
+    }
+
+    @Test void cacheMissFallsBackToPersistedWallClock() {
         StasisPearlTracker tracker = new StasisPearlTracker();
         UUID owner = UUID.randomUUID();
         UUID pearl = UUID.randomUUID();
-        tracker.launched(pearl, owner, 1L);
-        assertTrue(tracker.landed(pearl, 1_200, 1_200, 50L, HERE, 2L));
-        assertTrue(tracker.correlate(owner, 50L, HERE, 3L).orElseThrow().aged());
+        StasisPearlTracker.Impact impact = tracker.landed(pearl,
+                metadata(owner, 1_000L), MINIMUM, 50L, HERE,
+                61_000L, 5L);
+        assertTrue(impact.aged());
+        assertEquals(StasisPearlTracker.AgeSource.WALL_CLOCK, impact.ageSource());
     }
 
-    @Test void normalAndAgedPearlsDoNotUseBroadOwnerAgeState() {
-        StasisPearlTracker tracker = new StasisPearlTracker();
-        UUID owner = UUID.randomUUID();
-        UUID oldPearl = UUID.randomUUID();
-        UUID normalPearl = UUID.randomUUID();
-        tracker.launched(oldPearl, owner, 1L);
-        tracker.launched(normalPearl, owner, 1L);
-        tracker.landed(normalPearl, 20, 1_200, 10L, HERE, 2L);
-        assertFalse(tracker.correlate(owner, 10L, HERE, 3L).orElseThrow().aged());
-        assertEquals(1, tracker.trackedPearls());
-    }
-
-    @Test void simultaneousOwnersNeverCrossCorrelate() {
-        StasisPearlTracker tracker = new StasisPearlTracker();
-        UUID first = UUID.randomUUID();
-        UUID second = UUID.randomUUID();
-        UUID firstPearl = UUID.randomUUID();
-        UUID secondPearl = UUID.randomUUID();
-        tracker.launched(firstPearl, first, 1L);
-        tracker.launched(secondPearl, second, 1L);
-        tracker.landed(firstPearl, 1_300, 1_200, 30L, HERE, 2L);
-        tracker.landed(secondPearl, 30, 1_200, 30L, HERE, 2L);
-        assertTrue(tracker.correlate(first, 30L, HERE, 3L).orElseThrow().aged());
-        assertFalse(tracker.correlate(second, 30L, HERE, 3L).orElseThrow().aged());
-    }
-
-    @Test void sameCoordinatesInAnotherWorldNeverCorrelate() {
+    @Test void entityTicksCannotOverrideElapsedTime() {
         StasisPearlTracker tracker = new StasisPearlTracker();
         UUID owner = UUID.randomUUID();
         UUID pearl = UUID.randomUUID();
-        StasisPearlTracker.Position otherWorld =
-                new StasisPearlTracker.Position(UUID.randomUUID(), 10.0, 64.0, 10.0);
-        tracker.launched(pearl, owner, 1L);
-        tracker.landed(pearl, 1_300, 1_200, 30L, HERE, 2L);
-
-        assertTrue(tracker.correlate(owner, 30L, otherWorld, 3L).isEmpty());
-        assertEquals(1, tracker.pendingImpacts());
-        assertTrue(tracker.correlate(owner, 30L, HERE, 4L).orElseThrow().aged());
+        tracker.launched(pearl, owner, 1_000L, 1_000_000_000L);
+        StasisPearlTracker.Impact impact = tracker.landed(pearl, metadata(owner, 1_000L),
+                MINIMUM, 1L, HERE, 61_000L, 61_000_000_000L);
+        assertTrue(impact.aged(), "No entity tick count participates in the decision.");
     }
 
-    @Test void canceledOrRemovedPearlCanBeDiscardedWithoutMarkerLeak() {
+    @Test void thirtyThirdPearlDoesNotMakeFirstPearlUnrestricted() {
         StasisPearlTracker tracker = new StasisPearlTracker();
         UUID owner = UUID.randomUUID();
-        UUID pearl = UUID.randomUUID();
-        tracker.launched(pearl, owner, 1L);
-        tracker.removePearl(pearl);
-        assertFalse(tracker.landed(pearl, 2_000, 1_200, 1L, HERE, 2L));
-        assertEquals(0, tracker.pendingImpacts());
-    }
-
-    @Test void launchTrackingIsBoundedPerOwner() {
-        StasisPearlTracker tracker = new StasisPearlTracker();
-        UUID owner = UUID.randomUUID();
-        UUID oldest = null;
-        for (int index = 0; index < 40; index++) {
+        UUID first = null;
+        for (int index = 0; index < 33; index++) {
             UUID pearl = UUID.randomUUID();
-            if (index == 0) oldest = pearl;
-            tracker.launched(pearl, owner, index + 1L);
+            if (index == 0) first = pearl;
+            tracker.launched(pearl, owner, 1_000L + index, 1_000L + index);
         }
         assertEquals(32, tracker.trackedPearls());
-        assertFalse(tracker.landed(oldest, 2_000, 1_200, 1L, HERE, 50L));
+        StasisPearlTracker.Impact recovered = tracker.landed(first, metadata(owner, 1_000L),
+                MINIMUM, 100L, HERE, 70_000L, 80_000L);
+        assertTrue(recovered.aged());
+        assertEquals(StasisPearlTracker.AgeSource.WALL_CLOCK, recovered.ageSource());
     }
 
-    @Test void cleanupAndOwnerClearBoundMemory() {
+    @Test void fourThousandNinetySeventhPearlDoesNotCreateGlobalFailOpen() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID firstOwner = UUID.randomUUID();
+        UUID firstPearl = UUID.randomUUID();
+        tracker.launched(firstPearl, firstOwner, 1_000L, 1L);
+        for (int index = 1; index < 4_097; index++)
+            tracker.launched(UUID.randomUUID(), UUID.randomUUID(), 1_000L + index, index + 1L);
+        assertEquals(4_096, tracker.trackedPearls());
+        assertTrue(tracker.landed(firstPearl, metadata(firstOwner, 1_000L), MINIMUM,
+                100L, HERE, 70_000L, 10_000L).aged());
+    }
+
+    @Test void nineImpactsRetainFailClosedOverflowAndConsumeOneEach() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        for (int index = 0; index < 9; index++) {
+            UUID pearl = UUID.randomUUID();
+            tracker.landed(pearl, metadata(owner, 1_000L), MINIMUM,
+                    10L, HERE, 70_000L, index + 1L);
+        }
+        assertEquals(9, tracker.pendingImpacts());
+        for (int index = 0; index < 9; index++) {
+            StasisPearlTracker.Correlation result = tracker.correlate(owner, 10L, HERE, 20L + index);
+            assertTrue(result.matched());
+            assertTrue(result.effectiveAged());
+            assertEquals(8 - index, tracker.pendingImpacts());
+        }
+    }
+
+    @Test void oneTeleportConsumesAtMostOneOfTwoPendingImpacts() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        tracker.landed(first, metadata(owner, 1_000L), MINIMUM, 10L, HERE, 70_000L, 1L);
+        tracker.landed(second, metadata(owner, 1_000L), MINIMUM, 10L, HERE, 70_000L, 2L);
+
+        assertEquals(first, tracker.correlate(owner, 10L, HERE, 3L).selectedPearlId());
+        assertEquals(1, tracker.pendingImpacts());
+        assertEquals(second, tracker.correlate(owner, 10L, HERE, 4L).selectedPearlId());
+        assertEquals(0, tracker.pendingImpacts());
+    }
+
+    @Test void sameTickNormalAndAgedPearlsFailClosedOnlyBecauseImpactSetIsAmbiguous() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        UUID normal = UUID.randomUUID();
+        UUID aged = UUID.randomUUID();
+        tracker.landed(normal, metadata(owner, 69_500L), MINIMUM, 10L, HERE, 70_000L, 1L);
+        tracker.landed(aged, metadata(owner, 1_000L), MINIMUM, 10L, HERE, 70_000L, 2L);
+
+        StasisPearlTracker.Correlation first = tracker.correlate(owner, 10L, HERE, 3L);
+        assertEquals(normal, first.selectedPearlId());
+        assertTrue(first.ambiguous());
+        assertTrue(first.effectiveAged());
+        StasisPearlTracker.Correlation second = tracker.correlate(owner, 10L, HERE, 4L);
+        assertEquals(aged, second.selectedPearlId());
+        assertTrue(second.effectiveAged());
+    }
+
+    @Test void twoNormalSameTickPearlsRemainNormalAndOrdered() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        tracker.landed(first, metadata(owner, 69_900L), MINIMUM, 10L, HERE, 70_000L, 1L);
+        tracker.landed(second, metadata(owner, 69_900L), MINIMUM, 10L, HERE, 70_000L, 2L);
+        assertFalse(tracker.correlate(owner, 10L, HERE, 3L).effectiveAged());
+        assertFalse(tracker.correlate(owner, 10L, HERE, 4L).effectiveAged());
+    }
+
+    @Test void modifiedDestinationDoesNotBreakOrderedCorrelation() {
         StasisPearlTracker tracker = new StasisPearlTracker();
         UUID owner = UUID.randomUUID();
         UUID pearl = UUID.randomUUID();
-        tracker.launched(pearl, owner, 1L);
-        tracker.landed(pearl, 1_300, 1_200, 1L, HERE, 2L);
-        tracker.cleanup(600_000_000L);
+        tracker.landed(pearl, metadata(owner, 1_000L), MINIMUM, 10L, HERE, 70_000L, 1L);
+        StasisPearlTracker.Position modified = new StasisPearlTracker.Position(WORLD, 500, 90, -500);
+        StasisPearlTracker.Correlation result = tracker.correlate(owner, 10L, modified, 2L);
+        assertTrue(result.matched());
+        assertFalse(result.destinationMatched());
+        assertTrue(result.effectiveAged());
+    }
+
+    @Test void crossWorldCorrelationRemainsImpossible() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        tracker.landed(UUID.randomUUID(), metadata(owner, 1_000L), MINIMUM,
+                10L, HERE, 70_000L, 1L);
+        assertFalse(tracker.correlate(owner, 10L,
+                new StasisPearlTracker.Position(UUID.randomUUID(), 10, 64, 10), 2L).matched());
+        assertEquals(1, tracker.pendingImpacts());
+    }
+
+    @Test void unrelatedOldSuspendedPearlDoesNotBlockNewNormalImpact() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        tracker.launched(UUID.randomUUID(), owner, 1_000L, 1L);
+        tracker.landed(UUID.randomUUID(), metadata(owner, 69_900L), MINIMUM,
+                10L, HERE, 70_000L, 2L);
+        assertFalse(tracker.correlate(owner, 10L, HERE, 3L).effectiveAged());
+    }
+
+    @Test void invalidMarkedMetadataFailsClosedForAffectedOwner() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        StasisPearlTracker.LaunchMetadata malformed = new StasisPearlTracker.LaunchMetadata(
+                owner, 0L, true, "malformed timestamp");
+        assertTrue(tracker.landed(UUID.randomUUID(), malformed, MINIMUM,
+                10L, HERE, 1L, 1L).enforce());
+        assertTrue(tracker.correlate(owner, 10L, HERE, 2L).effectiveAged());
+    }
+
+    @Test void expiredAgedImpactCreatesOwnerScopedRecoveryInsteadOfFailOpen() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        tracker.landed(UUID.randomUUID(), metadata(owner, 1_000L), MINIMUM,
+                10L, HERE, 70_000L, 1L);
+        tracker.cleanup(Duration.ofSeconds(6).toNanos());
+        StasisPearlTracker.Correlation recovered = tracker.correlate(owner, 50L, HERE,
+                Duration.ofSeconds(6).toNanos() + 1);
+        assertTrue(recovered.matched());
+        assertTrue(recovered.overflow());
+        assertTrue(recovered.effectiveAged());
+    }
+
+    @Test void overflowAuthoritySurvivesRepeatedCleanupUntilOneEventConsumesIt() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        tracker.landed(UUID.randomUUID(), metadata(owner, 1_000L), MINIMUM,
+                10L, HERE, 70_000L, 1L);
+
+        tracker.cleanup(Duration.ofSeconds(6).toNanos());
+        tracker.cleanup(Duration.ofDays(30).toNanos());
+
+        StasisPearlTracker.Correlation recovered = tracker.correlate(owner, 5_000L, HERE,
+                Duration.ofDays(30).toNanos() + 1L);
+        assertTrue(recovered.matched());
+        assertTrue(recovered.overflow());
+        assertTrue(recovered.effectiveAged());
         assertEquals(0, tracker.pendingImpacts());
-        tracker.clearOwner(owner);
-        assertEquals(0, tracker.trackedPearls());
+    }
+
+    @Test void unexpectedlyExpiredNormalImpactAlsoUsesFailClosedRecovery() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        tracker.landed(UUID.randomUUID(), metadata(owner, 69_900L), MINIMUM,
+                10L, HERE, 70_000L, 1L);
+        tracker.cleanup(Duration.ofSeconds(6).toNanos());
+        StasisPearlTracker.Correlation recovered = tracker.correlate(owner, 50L, HERE,
+                Duration.ofSeconds(6).toNanos() + 1);
+        assertTrue(recovered.matched());
+        assertTrue(recovered.overflow());
+        assertTrue(recovered.effectiveAged(),
+                "An unusually delayed marked teleport cannot turn queue expiry into a bypass.");
+    }
+
+    @Test void overflowRemainsWorldScopedAcrossManyImpactWorlds() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        for (int index = 0; index < 8; index++)
+            tracker.landed(UUID.randomUUID(), metadata(owner, 1_000L), MINIMUM,
+                    10L, HERE, 70_000L, index + 1L);
+        StasisPearlTracker.Position overflowWorld = new StasisPearlTracker.Position(
+                UUID.randomUUID(), 0, 64, 0);
+        tracker.landed(UUID.randomUUID(), metadata(owner, 1_000L), MINIMUM,
+                10L, overflowWorld, 70_000L, 20L);
+        assertFalse(tracker.correlate(owner, 10L,
+                new StasisPearlTracker.Position(UUID.randomUUID(), 0, 64, 0), 21L).matched());
+        assertTrue(tracker.correlate(owner, 10L, overflowWorld, 22L).matched());
+    }
+
+    @Test void wallClockMovingBackwardFailsClosedAfterCacheLoss() {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID owner = UUID.randomUUID();
+        StasisPearlTracker.Impact impact = tracker.landed(UUID.randomUUID(),
+                metadata(owner, 10_000L), MINIMUM, 10L, HERE, 9_000L, 1L);
+        assertTrue(impact.enforce());
+        assertTrue(impact.failClosed());
+        assertEquals(StasisPearlTracker.AgeSource.INVALID, impact.ageSource());
+    }
+
+    private StasisPearlTracker.Impact impact(UUID owner, long elapsedMillis, long elapsedNanos) {
+        StasisPearlTracker tracker = new StasisPearlTracker();
+        UUID pearl = UUID.randomUUID();
+        tracker.launched(pearl, owner, 1_000L, 1_000_000_000L);
+        return tracker.landed(pearl, metadata(owner, 1_000L), MINIMUM, 1L, HERE,
+                1_000L + elapsedMillis, 1_000_000_000L + elapsedNanos);
+    }
+
+    private StasisPearlTracker.LaunchMetadata metadata(UUID owner, long launchMillis) {
+        return new StasisPearlTracker.LaunchMetadata(owner, launchMillis, false, null);
     }
 }

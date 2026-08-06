@@ -4,17 +4,19 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
-/** Loads the direct CombatLogX boundary only after the soft dependency is verified as enabled. */
+/** Creates a lifecycle-aware optional CombatLogX boundary. */
 public final class CombatLogXGatewayFactory {
     private CombatLogXGatewayFactory() { }
 
     public static CombatLogXGateway discover(JavaPlugin owner) {
+        return new ManagedCombatLogXGateway(owner);
+    }
+
+    static CombatLogXGateway connectEnabled(JavaPlugin owner) {
         PluginManager manager = owner.getServer().getPluginManager();
         Plugin candidate = manager.getPlugin("CombatLogX");
-        if (candidate == null || !candidate.isEnabled()) {
+        if (candidate == null || !candidate.isEnabled())
             return unavailable("CombatLogX is not installed or enabled");
-        }
-
         try {
             return DirectCombatLogXGateway.connect(owner, candidate);
         } catch (ClassCastException incompatible) {

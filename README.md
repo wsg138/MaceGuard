@@ -1,6 +1,6 @@
 # MaceGuard
 
-MaceGuard 6.1 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
+MaceGuard 6.1.1 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
 
 WorldGuard remains the authority for region geometry, membership, inheritance, priorities, and ordinary protection. MaceGuard never broadens an unresolved Warzone to the whole world.
 
@@ -12,7 +12,7 @@ WorldGuard remains the authority for region geometry, membership, inheritance, p
 - PlaceholderAPI 2.11.6+ is optional
 - CombatLogX 11.6 is optional; combat-dependent Warzone features disable safely when its public API is unavailable
 
-No NMS, reflection into CombatLogX, copied CombatLogX source, or private-plugin internals are used. MaceGuard compiles against the published `com.github.sirblobman.combatlogx:api:11.6-SNAPSHOT` API (and its BlueSlimeCore API requirement) with `provided` scope. The direct listener boundary is loaded only after the soft dependency is confirmed present and compatible, so unrelated MaceGuard functionality still loads without CombatLogX. No CombatLogX fork is required.
+No NMS, reflection into CombatLogX, copied CombatLogX source, or private-plugin internals are used. MaceGuard compiles with `provided` scope against immutable Paper `1.21.11-R0.1-20251209.165129-1`, CombatLogX API `11.6-20251210.005328-47`, and BlueSlimeCore API `2.9-20260720.221205-67` artifacts. The direct listener boundary is loaded only after the soft dependency is confirmed present and compatible, so unrelated MaceGuard functionality still loads without CombatLogX. No CombatLogX fork is required; see `docs/DEPENDENCIES.md`.
 
 ## Warzone schema 7
 
@@ -93,9 +93,9 @@ warzonerotator-combat-zone: allow
 warzonerotator-stasis: deny
 ```
 
-The latch is evaluated from the player's own effective WorldGuard flags, respects region priorities and inheritance, survives leaving the region only until CombatLogX ends combat, and is never persisted. Existing modifiers opt into outside-region enforcement individually with `combat-carryover: true`; Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Building, crystal, anchor, cobweb, reset, and other world-mutation policies are rejected for carryover.
+The latch is evaluated from the player's own effective WorldGuard flags, respects region priorities and inheritance, survives leaving the region only until CombatLogX ends combat, and is never persisted. Existing modifiers opt into outside-region enforcement individually with `combat-carryover: true`; Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Trident remains location-bound and validation rejects Trident carryover. Building, crystal, anchor, cobweb, reset, and other world-mutation policies are rejected for carryover.
 
-CombatLogX remains authoritative for tagging, timers, bypass, logout punishment, ordinary teleport prevention, Ender Pearl retagging, and keeping combat active while gliding. Its direct public tag/re-tag callbacks are reconciled after CombatLogX commits tag state, while untag cleanup occurs after removal. MaceGuard controls dynamic combat Elytra starts, cancels only actual Elytra boosts, and can block an aged Ender Pearl teleport when the acquired latch retained a denied stasis policy. The default stasis threshold is `60s`. `warzonerotator.bypass` bypasses all MaceGuard Rotator restrictions, including stasis; CombatLogX's API bypass prevents acquiring or retaining the latch.
+CombatLogX remains authoritative for tagging, timers, bypass, logout punishment, ordinary teleport prevention, Ender Pearl retagging, and keeping combat active while gliding. Its direct public tag/re-tag callbacks are reconciled after CombatLogX commits tag state, while untag cleanup occurs after removal. Dependency disable drops the direct adapter and API-owned references; compatible re-enable creates a fresh generation and reconciles online players while stale callbacks are fenced. MaceGuard controls dynamic combat Elytra starts, cancels only actual Elytra boosts, and can block an aged Ender Pearl teleport when the acquired latch retained a denied stasis policy. The default stasis threshold is `60s` elapsed time, using monotonic runtime age and PDC epoch fallback after cache loss or reload; entity ticks are not authoritative. Marked-pearl cache eviction, owner/world overflow, unusual impact expiry, malformed metadata, and security-relevant ambiguity fail closed only for the affected owner/event. `warzonerotator.bypass` bypasses all MaceGuard Rotator restrictions, including stasis; CombatLogX's API bypass prevents acquiring or retaining the latch.
 
 ## Commands
 
@@ -134,6 +134,9 @@ Administrative commands:
 /warzone reload
 /warzone validate
 /warzone debug
+/maceguardpearltrace on <player>
+/maceguardpearltrace show <player>
+/maceguardpearltrace off <player>
 ```
 
 A player who omits a required kit or modifier ID is sent to the relevant GUI. Console use requires an explicit ID and duration:
@@ -161,7 +164,7 @@ Existing transition safety remains centralized: modifier additions/removals are 
 
 ## Placeholders
 
-PlaceholderAPI support uses the `warzone` identifier. The table below lists every supported placeholder in MaceGuard 6.1.0. Example outputs are illustrative and depend on the live configuration, active selection, schedule, and player location.
+PlaceholderAPI support uses the `warzone` identifier. The table below lists every supported placeholder in MaceGuard 6.1.1. Example outputs are illustrative and depend on the live configuration, active selection, schedule, and player location.
 
 Status and restriction placeholders describe the active Warzone gameplay scope/meta; they do not directly expose an individual player's CombatLogX latch. Values that do not apply return an empty string. Boolean outputs are lowercase `true` or `false`.
 
@@ -194,8 +197,8 @@ Status and restriction placeholders describe the active Warzone gameplay scope/m
 ### Active restrictions and scope
 | Placeholder | What it returns | Example output |
 |---|---|---|
-| `%warzone_disabled_items%` | Comma-separated disabled item/ability targets in the active set, or `None`. | `Mace, Spear Lunge` |
-| `%warzone_disabled_items_count%` | Number of disabled targets in the active set. | `2` |
+| `%warzone_disabled_items%` | Comma-separated disabled material/item targets in the active set, or `None`; effect-only ability targets such as `SPEAR_LUNGE` are excluded. | `Mace, Ender Pearl` |
+| `%warzone_disabled_items_count%` | Number of disabled material/item targets; effect-only ability targets are excluded. | `2` |
 | `%warzone_cooldown_items%` | Comma-separated cooldown targets and configured durations, or `None`. | `Ender Pearl — 5s, Wind Charge — 10s` |
 | `%warzone_cooldown_items_count%` | Number of cooldown targets in the active set. | `2` |
 | `%warzone_restrictions%` | All active restrictions with `disabled` or cooldown wording. | `Mace — disabled, Ender Pearl — 5s cooldown` |
@@ -245,8 +248,8 @@ Total documented placeholders: **59**.
 
 ## Migration
 
-Schema 6 is backed up and migrated to schema 7 without replacing operator-defined kits, modifiers, weights, schedules, messages, restriction targets, conflict groups, or GUI settings. Existing modifiers receive `combat-carryover: false` unless explicitly configured after migration, and `combat.stasis.minimum-age` defaults to `60s`.
+Schema 6 is backed up and migrated to schema 7 without replacing operator-defined kits, modifiers, weights, schedules, messages, restriction targets, conflict groups, or GUI settings. Every source modifier missing `combat-carryover` receives explicit `false`; explicit `true` or `false` is preserved, and new bundled modifiers absent from the source are not rewritten. `combat.stasis.minimum-age` defaults to `60s`.
 
-Historical schema 5 and schema 4 files continue through the existing validated migration path into schema 7. A failed migration never partially replaces the active file. Incompatible older files are backed up and replaced with a disabled clean schema-7 file. WorldGuard regions, custom flag assignments, reset snapshots, arming state, and reset schedules are never created or enabled by migration.
+Historical schema 5 and schema 4 files follow the same source-aware rule, including the schema-4 intermediate representation, so bundled schema-7 carryover values cannot leak into legacy built-in or custom modifiers. The complete temporary candidate must validate before atomic replacement; failure leaves the active file unchanged. Incompatible older files are backed up and replaced with a disabled clean schema-7 file. WorldGuard regions, custom flag assignments, reset snapshots, arming state, and reset schedules are never created or enabled by migration.
 
 See [Warzone configuration](docs/WARZONE.md), [deployment and staging](docs/DEPLOYMENT.md), and [migration](docs/MIGRATION.md).

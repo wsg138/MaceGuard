@@ -40,8 +40,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Predicate;
 import java.util.random.RandomGenerator;
 
@@ -116,11 +119,6 @@ public final class WarzoneRuntime {
         this.messages.bind(rotations);
         this.guis = new WarzoneGuiManager(plugin, this);
         this.combatLogX = CombatLogXGatewayFactory.discover(plugin);
-        if (!combatLogX.available()) {
-            plugin.getLogger().warning("CombatLogX integration is inactive: "
-                    + combatLogX.unavailableReason()
-                    + ". Unrelated MaceGuard features remain enabled; combat-bound Warzone features are disabled.");
-        }
         this.combatScopes = new CombatScopeService(combatLogX, queries);
         StasisPearlTracker pearls = new StasisPearlTracker();
         this.combatIntegration = new CombatIntegrationListener(combatScopes, pearls);
@@ -138,9 +136,6 @@ public final class WarzoneRuntime {
 
     public void start() {
         plugin.getServer().getPluginManager().registerEvents(guis, plugin);
-        // Rotation state and manual-expiry time continue even while gameplay enforcement is
-        // disabled. Re-enabling the module therefore cannot resurrect an expired override or
-        // replay a stale schedule slot.
         clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             rotations.tick();
             cooldowns.discardExpired();
@@ -180,6 +175,45 @@ public final class WarzoneRuntime {
         visualCooldowns.clearOwned();
         cooldowns.clear();
         if (pluginDisable && config.cobwebs().clearOnDisable()) clearTrackedCobwebs();
+    }
+
+    ReloadState snapshotReloadState() {
+        return new ReloadState(cooldowns.snapshot(), visualCooldowns.snapshot());
+    }
+
+    void adoptReloadState(ReloadState state) {
+        cooldowns.restore(state.cooldowns(), currentCooldownDurations());
+        visualCooldowns.restore(state.visualCooldowns());
+    }
+
+    void releaseReloadState() {
+        visualCooldowns.releaseOwnership();
+        cooldowns.clear();
+    }
+
+    void abortReloadState() {
+        visualCooldowns.releaseOwnership();
+        cooldowns.clear();
+    }
+
+    void reconcileVisualCooldowns() {
+        restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
+    }
+
+    // Bukkit-main-thread snapshot; sorted iteration makes reload reconciliation deterministic.
+    @SuppressWarnings("PMD.UseConcurrentHashMap")
+    private Map<RestrictionTarget, Duration> currentCooldownDurations() {
+        Map<RestrictionTarget, Duration> result = new TreeMap<>();
+        rotations.active().restrictions().forEach((target, restriction) -> {
+            if (restriction.mode() == RestrictionMode.COOLDOWN)
+                result.put(target, restriction.cooldown());
+        });
+        rotations.active().carriedRestrictions().forEach((target, restriction) -> {
+            if (restriction.mode() == RestrictionMode.COOLDOWN)
+                result.merge(target, restriction.cooldown(), (left, right) ->
+                        left.compareTo(right) <= 0 ? left : right);
+        });
+        return Map.copyOf(result);
     }
 
     public boolean gameplayScopeActive() {
@@ -240,7 +274,6 @@ public final class WarzoneRuntime {
                     config.messages().transitionAudience());
     }
 
-
     static Set<RestrictionTarget> changedRestrictionTargets(WarzoneConfig.ActiveSet previous,
                                                                WarzoneConfig.ActiveSet current) {
         Set<RestrictionTarget> targets = new LinkedHashSet<>();
@@ -254,7 +287,6 @@ public final class WarzoneRuntime {
                 current.carriedRestrictions().get(target)));
         return Set.copyOf(targets);
     }
-
 
     static boolean shouldClearCobwebs(WarzoneConfig.ActiveSet previous,
                                       WarzoneConfig.ActiveSet current,
@@ -359,6 +391,9 @@ public final class WarzoneRuntime {
                     + "be removed; the clear will be checked again after restart: " + ex.getMessage());
         }
     }
+
+    record ReloadState(CooldownService.Snapshot cooldowns,
+                       VisualCooldownService.Snapshot visualCooldowns) { }
 
     public record CobwebDecision(boolean allowed, boolean rotationUnavailable,
                                  RestrictionDecision restriction) {

@@ -6,7 +6,7 @@
 
     <groupId>dev.lincoln</groupId>
     <artifactId>maceguard</artifactId>
-    <version>6.1.0</version>
+    <version>6.1.1</version>
     <name>MaceGuard</name>
     <description>WorldGuard-scoped scheduled combat modifiers, strict block policies, temporary cobwebs, explosive controls, and fail-closed filtered/full region resets.</description>
 
@@ -15,6 +15,9 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-05T00:00:00Z</project.build.outputTimestamp>
+        <paper.api.version>1.21.11-R0.1-20251209.165129-1</paper.api.version>
+        <blueslimecore.api.version>2.9-20260720.221205-67</blueslimecore.api.version>
+        <combatlogx.api.version>11.6-20251210.005328-47</combatlogx.api.version>
     </properties>
 
     <repositories>
@@ -46,19 +49,19 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.11-R0.1-SNAPSHOT</version>
+            <version>${paper.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.github.sirblobman.api</groupId>
             <artifactId>core</artifactId>
-            <version>2.9-SNAPSHOT</version>
+            <version>${blueslimecore.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.github.sirblobman.combatlogx</groupId>
             <artifactId>api</artifactId>
-            <version>11.6-SNAPSHOT</version>
+            <version>${combatlogx.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -102,6 +105,24 @@
                 <configuration>
                     <release>21</release>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>enforce-build-contract</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion><version>[21,22)</version></requireJavaVersion>
+                                <requireMavenVersion><version>[3.9,4)</version></requireMavenVersion>
+                                <banDuplicatePomDependencyVersions/>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
