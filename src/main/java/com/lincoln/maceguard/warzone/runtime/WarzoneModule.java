@@ -3,6 +3,7 @@ package com.lincoln.maceguard.warzone.runtime;
 import com.lincoln.maceguard.policy.BlockPolicyResolver;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.command.WarzoneCommand;
+import com.lincoln.maceguard.warzone.config.CooldownSafetyValidator;
 import com.lincoln.maceguard.warzone.config.ValidationResult;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
@@ -202,6 +203,7 @@ public final class WarzoneModule {
         errors.addAll(messages.errors());
         List<String> warnings = new ArrayList<>(config.warnings());
         warnings.addAll(messages.warnings());
+        if (config.valid()) errors.addAll(CooldownSafetyValidator.validate(config.value()));
         if (!plugin.getServer().getPluginManager().isPluginEnabled("CombatLogX"))
             warnings.add("CombatLogX is missing or disabled; combat latch, carried restrictions, combat Elytra, and stasis enforcement are inactive.");
         if (worldGuardQueries == null || !worldGuardQueries.warzoneCombatFlagsAvailable())
@@ -258,9 +260,15 @@ public final class WarzoneModule {
                 + "<red> under the current MaceGuard block rules.");
     }
 
-    public void sendBucketUseDenied(Player player, org.bukkit.Material material) {
-        if (runtime != null) runtime.messages().bucketUseDenied(player, material);
-        else send(player, "<red>You cannot use <white>" + friendly(material)
+    public void sendBucketEmptyDenied(Player player, org.bukkit.Material material) {
+        if (runtime != null) runtime.messages().bucketEmptyDenied(player, material);
+        else send(player, "<red>You cannot empty <white>" + friendly(material)
+                + "<red> here under the current MaceGuard block rules.");
+    }
+
+    public void sendBucketFillDenied(Player player, org.bukkit.Material material) {
+        if (runtime != null) runtime.messages().bucketFillDenied(player, material);
+        else send(player, "<red>You cannot fill a bucket with <white>" + friendly(material)
                 + "<red> here under the current MaceGuard block rules.");
     }
 

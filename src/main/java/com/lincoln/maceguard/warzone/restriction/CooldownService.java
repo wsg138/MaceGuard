@@ -28,7 +28,7 @@ public final class CooldownService {
 
     public void start(UUID playerId, RestrictionTarget target, Duration duration,
                       Material concreteMaterial) {
-        long expiry = Math.addExact(clock.getAsLong(), duration.toMillis());
+        long expiry = safeAdd(clock.getAsLong(), saturatedMillis(duration));
         Material visualMaterial = normalizeConcreteMaterial(target, concreteMaterial);
         activeCooldowns.put(new Key(playerId, target),
                 new ActiveCooldown(expiry, visualMaterial));
@@ -38,11 +38,13 @@ public final class CooldownService {
         Key key = new Key(playerId, target);
         ActiveCooldown cooldown = activeCooldowns.get(key);
         if (cooldown == null) return Duration.ZERO;
-        long remaining = cooldown.expiresAtMillis() - clock.getAsLong();
-        if (remaining <= 0) {
+        long now = clock.getAsLong();
+        if (cooldown.expiresAtMillis() <= now) {
             activeCooldowns.remove(key);
             return Duration.ZERO;
         }
+        long remaining = cooldown.expiresAtMillis() - now;
+        if (remaining < 0L) remaining = Long.MAX_VALUE;
         return Duration.ofMillis(remaining);
     }
 
@@ -117,9 +119,7 @@ public final class CooldownService {
         for (SnapshotEntry entry : snapshot.entries()) {
             Duration maximum = allowedDurations.get(entry.target());
             if (maximum == null || maximum.isZero() || maximum.isNegative()) continue;
-            long capped;
-            try { capped = Math.addExact(now, maximum.toMillis()); }
-            catch (ArithmeticException overflow) { capped = Long.MAX_VALUE; }
+            long capped = safeAdd(now, saturatedMillis(maximum));
             long expiry = Math.min(entry.expiresAtMillis(), capped);
             if (expiry > now) restoreEntry(entry, expiry);
         }
@@ -142,6 +142,18 @@ public final class CooldownService {
         activeCooldowns.keySet().removeIf(key -> targets.contains(key.target()));
     }
     public int size() { discardExpired(); return activeCooldowns.size(); }
+
+    private static long saturatedMillis(Duration duration) {
+        if (duration == null || duration.isZero() || duration.isNegative()) return 0L;
+        try { return duration.toMillis(); }
+        catch (ArithmeticException overflow) { return Long.MAX_VALUE; }
+    }
+
+    private static long safeAdd(long left, long right) {
+        if (right > 0L && left > Long.MAX_VALUE - right) return Long.MAX_VALUE;
+        if (right < 0L && left < Long.MIN_VALUE - right) return Long.MIN_VALUE;
+        return left + right;
+    }
 
     public record Snapshot(List<SnapshotEntry> entries) {
         public Snapshot { entries = List.copyOf(entries); }

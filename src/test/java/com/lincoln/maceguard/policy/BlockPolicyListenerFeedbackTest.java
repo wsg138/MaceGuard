@@ -16,7 +16,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 class BlockPolicyListenerFeedbackTest {
-    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+    private static final String BYPASS_PERMISSION = "maceguard.block-policy.bypass";
 
     @Test void bypassSkipsEveryPlayerPolicyCancellationAndMessage() {
         BlockPolicyResolver resolver = mock(BlockPolicyResolver.class);
@@ -89,7 +89,8 @@ class BlockPolicyListenerFeedbackTest {
         verify(fill).setCancelled(true);
         verify(warzone).sendBlockPlaceDenied(player, Material.STONE);
         verify(warzone).sendBlockBreakDenied(player, Material.DIAMOND_BLOCK);
-        verify(warzone, times(2)).sendBucketUseDenied(player, Material.WATER);
+        verify(warzone).sendBucketEmptyDenied(player, Material.WATER);
+        verify(warzone).sendBucketFillDenied(player, Material.WATER);
     }
 
     private Block block(Material material) {

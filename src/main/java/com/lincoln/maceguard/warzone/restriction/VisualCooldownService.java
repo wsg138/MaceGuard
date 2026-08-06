@@ -83,20 +83,20 @@ public final class VisualCooldownService {
         OwnedOverlay prior = owned.get(key);
         int current = player.getCooldown(material);
         if (prior == null) {
-            if (current > requestedTicks + COOLDOWN_TOLERANCE_TICKS) return;
+            if ((long) current > (long) requestedTicks + COOLDOWN_TOLERANCE_TICKS) return;
             ownAndSet(player, material, requestedTicks, current);
             return;
         }
         long elapsed = Math.max(0L, nowTick - prior.appliedAtTick());
         int expected = remainingTicks(prior.appliedTicks(), elapsed);
-        if (Math.abs(current - expected) > COOLDOWN_TOLERANCE_TICKS) {
+        if (Math.abs((long) current - expected) > COOLDOWN_TOLERANCE_TICKS) {
             owned.remove(key);
             return;
         }
         int previous = remainingTicks(prior.previousTicks(), elapsed);
         player.setCooldown(material, requestedTicks);
         owned.put(key, new OwnedOverlay(previous, requestedTicks, nowTick,
-                safeAdd(wallClock.getAsLong(), duration.toMillis())));
+                safeAdd(wallClock.getAsLong(), saturatedMillis(duration))));
     }
 
     private void ownAndSet(Player player, Material material, int requestedTicks, int previousTicks) {
@@ -188,8 +188,10 @@ public final class VisualCooldownService {
         return requestedTicks > 0 && existingTicks < requestedTicks;
     }
     static int reconciledTicks(int currentTicks, int expectedOwnedTicks, int previousTicks) {
-        if (currentTicks > expectedOwnedTicks + COOLDOWN_TOLERANCE_TICKS) return -1;
-        if (currentTicks + COOLDOWN_TOLERANCE_TICKS < expectedOwnedTicks) return -1;
+        if ((long) currentTicks > (long) expectedOwnedTicks + COOLDOWN_TOLERANCE_TICKS)
+            return -1;
+        if ((long) currentTicks + COOLDOWN_TOLERANCE_TICKS < expectedOwnedTicks)
+            return -1;
         return Math.max(0, previousTicks);
     }
     static int remainingTicks(int initialTicks, long elapsedTicks) {
@@ -198,11 +200,17 @@ public final class VisualCooldownService {
     }
     public static int toTicks(Duration duration) {
         if (duration == null || duration.isZero() || duration.isNegative()) return 0;
-        long millis = duration.toMillis();
+        long millis = saturatedMillis(duration);
         long rounded = millis > Long.MAX_VALUE - 49L ? Long.MAX_VALUE : millis + 49L;
         long ticks = Math.max(1L, rounded / 50L);
         return ticks > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) ticks;
     }
+    private static long saturatedMillis(Duration duration) {
+        if (duration == null || duration.isZero() || duration.isNegative()) return 0L;
+        try { return duration.toMillis(); }
+        catch (ArithmeticException overflow) { return Long.MAX_VALUE; }
+    }
+
     private static long safeAdd(long left, long right) {
         if (right > 0 && left > Long.MAX_VALUE - right) return Long.MAX_VALUE;
         if (right < 0 && left < Long.MIN_VALUE - right) return Long.MIN_VALUE;

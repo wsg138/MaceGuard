@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class BlockPolicyListener implements Listener {
-    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+    private static final String BYPASS_PERMISSION = "maceguard.block-policy.bypass";
 
     private final BlockPolicyResolver resolver;
     private final WarzoneModule warzone;
@@ -73,7 +73,7 @@ public final class BlockPolicyListener implements Listener {
         Material fluid = fluid(event.getBucket());
         if (bucketEmptyAllowed(resolve(target.getLocation()), fluid)) return;
         event.setCancelled(true);
-        if (warzone != null) warzone.sendBucketUseDenied(event.getPlayer(), fluid);
+        if (warzone != null) warzone.sendBucketEmptyDenied(event.getPlayer(), fluid);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -82,7 +82,7 @@ public final class BlockPolicyListener implements Listener {
         Block source = event.getBlockClicked();
         if (bucketFillAllowed(resolve(source.getLocation()), source.getType())) return;
         event.setCancelled(true);
-        if (warzone != null) warzone.sendBucketUseDenied(event.getPlayer(), source.getType());
+        if (warzone != null) warzone.sendBucketFillDenied(event.getPlayer(), source.getType());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
