@@ -1,6 +1,6 @@
-# MaceGuard 6.1.1 deployment and staging
+# MaceGuard 6.1.2 deployment and staging
 
-MaceGuard 6.1.1 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required; PlaceholderAPI and CombatLogX are optional integrations. Keep a new schema-7 build in staging until the checks below are complete.
+MaceGuard 6.1.2 targets Java 21 and Paper/Leaf 1.21.11. WorldGuard remains required; PlaceholderAPI and CombatLogX are optional integrations. Keep a new schema-7 build in staging until the checks below are complete.
 
 ## Safe Warzone activation
 
@@ -199,6 +199,26 @@ The default schema includes separate whole-spear, damage, and Lunge controls:
 - `lunge-cooldown-10` starts only after an accepted correlated Lunge velocity.
 
 Stage each spear material and enchantment level. Verify cross-boundary actor/target cases, ordinary attacks, throws, hits, misses, item swaps, unrelated velocity, latency, Geyser/Bedrock behavior, and cooldown expiration. Paper/Leaf 1.21.11 has no supported `EntityLungeEvent`; the implementation intentionally uses the narrow pre-attack/velocity correlation without NMS.
+
+## Player feedback and visual cooldown staging
+
+Use a production-equivalent Leaf/Paper 1.21.11 server with another cancellation plugin and both Java and Geyser/Bedrock clients. For each target, capture chat, inventory consumption, authoritative MaceGuard state, and Bukkit item cooldown ticks. Verify:
+
+- unrestricted use sends no MaceGuard message, starts no MaceGuard cooldown, and leaves existing vanilla/third-party cooldowns unchanged;
+- fully disabled use sends a clear disabled message with no fake countdown or item bar;
+- the first blocked cooldown attempt always reports rounded-up authoritative remaining time, while rapid repeats are bounded per player/target at the default one-second throttle;
+- successful launch/damage/Lunge sends exactly one cooldown-start message only after final success;
+- another plugin canceling a pearl, Wind Charge, Spear, damage, or velocity event produces no start message, internal cooldown, overlay, or duplicate interaction/launch feedback;
+- a blocked pearl or boost preserves the consumed item whenever the event contract supports it;
+- player Wind Charges message normally, while dispenser-originated Wind Charges produce no player chat;
+- Mace cooldown begins only on positive direct Mace damage, never on a miss or zero damage;
+- whole-`SPEAR` authority blocks every Spear material through the shared target, while only the actual successful Spear material receives the visual overlay;
+- `SPEAR_DAMAGE` and `SPEAR_LUNGE` chat independently and never shade the whole Spear; normal Spear use remains possible during a Lunge-only cooldown;
+- blocked glide starts and actual Elytra boosts explain the Warzone/combat cause without an invented duration or bar; ordinary fireworks remain unaffected;
+- cobweb, block place, block break, bucket, stasis, direct attack, and projectile cancellation paths each provide first-attempt feedback;
+- `warzonerotator.bypass` receives no MaceGuard cancellation, cooldown, overlay, or message.
+
+Exercise overlay ownership separately: reconnect, cross the region border, leave with combat carryover, reload successfully, fail a reload, shorten/remove a modifier, and disable the plugin. Confirm active owned overlays reconcile, removed ones clear, a longer foreign cooldown is never overwritten or cleared, and a shorter foreign value never shortens authoritative MaceGuard time.
 
 ## Other restriction staging
 

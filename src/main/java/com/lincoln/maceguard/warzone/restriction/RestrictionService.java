@@ -60,8 +60,13 @@ public final class RestrictionService {
     }
 
     public void success(UUID playerId, RestrictionDecision decision) {
+        success(playerId, decision, null);
+    }
+
+    public void success(UUID playerId, RestrictionDecision decision, Material concreteMaterial) {
         if (decision.startsCooldownAfterSuccess())
-            cooldowns.start(playerId, decision.target(), decision.restriction().cooldown());
+            cooldowns.start(playerId, decision.target(), decision.restriction().cooldown(),
+                    concreteMaterial);
     }
 
     private Map<RestrictionTarget, WarzoneConfig.Restriction> restrictionsFor(

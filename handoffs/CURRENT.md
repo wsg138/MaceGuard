@@ -1,45 +1,43 @@
 # Current Handoff
 
-Latest report: `handoffs/worker-2-warzone-combat-review-followup.md`
+Latest report: `handoffs/player-cooldown-feedback-6.1.2.md`
 
-## Corrective review status
+## Active review status
 
-- Repository verdict: **READY AFTER EXACT-SELF CHECKS**.
-- Production verdict: **STAGING REQUIRED**.
 - Repository: `wsg138/MaceGuard`
-- PR #18: merged at reviewed head `d0bd89774feb83f12664f5b23f05f7e6911fc250`.
-- PR #18 merge commit: `a6aff2f877debdd16446c8098e6bb7b5072ed6dd`.
-- Corrective base: `cf7cfbf9b0a54e0070a75bdbcb39b83445841df4`.
-- Corrective branch: `agent/fix-worker2-final-review-followup`.
-- Corrective commit: `SELF`; resolve exact CI and artifact provenance from corrective PR #19.
-- Version: `6.1.1`.
-- Configuration schema: `7`.
-- Scope: replacement-runtime authority after old cleanup failure and removal of three additional tracker PMD suppressions, plus focused regression coverage.
-- Post-merge publish-path repair from `cf7cfbf9b0a54e0070a75bdbcb39b83445841df4`: preserved.
-- Live production-equivalent staging: unperformed.
+- Starting `main`: `70b447c0cb6fe2d4a0d6f9634b6d910c86d6af64`
+- Branch: `agent/player-cooldown-feedback-6.1.2`
+- Feature commit: `SELF`; resolve the exact branch head from live GitHub.
+- Pull request: one draft pull request for the branch; resolve its number and exact-head checks from live GitHub.
+- Version: `6.1.2`
+- Configuration schema: `7`
+- Scope: complete player-facing disabled, active-cooldown, successful-cooldown-start, Elytra/firework, stasis, cobweb, and block-policy feedback with safe visual cooldown ownership.
+- Repository verdict: **READY FOR INDEPENDENT REVIEW AFTER EXACT-HEAD CHECKS**.
+- Production verdict: **STAGING REQUIRED**.
+- Merge status: **DO NOT MERGE**.
 
-PR #18 became technically inaccessible after its auto-merge. Corrective PR #19 is the minimal follow-up permitted by the original prompt; it does not replace or redesign the merged implementation.
+## Pre-publication verification
 
-## Prior verified PR #18 provenance
+- Java: Temurin `21.0.11`
+- Maven: `3.9.11`
+- `./mvnw -B clean verify`: success
+- Tests: `404` passed; `0` failures; `0` errors; `0` skipped
+- Checkstyle, PMD, SpotBugs: passed
+- `./mvnw -B dependency:tree`: success
+- Candidate JAR: `MaceGuard.jar`, `888,663` bytes
+- Candidate SHA-256: `f8340c19390f2d0c6fd9d347ce99badd9481d6d655ca93ea641493963fd45722`
 
-- Exact reviewed PR head Build `31075590692`: success.
-- Exact reviewed PR head Codacy CLI `31075590680`: success.
-- Codacy Cloud: success with zero findings.
-- Tests: 375 passed; 0 failures, 0 errors, 0 skipped.
-- Reviewed artifact ID: `8957377975`.
-- Merged-main artifact ID: `8957547059`.
-- Reviewed and merged JAR: `881,544` bytes, SHA-256 `4fb8744eede094300833f0120529b5638bbde91e2c7bf55ea8d26ac7044c55da`.
-
-These values do not verify the corrective PR. Corrective exact-head evidence must supersede them before merge.
+These values describe the reconstructed pre-publication feature tree. Exact final pull-request-head Build, Codacy, and artifact evidence must supersede them.
 
 ## Operational gate
 
-Mandatory live Leaf/Paper 1.21.11, CombatLogX 11.6.0.0.1286, production-compatible BlueSlimeCore, WorldGuard overlap/priority/inheritance/border/query-failure behavior, exact pearl callback order, real 60-second stasis, more-than-32 and simultaneous-owner pearls, Java Elytra, Bedrock/Geyser, visual cooldown transfer/rollback, changed/removed limits, and disable cleanup remain unperformed.
+Production-equivalent Paper/Leaf `1.21.11`, WorldGuard overlap/priority/inheritance/border/query-failure behavior, CombatLogX Elytra/rocket lifecycle, Java and Bedrock/Geyser feedback, all concrete Spear materials, item preservation under third-party cancellation, visual cooldown ownership/transfer/rollback, reload failure, reconnect, changed/removed limits, foreign cooldowns, and disable cleanup remain unperformed.
 
 Repository readiness does not imply production deployment readiness.
 
 ## Prior handoffs
 
+- `handoffs/worker-2-warzone-combat-review-followup.md`
 - `handoffs/worker-2-warzone-combat-review-blockers.md`
 - `handoffs/worker-1-warzone-combat-review-blockers.md`
 - `handoffs/worker-2-warzone-combat-integration.md`

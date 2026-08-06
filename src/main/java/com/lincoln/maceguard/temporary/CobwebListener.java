@@ -45,8 +45,10 @@ public final class CobwebListener implements Listener {
             boolean allowed = policyTemporaryAllowed(policy,
                     worldGuard.buildAllowed(location, event.getPlayer()),
                     worldGuard.cobwebsAllowed(location, event.getPlayer()));
-            if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType()))
+            if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType())) {
                 event.setCancelled(true);
+                warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
+            }
             return;
         }
 
@@ -61,6 +63,7 @@ public final class CobwebListener implements Listener {
         if (allowed) return;
         event.setCancelled(true);
         if (!decision.allowed()) warzone.sendCobwebDenial(event.getPlayer(), decision);
+        else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -88,6 +91,7 @@ public final class CobwebListener implements Listener {
         }
         if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
 
@@ -100,12 +104,14 @@ public final class CobwebListener implements Listener {
                             location).toMillis());
         } catch (ArithmeticException ex) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
         boolean tracked = temporary.track(event.getBlockPlaced(), original, expiresAt,
                 warzoneApplies && !policyOverride);
         if (!tracked) {
             rollbackUnmanagedPlacement(event);
+            warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
         if (decision != null) warzone.successfulCobweb(event.getPlayer(), decision.restriction());

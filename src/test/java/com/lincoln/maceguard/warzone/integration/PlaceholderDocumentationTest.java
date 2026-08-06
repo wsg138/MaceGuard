@@ -27,6 +27,6 @@ class PlaceholderDocumentationTest {
         assertEquals(runtimeSupported, documented);
         assertTrue(readme.contains("`Mace, Ender Pearl`"));
         assertFalse(readme.contains("`Mace, Spear Lunge`"));
-        assertTrue(readme.contains("effect-only ability targets such as `SPEAR_LUNGE` are excluded"));
+        assertTrue(readme.contains("effect-only ability targets such as `SPEAR_DAMAGE` and `SPEAR_LUNGE` are excluded"));
     }
 }

@@ -1,12 +1,20 @@
-# MaceGuard 6.1.1 migration
+# MaceGuard 6.1.2 migration
 
-MaceGuard 6.1.1 retains Warzone configuration schema 7 for combat carryover and stasis settings. Migration is backup-first and validates the complete replacement before it can replace the active file. The existing versioned automatic-slot/manual-override state model remains in place.
+MaceGuard 6.1.2 retains Warzone configuration schema 7 for combat carryover and stasis settings. Migration is backup-first and validates the complete replacement before it can replace the active file. The existing versioned automatic-slot/manual-override state model remains in place.
 
 ## Main configuration
 
 The existing main `config.yml`, WorldGuard regions and flags, reset profiles, snapshots, arming records, journals, and temporary-block files are not reinterpreted by the Warzone schema migration. Existing main-configuration migration behavior remains unchanged.
 
 MaceGuard never creates or changes WorldGuard regions, captures snapshots, arms profiles, or enables reset schedules during this migration.
+
+## 6.1.1 to 6.1.2
+
+The configuration schema remains `7`; no `warzone.yml` structure migration is required. The bundled default for `messages.blocked-message-cooldown` is now `1s`, but an existing operator value is preserved.
+
+MaceGuard 6.1.2 adds optional `warzone-messages.yml` templates for cooldown-start feedback, block placement/breaking, and bucket-use denials. Existing customized message files are never overwritten. Missing new keys load through bundled defaults, while unknown keys and invalid values continue to fail strict validation. Review the complete key and placeholder table in `docs/WARZONE.md` before copying defaults into an existing file manually.
+
+Authoritative active cooldown records remain runtime-only. A successful reload transfers remaining cooldowns and concrete whole-Spear visual material ownership; a failed reload leaves the old runtime, messages, and overlays untouched. Rolling back to 6.1.1 requires only the matching older JAR and any intentionally restored message file; schema 7 remains compatible.
 
 
 ## Schema 6 to schema 7

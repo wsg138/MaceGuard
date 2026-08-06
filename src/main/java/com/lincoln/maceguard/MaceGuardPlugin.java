@@ -135,7 +135,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(durabilityListener, this);
         getServer().getPluginManager().registerEvents(temporary, this);
         getServer().getPluginManager().registerEvents(
-                new BlockPolicyListener(policyResolver), this);
+                new BlockPolicyListener(policyResolver, warzone), this);
         getServer().getPluginManager().registerEvents(
                 new CobwebListener(queries, warzone, temporary, settings, policyResolver), this);
         getServer().getPluginManager().registerEvents(

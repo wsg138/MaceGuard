@@ -1,6 +1,6 @@
 # MaceGuard
 
-MaceGuard 6.1.1 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
+MaceGuard 6.1.2 provides WorldGuard-scoped Warzone kits, anchored repeating schedules, persistent manual overrides, configurable combat restrictions, tracked temporary cobwebs, block policies, explosion controls, and fail-safe region resets for Paper/Leaf 1.21.11.
 
 WorldGuard remains the authority for region geometry, membership, inheritance, priorities, and ordinary protection. MaceGuard never broadens an unresolved Warzone to the whole world.
 
@@ -83,6 +83,26 @@ The built-in spear controls are independent:
 
 A spear damage cooldown is not started merely by launching a spear; it starts only after accepted positive melee or correlated thrown-spear damage. A Lunge restriction does not block ordinary spear use. All three target policies and cooldown durations remain configurable.
 
+## Player restriction and cooldown feedback
+
+MaceGuard explains every player-triggered action it cancels. A fully disabled item or ability receives a direct Warzone-rule message without a fake countdown. An active cooldown reports the authoritative rounded-up time remaining. After an action actually succeeds, MaceGuard starts the authoritative cooldown and sends one immediate ready-time message; canceled launches, misses, zero-damage hits, bypassed players, and unrestricted actions start nothing and send nothing.
+
+Examples include:
+
+```text
+Mace is disabled during No Mace.
+You can throw another Ender Pearl in 5 seconds.
+You must wait 3.4 seconds before throwing another Ender Pearl.
+You can deal Spear damage again in 10 seconds.
+You must wait 4 seconds before Lunging again.
+```
+
+Duplicate denial messages are throttled per player and restriction target by `messages.blocked-message-cooldown`, which defaults to approximately one second. The first denial is always delivered; rapidly repeated clicks for one target do not suppress another target's feedback. Successful-cooldown messages are not repeated every second.
+
+The vanilla shaded item cooldown is a presentation layer only; `CooldownService` remains authoritative. Safe overlays apply to concrete material targets such as Ender Pearls, Wind Charges, Maces, and the actual Spear material that completed a whole-`SPEAR` action. The whole-Spear cooldown remains shared across all Spear materials by target, but only the concrete material used for the successful action is shaded. `SPEAR_DAMAGE` and `SPEAR_LUNGE` do not shade the whole Spear because ordinary Spear use may remain legal. Disabled actions, unrestricted actions, Elytra policy denials, and blocked firework boosts also receive no fake item bar. Reload, reconnect, region/carryover reconciliation, and shutdown preserve or clear only MaceGuard-owned overlays and never shorten a longer vanilla or third-party cooldown.
+
+Player-facing templates are configured in `warzone-messages.yml`. New 6.1.2 keys are optional for existing files, receive safe defaults when omitted, and are documented in `docs/WARZONE.md`. Existing customized files are not overwritten.
+
 
 ## Warzone combat integration
 
@@ -164,7 +184,7 @@ Existing transition safety remains centralized: modifier additions/removals are 
 
 ## Placeholders
 
-PlaceholderAPI support uses the `warzone` identifier. The table below lists every supported placeholder in MaceGuard 6.1.1. Example outputs are illustrative and depend on the live configuration, active selection, schedule, and player location.
+PlaceholderAPI support uses the `warzone` identifier. The table below lists every supported placeholder in MaceGuard 6.1.2. Example outputs are illustrative and depend on the live configuration, active selection, schedule, and player location.
 
 Status and restriction placeholders describe the active Warzone gameplay scope/meta; they do not directly expose an individual player's CombatLogX latch. Values that do not apply return an empty string. Boolean outputs are lowercase `true` or `false`.
 
@@ -197,7 +217,7 @@ Status and restriction placeholders describe the active Warzone gameplay scope/m
 ### Active restrictions and scope
 | Placeholder | What it returns | Example output |
 |---|---|---|
-| `%warzone_disabled_items%` | Comma-separated disabled material/item targets in the active set, or `None`; effect-only ability targets such as `SPEAR_LUNGE` are excluded. | `Mace, Ender Pearl` |
+| `%warzone_disabled_items%` | Comma-separated disabled material/item targets in the active set, or `None`; effect-only ability targets such as `SPEAR_DAMAGE` and `SPEAR_LUNGE` are excluded. | `Mace, Ender Pearl` |
 | `%warzone_disabled_items_count%` | Number of disabled material/item targets; effect-only ability targets are excluded. | `2` |
 | `%warzone_cooldown_items%` | Comma-separated cooldown targets and configured durations, or `None`. | `Ender Pearl — 5s, Wind Charge — 10s` |
 | `%warzone_cooldown_items_count%` | Number of cooldown targets in the active set. | `2` |

@@ -1,6 +1,6 @@
 # Integrated Warzone schema 7
 
-MaceGuard 6.1.1 reads `plugins/MaceGuard/warzone.yml`. Fresh installations remain disabled until the exact WorldGuard scope passes `/warzone validate`.
+MaceGuard 6.1.2 reads `plugins/MaceGuard/warzone.yml`. Fresh installations remain disabled until the exact WorldGuard scope passes `/warzone validate`.
 
 ## Final selection model
 
@@ -138,11 +138,11 @@ restriction-targets:
     maximum-cooldown: 60s
 ```
 
-`SPEAR` is the whole-item target. `DISABLED` blocks both projectile launch and direct damage. A whole-item cooldown uses the existing success capabilities for projectile and direct attack actions.
+`SPEAR` is the whole-item target. `DISABLED` blocks both projectile launch and direct damage. A whole-item cooldown uses the existing success capabilities for projectile and direct attack actions. Its authoritative target is shared across Spear materials, while its vanilla visual overlay is applied only to the concrete Spear material that completed the successful action; reload and reconnect retain that concrete material safely.
 
-`SPEAR_DAMAGE` is a damage-success target. Its cooldown starts after uncancelled positive melee or correlated thrown-spear damage and never from merely throwing a spear.
+`SPEAR_DAMAGE` is a damage-success target. Its cooldown starts after uncancelled positive melee or correlated thrown-spear damage and never from merely throwing a spear. It sends damage-specific chat feedback but does not shade a Spear item, because ordinary Spear use may still be allowed.
 
-`SPEAR_LUNGE` is effect-only. Its disabled mode cancels only a correlated Lunge velocity. Its cooldown begins only after that velocity remains accepted at the final event stage. The 1.21.11 compatibility detector remains a narrow `PrePlayerAttackEntityEvent` to immediate aligned `PlayerVelocityEvent` correlation; no NMS is used.
+`SPEAR_LUNGE` is effect-only. Its disabled mode cancels only a correlated Lunge velocity. Its cooldown begins only after that velocity remains accepted at the final event stage. It sends Lunge-specific chat feedback and never shades the whole Spear, so normal Spear actions remain available. The 1.21.11 compatibility detector remains a narrow `PrePlayerAttackEntityEvent` to immediate aligned `PlayerVelocityEvent` correlation; no NMS is used.
 
 The default conflict groups prevent incompatible whole-spear/damage modes and incompatible Lunge modes from coexisting.
 
@@ -174,7 +174,64 @@ Inside the configured Warzone, active modifiers continue to work normally. Outsi
 
 Only documented combat item and ability targets can carry. Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Trident remains location-bound and validation rejects Trident carryover. Validation also rejects carryover for cobwebs, crystals, respawn anchors, block/environment rules, reset behavior, and other world mutation.
 
-During combat, a player cannot normally begin gliding. A player already gliding when tagged is not forced down. A latched player may start gliding only while the live `ELYTRA_NO_ROCKETS` effect applies in the current scope, including its carryover rule after region exit. `PlayerElytraBoostEvent` is canceled during combat, so actual propulsion is blocked without canceling ordinary firework use. CombatLogX remains responsible for holding the combat timer while gliding.
+During combat, a player cannot normally begin gliding. A player already gliding when tagged is not forced down. A latched player may start gliding only while the live `ELYTRA_NO_ROCKETS` effect applies in the current scope, including its carryover rule after region exit. `PlayerElytraBoostEvent` is canceled during combat, so actual propulsion is blocked without canceling ordinary firework use. CombatLogX remains responsible for holding the combat timer while gliding. Elytra and firework policy is not a timed item cooldown: blocked starts and actual boosts receive explanatory chat, but no invented duration or shaded Elytra/firework bar.
+
+## Player feedback and message templates
+
+MaceGuard uses one central player-feedback service for item restrictions, ability restrictions, Warzone block policy, temporary cobweb denials, Elytra starts, actual firework boosts, and stasis teleports. Listener code supplies the real restriction target and concrete material rather than deriving action wording from a display name. Normal denials remain chat-only and are not logged to the console.
+
+Behavior is intentionally split into three cases:
+
+- **disabled:** cancel and send one direct explanation identifying the item or ability and current Warzone meta; no countdown and no visual cooldown;
+- **cooldown started:** after finalized successful launch, positive direct/correlated damage, or accepted Lunge velocity, start the authoritative cooldown and send one immediate ready-time message;
+- **cooldown active:** cancel, preserve the item where required, and report the authoritative rounded-up remaining duration without restarting or extending it.
+
+The first denial for a player and target is always sent. `messages.blocked-message-cooldown` bounds only rapid duplicate denial messages and defaults to `1s`; different targets have independent throttle keys. `warzonerotator.bypass` receives no MaceGuard restriction, cooldown, overlay, or feedback. Dispenser-originated actions and intentionally automated policy actions have no player chat recipient.
+
+`warzone-messages.yml` supports these strict top-level keys:
+
+```yaml
+item-disabled: "<red><item> is disabled during <white><meta><red>."
+item-cooldown: "<red>You must wait <white><cooldown_remaining><red> before <action>."
+item-cooldown-started: "<yellow><ready_action> in <white><cooldown><yellow>."
+ability-disabled: "<red><ability> is disabled during <white><meta><red>."
+ability-cooldown: "<red>You must wait <white><cooldown_remaining><red> before <action>."
+ability-cooldown-started: "<yellow><ready_action> in <white><cooldown><yellow>."
+cobweb-unavailable: "<red>You cannot place a Warzone cobweb during <white><meta><red>."
+elytra-unavailable: "<red>You cannot begin gliding while combat-tagged under the current Warzone rules."
+firework-unavailable: "<red>You cannot boost your Elytra while combat-tagged under the current Warzone rules."
+block-place-denied: "<red>You cannot place <white><item><red> under the current Warzone rules."
+block-break-denied: "<red>You cannot break <white><item><red> under the current Warzone rules."
+bucket-use-denied: "<red>You cannot use <white><item><red> under the current Warzone rules."
+stasis-blocked: "<red>Your aged Ender Pearl teleport was blocked by the current Warzone stasis rules."
+rotation-warning: "<yellow>Warzone changes in <white><time_left><yellow>: <white><next_meta>"
+```
+
+Existing operator files may omit the 6.1.2 keys; the loader supplies the bundled defaults and does not rewrite the customized file. Unknown top-level keys are still rejected. MiniMessage placeholders available across applicable templates are:
+
+| Placeholder | Meaning |
+|---|---|
+| `<item>` | Concrete item/material display name. |
+| `<ability>` | Ability display name such as Spear Lunge. |
+| `<action>` | Target-specific attempted-action phrase. |
+| `<ready_action>` | Target-specific ready-time phrase. |
+| `<cooldown>` | Configured total readable cooldown duration. |
+| `<cooldown_remaining>` | Authoritative readable remaining duration, rounded upward while blocked. |
+| `<meta>` | Current active Warzone display name. |
+| `<meta_id>` | Stable active modifier ID set. |
+| `<modifiers>` | Active modifier display list. |
+| `<time_left>` | Time until the current selection changes. |
+| `<changes_at>` | Absolute next-change timestamp. |
+| `<next_meta>` / `<next_meta_id>` | Next scheduled selection display/stable ID. |
+| `<cobweb_clear_time>` | Temporary-cobweb clear duration. |
+
+Readable player durations use singular `1 second`, whole seconds where exact, and one decimal place where needed, such as `3.4 seconds` or `0.8 seconds`. An active decision never renders `0 seconds`.
+
+### Vanilla shaded cooldown ownership
+
+The Bukkit item cooldown is never the source of truth. MaceGuard applies an owned presentation overlay only for material-semantics targets: concrete material restrictions, `ENDER_PEARL`, `WIND_CHARGE`, `MACE`, and the actual concrete Spear material used by a successful whole-`SPEAR` action. `SPEAR_DAMAGE`, `SPEAR_LUNGE`, disabled actions, unrestricted actions, Elytra, and firework policy receive no item overlay.
+
+Owned overlays reconcile on reconnect, region entry, combat carryover, successful reload, changed/removed limits, and shutdown. A longer Minecraft or third-party cooldown is preserved; a shorter foreign cooldown cannot shorten MaceGuard's authoritative cooldown; MaceGuard clears only overlays it owns.
 
 Ender Pearls are tracked individually with authoritative entity PDC metadata: `maceguard:stasis-pearl-marker`, `maceguard:stasis-pearl-format`, `maceguard:stasis-pearl-owner`, and `maceguard:stasis-pearl-launched-at`. At teleport time, a pearl is aged when elapsed time is at least `combat.stasis.minimum-age` (default `60s`). Live records use monotonic nanoseconds; after cache loss, reload, or restart with a surviving entity, elapsed age falls back to the persisted epoch timestamp. Entity ticks are not authoritative.
 
