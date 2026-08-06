@@ -32,6 +32,7 @@ public final class WarzoneMessageService {
     private static final long TENTHS_PER_SECOND = 10L;
     private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
     private static final int NANOS_PER_TENTH = 100_000_000;
+    private static final String STASIS_THROTTLE_KEY = "STASIS_PEARL";
     private static final Duration MINIMUM_THROTTLE_RETENTION = Duration.ofSeconds(1);
 
     private final MiniMessage mini = MiniMessage.miniMessage();
@@ -131,13 +132,18 @@ public final class WarzoneMessageService {
 
     public void stasisBlocked(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("ENDER_PEARL").orElseThrow();
-        if (!acquire(player, target)) return;
+        if (!acquire(player, STASIS_THROTTLE_KEY)) return;
         player.sendMessage(render(templates.stasisBlocked(), target, Material.ENDER_PEARL,
                 Duration.ZERO, Duration.ZERO));
     }
 
     private boolean acquire(Player player, RestrictionTarget target) {
         return denialThrottle.acquire(player.getUniqueId(), target, clock.millis(),
+                config.messages().blockedMessageCooldown());
+    }
+
+    private boolean acquire(Player player, String targetKey) {
+        return denialThrottle.acquire(player.getUniqueId(), targetKey, clock.millis(),
                 config.messages().blockedMessageCooldown());
     }
 

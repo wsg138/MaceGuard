@@ -156,6 +156,14 @@ class WarzoneMessageServiceTest {
         assertEquals(2, allMessages().size());
     }
 
+    @Test void stasisAndOrdinaryPearlDenialsHaveIndependentThrottleKeys() {
+        messages.denial(player, active(target(PEARL_TARGET)), Material.ENDER_PEARL);
+        messages.stasisBlocked(player);
+        assertEquals(List.of(
+                "You must wait 8 seconds before throwing another Ender Pearl.",
+                "stasis"), allMessages());
+    }
+
     @Test void disabledLungeUsesAbilityTemplateWithoutFakeCountdown() {
         messages.denial(player, decision(RestrictionTarget.SPEAR_LUNGE,
                 RestrictionMode.DISABLED, RestrictionDecision.Result.DISABLED,

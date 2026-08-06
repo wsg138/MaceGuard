@@ -13,7 +13,12 @@ public final class DenialThrottle {
 
     public boolean acquire(UUID playerId, RestrictionTarget target,
                            long nowMillis, Duration cooldown) {
-        Key key = new Key(playerId, target);
+        return acquire(playerId, target.id(), nowMillis, cooldown);
+    }
+
+    public boolean acquire(UUID playerId, String targetKey,
+                           long nowMillis, Duration cooldown) {
+        Key key = new Key(playerId, targetKey);
         Long previous = lastSent.get(key);
         long elapsed = previous == null ? Long.MAX_VALUE : elapsed(nowMillis, previous);
         if (elapsed >= ZERO && elapsed < durationMillis(cooldown)) return false;
@@ -53,5 +58,5 @@ public final class DenialThrottle {
         }
     }
 
-    private record Key(UUID playerId, RestrictionTarget target) { }
+    private record Key(UUID playerId, String targetKey) { }
 }
