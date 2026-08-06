@@ -259,15 +259,26 @@ public final class StasisPearlTracker {
         if (byWorld == null) return;
         ArrayDeque<OverflowSegment> values = byWorld.get(selected.worldId());
         if (values == null) return;
-        if (selected.count() >= MIN_RETAINED_OVERFLOW_COUNT) {
-            ArrayDeque<OverflowSegment> replacement = new ArrayDeque<>();
-            for (OverflowSegment value : values)
-                replacement.addLast(value == selected ? selected.withCount(selected.count() - 1) : value);
-            byWorld.put(selected.worldId(), replacement);
-        } else values.remove(selected);
+        consumeSelectedOverflow(byWorld, values, selected);
         ArrayDeque<OverflowSegment> remaining = byWorld.get(selected.worldId());
         if (remaining != null && remaining.isEmpty()) byWorld.remove(selected.worldId(), remaining);
         if (byWorld.isEmpty()) overflow.remove(ownerId, byWorld);
+    }
+
+    private void consumeSelectedOverflow(
+            Map<UUID, ArrayDeque<OverflowSegment>> byWorld,
+            ArrayDeque<OverflowSegment> values,
+            OverflowSegment selected) {
+        if (selected.count() < MIN_RETAINED_OVERFLOW_COUNT) {
+            values.remove(selected);
+            return;
+        }
+        ArrayDeque<OverflowSegment> replacement = new ArrayDeque<>();
+        for (OverflowSegment value : values) {
+            if (value == selected) replacement.addLast(selected.withCount(selected.count() - 1));
+            else replacement.addLast(value);
+        }
+        byWorld.put(selected.worldId(), replacement);
     }
 
     private void evictOldestForOwner(UUID ownerId) {

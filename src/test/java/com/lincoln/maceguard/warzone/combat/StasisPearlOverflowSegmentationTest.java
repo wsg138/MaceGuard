@@ -29,6 +29,21 @@ class StasisPearlOverflowSegmentationTest {
         assertTrue(second.effectiveAged());
     }
 
+    @Test void overlappingSegmentsAggregateCandidatesAndEnforcement() {
+        StasisPearlTracker tracker = saturatedTracker();
+        UUID owner = OWNER.get();
+        UUID normal = land(tracker, owner, 100L, 69_900L, HERE, 20L);
+        land(tracker, owner, 101L, 1_000L, HERE, 21L);
+
+        StasisPearlTracker.Correlation correlation =
+                tracker.correlate(owner, 101L, HERE, 30L);
+
+        assertEquals(normal, correlation.selectedPearlId());
+        assertEquals(2, correlation.candidateCount());
+        assertTrue(correlation.ambiguous());
+        assertTrue(correlation.effectiveAged());
+    }
+
     @Test void reverseAgeOrderingDoesNotContaminateLaterNormalImpact() {
         StasisPearlTracker tracker = saturatedTracker();
         UUID owner = OWNER.get();

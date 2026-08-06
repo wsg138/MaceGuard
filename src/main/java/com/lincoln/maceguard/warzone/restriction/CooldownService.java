@@ -15,6 +15,8 @@ import java.util.function.Predicate;
 
 /** Authoritative MaceGuard cooldown state. Bukkit item cooldowns are only a visual projection. */
 public final class CooldownService {
+    private static final long MIN_REMAINING_MILLIS = 0L;
+
     private final LongSupplier clock;
     // Bukkit listeners and scheduled maintenance invoke this state on the primary server thread.
     @SuppressWarnings("PMD.UseConcurrentHashMap")
@@ -44,7 +46,7 @@ public final class CooldownService {
             return Duration.ZERO;
         }
         long remaining = cooldown.expiresAtMillis() - now;
-        if (remaining < 0L) remaining = Long.MAX_VALUE;
+        if (remaining < MIN_REMAINING_MILLIS) remaining = Long.MAX_VALUE;
         return Duration.ofMillis(remaining);
     }
 
