@@ -63,15 +63,15 @@ public final class CobwebListener implements Listener {
 
         if (!warzone.appliesAt(location)) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
-        boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
-                && worldGuard.cobwebsAllowed(location, event.getPlayer())
-                && worldGuard.warzoneCobwebsAllowed(location)
-                && (temporaryBypass || decision.allowed());
-        if (allowed && !replacementAllowed(config, event.getBlockReplacedState().getType()))
-            allowed = false;
-        if (allowed) return;
+        boolean effectiveCobwebDenied = !temporaryBypass && !decision.allowed();
+        boolean blockPlacementDenied =
+                !worldGuard.buildAllowed(location, event.getPlayer())
+                || !worldGuard.cobwebsAllowed(location, event.getPlayer())
+                || !worldGuard.warzoneCobwebsAllowed(location)
+                || !replacementAllowed(config, event.getBlockReplacedState().getType());
+        if (!effectiveCobwebDenied && !blockPlacementDenied) return;
         event.setCancelled(true);
-        if (!decision.allowed()) warzone.sendCobwebDenial(event.getPlayer(), decision);
+        if (effectiveCobwebDenied) warzone.sendCobwebDenial(event.getPlayer(), decision);
         else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
     }
 

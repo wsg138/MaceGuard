@@ -76,6 +76,23 @@ class CobwebBypassLifecycleTest {
         verify(harness.warzone, never()).successfulCobweb(any(), any());
     }
 
+    @Test void temporaryCobwebBypassReportsReplacementFailureAfterDeniedDecision() {
+        Harness harness = harness();
+        BlockPlaceEvent event = event(Material.STONE);
+        when(event.getPlayer().hasPermission(TEMPORARY_BYPASS)).thenReturn(true);
+        when(harness.warzone.cobwebDecision(any(), any()))
+                .thenReturn(WarzoneRuntime.CobwebDecision.unavailable());
+
+        harness.listener.onRestriction(event);
+
+        verify(event).setCancelled(true);
+        verify(harness.warzone).sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
+        verify(harness.warzone, never()).sendCobwebDenial(eq(event.getPlayer()),
+                any(WarzoneRuntime.CobwebDecision.class));
+        verify(harness.temporary, never()).track(any(), anyString(), anyLong(), anyBoolean());
+        verify(harness.warzone, never()).successfulCobweb(any(), any());
+    }
+
     private Harness harness() {
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
         WarzoneModule warzone = mock(WarzoneModule.class);
@@ -102,6 +119,10 @@ class CobwebBypassLifecycleTest {
     }
 
     private BlockPlaceEvent event() {
+        return event(Material.AIR);
+    }
+
+    private BlockPlaceEvent event(Material originalMaterial) {
         World world = mock(World.class);
         when(world.getUID()).thenReturn(UUID.randomUUID());
         Location location = new Location(world, 1, 64, 0);
@@ -115,9 +136,10 @@ class CobwebBypassLifecycleTest {
         when(placed.getY()).thenReturn(64);
         when(placed.getZ()).thenReturn(0);
         when(placed.getBlockData()).thenReturn(cobweb);
-        BlockData original = data(Material.AIR, "minecraft:air");
+        BlockData original = data(originalMaterial,
+                "minecraft:" + originalMaterial.name().toLowerCase(java.util.Locale.ROOT));
         BlockState replaced = mock(BlockState.class);
-        when(replaced.getType()).thenReturn(Material.AIR);
+        when(replaced.getType()).thenReturn(originalMaterial);
         when(replaced.getBlockData()).thenReturn(original);
         BlockPlaceEvent event = mock(BlockPlaceEvent.class);
         when(event.getPlayer()).thenReturn(player);
