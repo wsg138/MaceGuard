@@ -20,6 +20,8 @@ import com.lincoln.maceguard.storage.TemporaryBlockRepository;
 import com.lincoln.maceguard.temporary.CobwebListener;
 import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.util.Compat;
+import com.lincoln.maceguard.warzone.combat.PearlEventDiagnostics;
+import com.lincoln.maceguard.warzone.combat.PearlTraceCommand;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.worldguard.MaceGuardFlags;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
@@ -27,6 +29,7 @@ import com.lincoln.maceguard.worldguard.WorldGuardRegionService;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.HandlerList;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.nio.file.Path;
@@ -49,11 +52,15 @@ public final class MaceGuardPlugin extends JavaPlugin {
         new MainConfigMigrationService(this).prepare();
         reloadConfig();
         startRuntime();
+        logIntegrationVersions();
         if (!Compat.isMaceSupported())
             getLogger().warning("Material.MACE is unavailable; mace durability behavior is inactive.");
     }
 
-    @Override public void onDisable() { stopRuntime(true); }
+    @Override public void onDisable() {
+        PearlEventDiagnostics.forPlugin(this).clear();
+        stopRuntime(true);
+    }
 
     public PluginRuntime runtime() { return runtime; }
     public boolean isFeatureEnabled() {
@@ -83,6 +90,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
         stopRuntime(false);
         reloadConfig();
         startRuntime();
+        logIntegrationVersions();
         feedback.sendMessage("MaceGuard and integrated Warzone configuration reloaded. "
                 + "Reset state was revalidated and never re-armed automatically.");
     }
@@ -139,6 +147,9 @@ public final class MaceGuardPlugin extends JavaPlugin {
         MaceGuardCommand command = new MaceGuardCommand(this);
         java.util.Objects.requireNonNull(getCommand("maceguard")).setExecutor(command);
         java.util.Objects.requireNonNull(getCommand("maceguard")).setTabCompleter(command);
+        PearlTraceCommand pearlTrace = new PearlTraceCommand(this);
+        java.util.Objects.requireNonNull(getCommand("maceguardpearltrace")).setExecutor(pearlTrace);
+        java.util.Objects.requireNonNull(getCommand("maceguardpearltrace")).setTabCompleter(pearlTrace);
     }
 
     private void stopRuntime(boolean pluginDisable) {
@@ -160,6 +171,21 @@ public final class MaceGuardPlugin extends JavaPlugin {
         getServer().getScheduler().cancelTasks(this);
         durabilityListener = null;
         runtime = null;
+    }
+
+    private void logIntegrationVersions() {
+        getLogger().info("Runtime versions: server=" + getServer().getName() + " "
+                + getServer().getVersion() + ", minecraft=" + getServer().getMinecraftVersion()
+                + ", WorldGuard=" + pluginVersion("WorldGuard")
+                + ", WorldEdit=" + pluginVersion("WorldEdit")
+                + ", CombatLogX=" + pluginVersion("CombatLogX")
+                + ", BlueSlimeCore=" + pluginVersion("BlueSlimeCore")
+                + ", PlaceholderAPI=" + pluginVersion("PlaceholderAPI") + ".");
+    }
+
+    private String pluginVersion(String name) {
+        Plugin plugin = getServer().getPluginManager().getPlugin(name);
+        return plugin == null ? "absent" : plugin.getDescription().getVersion();
     }
 
     private Validation validateReload() {

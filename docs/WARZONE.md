@@ -1,6 +1,6 @@
 # Integrated Warzone schema 7
 
-MaceGuard 6.1 reads `plugins/MaceGuard/warzone.yml`. Fresh installations remain disabled until the exact WorldGuard scope passes `/warzone validate`.
+MaceGuard 6.1.1 reads `plugins/MaceGuard/warzone.yml`. Fresh installations remain disabled until the exact WorldGuard scope passes `/warzone validate`.
 
 ## Final selection model
 
@@ -156,7 +156,7 @@ warzonerotator-combat-zone
 warzonerotator-stasis
 ```
 
-An effective `warzonerotator-combat-zone: allow` can give a CombatLogX-tagged player a transient latch. Acquisition occurs when the player is tagged or retagged while inside the flag, or when an already-tagged player moves or teleports into it. Only the player's own location is evaluated. The latch remains after region exit until untag, death, logout, reload replacement, or plugin disable. A CombatLogX bypassed player cannot acquire or retain it.
+An effective `warzonerotator-combat-zone: allow` can give a CombatLogX-tagged player a transient latch. Acquisition occurs when the player is tagged or retagged while inside the flag, or when an already-tagged player moves or teleports into it. Only the player's own location is evaluated. The latch remains after region exit until untag, death, logout, reload replacement, plugin disable, or CombatLogX dependency disable. A CombatLogX bypassed player cannot acquire or retain it. CombatLogX disable drops the direct adapter and all API/classloader references; a compatible enable constructs a fresh generation and reconciles online players. Retired-generation callbacks are ignored.
 
 The effective `warzonerotator-stasis` value is captured when the latch is acquired. A denied result remains denied for that latch even after the player leaves. Absent or allowed does not prohibit stasis. Flag lookup failures fail closed to *no additional MaceGuard restriction*; they never expand to a world-wide fallback.
 
@@ -172,11 +172,13 @@ modifiers:
 
 Inside the configured Warzone, active modifiers continue to work normally. Outside it, an exact modifier applies only while the player is still CombatLogX-tagged, holds the latch, that modifier has carryover enabled, and no explicit bypass applies. The runtime always uses the current live Rotator selection; it does not snapshot the selection when combat begins. Cooldown policy changes are reconciled by target so an old variant cannot enforce a newly active variant.
 
-Only combat item and ability targets can carry. Validation rejects carryover for cobwebs, crystals, respawn anchors, block/environment rules, reset behavior, and other world mutation.
+Only documented combat item and ability targets can carry. Mace, Ender Pearl, Wind Charge, Spear, Spear damage, Spear Lunge, and the Elytra allowance are eligible. Trident remains location-bound and validation rejects Trident carryover. Validation also rejects carryover for cobwebs, crystals, respawn anchors, block/environment rules, reset behavior, and other world mutation.
 
 During combat, a player cannot normally begin gliding. A player already gliding when tagged is not forced down. A latched player may start gliding only while the live `ELYTRA_NO_ROCKETS` effect applies in the current scope, including its carryover rule after region exit. `PlayerElytraBoostEvent` is canceled during combat, so actual propulsion is blocked without canceling ordinary firework use. CombatLogX remains responsible for holding the combat timer while gliding.
 
-Ender Pearls are tracked individually. At teleport time, a pearl is aged when its own lifetime is at least `combat.stasis.minimum-age` (default `60s`). MaceGuard cancels only the correlated Ender Pearl teleport when the pearl is aged, the owner is still tagged, the owner holds a latch whose captured stasis policy is denied, and no MaceGuard bypass applies. The throw is not canceled, suspended pearls are not removed early, and no pearl is refunded or respawned. Tracking is per owner and per projectile, short-lived after impact, globally bounded, and cleared on death, logout, reload, and disable.
+Ender Pearls are tracked individually with authoritative entity PDC metadata: `maceguard:stasis-pearl-marker`, `maceguard:stasis-pearl-format`, `maceguard:stasis-pearl-owner`, and `maceguard:stasis-pearl-launched-at`. At teleport time, a pearl is aged when elapsed time is at least `combat.stasis.minimum-age` (default `60s`). Live records use monotonic nanoseconds; after cache loss, reload, or restart with a surviving entity, elapsed age falls back to the persisted epoch timestamp. Entity ticks are not authoritative.
+
+The Paper API exposes exact identity at `ProjectileHitEvent` but not at `PlayerTeleportEvent`, so impacts remain in a strict per-owner callback-order queue. One teleport consumes at most one record. The current/next-tick event-order window is an implementation assumption that must still be confirmed on the exact deployed Paper/Leaf build with the staging diagnostic. Same-world/current-or-next-tick candidates are considered; destination distance is diagnostic because other plugins may alter the destination. An ambiguous set containing an aged or invalid marked pearl fails closed only for that owner/event, while remaining candidates are preserved. The eight-impact capacity uses count-based owner/world overflow with one bucket per affected world. An unusual exact-impact expiry is converted into the same bounded count state and remains until one matching owner/world pearl teleport consumes it or lifecycle cleanup clears the affected owner; repeated timer cleanup cannot erase that authority. This conservative recovery can block one later same-owner/same-world pearl if the expected teleport callback never arrives, which is why deployed event order must be traced in staging. The 32-per-owner/4,096-global launch caches never erase PDC authority. The throw is not canceled, suspended pearls are not removed early, and no pearl is refunded or respawned.
 
 ## Commands
 
@@ -290,6 +292,8 @@ Startup performs one publication sequence:
 
 Every effective change passes through the existing runtime transition coordinator. It clears transient Lunge/projectile state, reconciles owned visual cooldowns for changed targets, clears authoritative cooldown records only for changed restriction targets, performs cobweb clear-on-meta-change when required, emits removed/added modifier messages once, and suppresses announcements when only the background automatic slot changes beneath an override.
 
+Successful `/warzone reload` transfers authoritative cooldown expirations and MaceGuard-owned visual overlay bookkeeping before the old runtime relinquishes ownership. Removed targets clear, shorter replacement durations clamp retained cooldowns, unchanged cooldowns remain visible, and failed reload leaves the old runtime and overlays intact.
+
 ## PlaceholderAPI
 
 New values:
@@ -327,3 +331,5 @@ All existing generic, restriction, and indexed modifier placeholders remain. Ind
 `/warzone validate` checks schema version, modifier/kit IDs, enabled members, duplicates, conflicts, icon materials, schedule anchor/timezone/cadence/cycle, entry fields, referenced kits/modifiers, random feasibility, special rules, restriction capabilities, illegal combat carryover, stasis duration, CombatLogX availability, custom combat-flag availability, and resolved WorldGuard geometry.
 
 `/warzone debug` includes schema, schedule state, active and carried modifiers, CombatLogX availability, tag/bypass/timer state for a selected player, effective combat-zone status, latch and retained stasis policy, Elytra decision, state-store health, exact scope resolution, cooldown count, and temporary-cobweb status.
+
+For staging-only event ordering, an administrator with `warzonerotator.command.debug` may use `/maceguardpearltrace on <player>`, `/maceguardpearltrace show <player>`, and `/maceguardpearltrace off <player>`. Tracing is disabled by default, expires after ten minutes, is bounded to 128 records for each of at most ten selected players, and does not alter enforcement. Trace detail strings are formatted only while a session for that player is active.

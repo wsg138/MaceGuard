@@ -1,6 +1,6 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 6.1.0
+version: 6.1.1
 api-version: '1.21'
 author: P2wn
 description: WorldGuard-scoped Warzone kits, repeating schedules, manual overrides, combat restrictions, temporary cobwebs, and safe region resets.
@@ -11,6 +11,10 @@ commands:
   maceguard:
     description: MaceGuard admin command
     usage: /<command> here|status|capture|validate|plan|arm|disarm|schedule|reset|recover|temporary|reload
+  maceguardpearltrace:
+    description: Temporarily trace Ender Pearl launch, hit, and teleport ordering for staging.
+    usage: /<command> <on|off|show> <player>
+    permission: warzonerotator.command.debug
   warzone:
     description: View or administer Warzone kits, modifiers, schedules, and overrides.
     aliases: [warzonerotator, wzr]
@@ -65,7 +69,6 @@ permissions:
   warzonerotator.manage.schedule: { default: op }
   warzonerotator.manage.custom-combinations: { default: op }
 
-  # Compatibility nodes retained for existing permission files and command aliases.
   warzonerotator.command.skip:
     default: op
     children: { warzonerotator.manage.random: true }

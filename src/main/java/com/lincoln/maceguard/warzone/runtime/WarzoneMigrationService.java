@@ -99,16 +99,16 @@ public final class WarzoneMigrationService {
                         + String.join("; ", oldValidation.errors()));
             saveValidatedAtomically(migrateSchema5(old, defaults), config);
             report.add("Backed up schema-5 warzone.yml to " + backup.getFileName() + ".");
-            report.add("Migrated the weekly selection to a one-entry anchored RANDOM cycle while preserving "
-                    + "enabled state, weekday phase, local time, timezone, warnings, selection settings, "
-                    + "special rules, restrictions, modifiers, conflict groups, and persisted selection state.");
+            report.add("Migrated schema 5 while preserving all legacy modifier definitions; "
+                    + "missing combat-carryover fields were explicitly set to false.");
             return;
         }
         if (version == SCHEMA_FOUR) {
             YamlConfiguration schemaFive = migrateSchema4(old, schemaFiveDefaults(defaults));
             saveValidatedAtomically(migrateSchema5(schemaFive, defaults), config);
             report.add("Backed up schema-4 warzone.yml to " + backup.getFileName() + ".");
-            report.add("Migrated schema 4 through the validated schema-5 representation into schema 7.");
+            report.add("Migrated schema 4 through a safe schema-5 representation; every source "
+                    + "modifier missing combat-carryover was explicitly set to false.");
             return;
         }
 
@@ -118,8 +118,7 @@ public final class WarzoneMigrationService {
                 + " configuration, disabled by default.");
     }
 
-    static YamlConfiguration migrateSchema6(YamlConfiguration old,
-                                             YamlConfiguration defaults) {
+    static YamlConfiguration migrateSchema6(YamlConfiguration old, YamlConfiguration defaults) {
         YamlConfiguration migrated = cloneYaml(defaults);
         migrated.set("config-version", WarzoneControlConfig.VERSION);
         copyPath(old, migrated, "enabled");
@@ -131,20 +130,13 @@ public final class WarzoneMigrationService {
         copyPath(old, migrated, "gui");
         mergeSections(old, migrated, "restriction-targets");
         preserveModifierDefinitions(old, migrated);
+        defaultMissingLegacyCarryover(old, migrated);
         mergeSections(old, migrated, "conflict-groups");
         if (old.contains("combat")) overlaySection(old, migrated, "combat");
-        ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
-        if (modifiers != null) {
-            for (String id : modifiers.getKeys(false)) {
-                if (!old.contains("modifiers." + id + ".combat-carryover"))
-                    migrated.set("modifiers." + id + ".combat-carryover", false);
-            }
-        }
         return migrated;
     }
 
-    static YamlConfiguration migrateSchema5(YamlConfiguration old,
-                                             YamlConfiguration defaults) {
+    static YamlConfiguration migrateSchema5(YamlConfiguration old, YamlConfiguration defaults) {
         YamlConfiguration migrated = cloneYaml(defaults);
         migrated.set("config-version", WarzoneControlConfig.VERSION);
         migrated.set("enabled", old.getBoolean("enabled", false));
@@ -163,8 +155,7 @@ public final class WarzoneMigrationService {
             throw new IllegalArgumentException(
                     "rotation.schedule.day is not a valid weekday: " + weekday, ex);
         }
-        LocalDate anchor = LocalDate.of(1970, 1, 5)
-                .with(TemporalAdjusters.nextOrSame(day));
+        LocalDate anchor = LocalDate.of(1970, 1, 5).with(TemporalAdjusters.nextOrSame(day));
         migrated.set("rotation.schedule.enabled", true);
         migrated.set("rotation.schedule.timezone", timezone);
         migrated.set("rotation.schedule.anchor-date", anchor.toString());
@@ -176,10 +167,8 @@ public final class WarzoneMigrationService {
         copyPath(old, migrated, "cobwebs");
         mergeSections(old, migrated, "restriction-targets");
         preserveModifierDefinitions(old, migrated);
+        defaultMissingLegacyCarryover(old, migrated);
         mergeSections(old, migrated, "conflict-groups");
-        // A missing schema-5 modifier was not part of the operator's selection pool. Keep every
-        // bundled outcome that was absent from the old file disabled rather than silently adding
-        // a new random result during migration.
         ConfigurationSection bundledModifiers = defaults.getConfigurationSection("modifiers");
         if (bundledModifiers != null) {
             for (String id : bundledModifiers.getKeys(false)) {
@@ -197,8 +186,7 @@ public final class WarzoneMigrationService {
         return migrated;
     }
 
-    static YamlConfiguration migrateSchema4(YamlConfiguration old,
-                                             YamlConfiguration migrated) {
+    static YamlConfiguration migrateSchema4(YamlConfiguration old, YamlConfiguration migrated) {
         migrated.set("config-version", SCHEMA_FIVE);
         migrated.set("enabled", old.getBoolean("enabled", false));
         copyPath(old, migrated, "region.world");
@@ -210,6 +198,7 @@ public final class WarzoneMigrationService {
         copyPath(old, migrated, "cobwebs");
         mergeSections(old, migrated, "restriction-targets");
         preserveModifierDefinitions(old, migrated);
+        defaultMissingLegacyCarryover(old, migrated);
         mergeSections(old, migrated, "conflict-groups");
         return migrated;
     }
@@ -230,8 +219,7 @@ public final class WarzoneMigrationService {
         result.set("rotation.schedule", null);
         result.set("rotation.schedule.day", LocalDate.parse(anchor).getDayOfWeek().name());
         result.set("rotation.schedule.time", schemaSix.getString("rotation.schedule.time", "04:00"));
-        result.set("rotation.schedule.timezone",
-                schemaSix.getString("rotation.schedule.timezone", "UTC"));
+        result.set("rotation.schedule.timezone", schemaSix.getString("rotation.schedule.timezone", "UTC"));
         result.set("kits", null);
         result.set("gui", null);
         result.set("restriction-targets.SPEAR", null);
@@ -260,37 +248,53 @@ public final class WarzoneMigrationService {
         }
     }
 
-    static void preserveModifierDefinitions(YamlConfiguration old,
-                                             YamlConfiguration migrated) {
+    static void preserveModifierDefinitions(YamlConfiguration old, YamlConfiguration migrated) {
         ConfigurationSection modifiers = old.getConfigurationSection("modifiers");
         if (modifiers == null) return;
         for (String id : modifiers.getKeys(false)) {
             String base = "modifiers." + id;
             boolean bundled = migrated.contains(base);
-            for (String field : SAFE_MODIFIER_FIELDS) {
-                if (old.contains(base + "." + field)) copyPath(old, migrated, base + "." + field);
-                else if (!bundled && field.equals("enabled")) migrated.set(base + ".enabled", true);
-                else if (!bundled && field.equals("weight")) migrated.set(base + ".weight", 10);
-            }
+            for (String field : SAFE_MODIFIER_FIELDS)
+                preserveModifierField(old, migrated, base, bundled, field);
         }
     }
 
-    private static void mergeSections(YamlConfiguration source,
-                                      YamlConfiguration target, String path) {
+
+    private static void preserveModifierField(YamlConfiguration old, YamlConfiguration migrated,
+                                              String base, boolean bundled, String field) {
+        String path = base + "." + field;
+        if (old.contains(path)) {
+            copyPath(old, migrated, path);
+            return;
+        }
+        if (bundled) return;
+        if (field.equals("enabled")) migrated.set(base + ".enabled", true);
+        else if (field.equals("weight")) migrated.set(base + ".weight", 10);
+    }
+
+    static void defaultMissingLegacyCarryover(YamlConfiguration source, YamlConfiguration migrated) {
+        ConfigurationSection modifiers = source.getConfigurationSection("modifiers");
+        if (modifiers == null) return;
+        for (String id : modifiers.getKeys(false)) {
+            String path = "modifiers." + id + ".combat-carryover";
+            if (!source.contains(path)) migrated.set(path, false);
+        }
+    }
+
+    private static void mergeSections(YamlConfiguration source, YamlConfiguration target, String path) {
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) return;
         for (String key : section.getKeys(false)) copyPath(source, target, path + "." + key);
     }
 
-    private static void overlaySection(YamlConfiguration source,
-                                       YamlConfiguration target, String path) {
+    private static void overlaySection(YamlConfiguration source, YamlConfiguration target, String path) {
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) return;
         overlaySection(section, target, path);
     }
 
-    private static void overlaySection(ConfigurationSection source,
-                                       YamlConfiguration target, String targetPath) {
+    private static void overlaySection(ConfigurationSection source, YamlConfiguration target,
+                                       String targetPath) {
         for (String key : source.getKeys(false)) {
             String childPath = targetPath + "." + key;
             ConfigurationSection child = source.getConfigurationSection(key);
@@ -299,8 +303,7 @@ public final class WarzoneMigrationService {
         }
     }
 
-    private static void copyPath(YamlConfiguration source,
-                                 YamlConfiguration target, String path) {
+    private static void copyPath(YamlConfiguration source, YamlConfiguration target, String path) {
         if (!source.contains(path)) return;
         ConfigurationSection section = source.getConfigurationSection(path);
         if (section == null) {
@@ -311,8 +314,8 @@ public final class WarzoneMigrationService {
         copySection(section, target, path);
     }
 
-    private static void copySection(ConfigurationSection source,
-                                    YamlConfiguration target, String targetPath) {
+    private static void copySection(ConfigurationSection source, YamlConfiguration target,
+                                    String targetPath) {
         for (String key : source.getKeys(false)) {
             String childPath = targetPath + "." + key;
             ConfigurationSection child = source.getConfigurationSection(key);
@@ -328,8 +331,7 @@ public final class WarzoneMigrationService {
         return result;
     }
 
-    static void saveValidatedAtomically(YamlConfiguration yaml, Path target)
-            throws IOException {
+    static void saveValidatedAtomically(YamlConfiguration yaml, Path target) throws IOException {
         Files.createDirectories(target.getParent());
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(temporary, yaml.saveToString(), StandardCharsets.UTF_8);

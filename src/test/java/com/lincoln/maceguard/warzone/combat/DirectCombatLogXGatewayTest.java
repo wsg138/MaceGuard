@@ -138,6 +138,46 @@ class DirectCombatLogXGatewayTest {
         verifyNoInteractions(lifecycle);
     }
 
+    @Test void closeReleasesCombatManagerAndFencesDeferredTag() throws Exception {
+        JavaPlugin owner = mock(JavaPlugin.class);
+        Server server = mock(Server.class);
+        PluginManager pluginManager = mock(PluginManager.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        when(owner.getServer()).thenReturn(server);
+        when(server.getPluginManager()).thenReturn(pluginManager);
+        when(server.getScheduler()).thenReturn(scheduler);
+
+        ICombatManager manager = mock(ICombatManager.class);
+        Plugin candidate = combatLogXPlugin();
+        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(manager);
+        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
+        gateway.register(lifecycle);
+
+        Player player = mock(Player.class);
+        UUID playerId = UUID.randomUUID();
+        Location source = mock(Location.class);
+        Location captured = mock(Location.class);
+        PlayerTagEvent event = mock(PlayerTagEvent.class);
+        when(event.getPlayer()).thenReturn(player);
+        when(player.getUniqueId()).thenReturn(playerId);
+        when(player.getLocation()).thenReturn(source);
+        when(source.clone()).thenReturn(captured);
+        AtomicReference<Runnable> deferred = new AtomicReference<>();
+        when(scheduler.runTask(eq(owner), any(Runnable.class))).thenAnswer(invocation -> {
+            deferred.set(invocation.getArgument(1));
+            return mock(BukkitTask.class);
+        });
+
+        gateway.onTag(event);
+        gateway.close();
+        assertFalse(gateway.available());
+        assertThrows(IllegalStateException.class, () -> gateway.inCombat(player));
+        deferred.get().run();
+
+        verifyNoInteractions(lifecycle);
+    }
+
     @Test void forwardsPostRemovalUntagImmediately() {
         JavaPlugin owner = mock(JavaPlugin.class);
         Server server = mock(Server.class);

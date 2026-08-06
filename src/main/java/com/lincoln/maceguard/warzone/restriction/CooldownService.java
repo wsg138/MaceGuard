@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -58,16 +59,43 @@ public final class CooldownService {
         return removed;
     }
 
-    public void clear() { expiresAt.clear(); }
+    public Snapshot snapshot() {
+        discardExpired();
+        return new Snapshot(expiresAt.entrySet().stream()
+                .map(entry -> new SnapshotEntry(entry.getKey().playerId(),
+                        entry.getKey().target(), entry.getValue()))
+                .toList());
+    }
 
+    /** Restores only still-configured cooldown targets, clamping to any shorter new duration. */
+    public void restore(Snapshot snapshot, Map<RestrictionTarget, Duration> allowedDurations) {
+        expiresAt.clear();
+        long now = clock.getAsLong();
+        for (SnapshotEntry entry : snapshot.entries()) {
+            Duration maximum = allowedDurations.get(entry.target());
+            if (maximum == null || maximum.isZero() || maximum.isNegative()) continue;
+            long capped;
+            try { capped = Math.addExact(now, maximum.toMillis()); }
+            catch (ArithmeticException overflow) { capped = Long.MAX_VALUE; }
+            long expiry = Math.min(entry.expiresAtMillis(), capped);
+            if (expiry > now) restoreEntry(entry, expiry);
+        }
+    }
+
+    private void restoreEntry(SnapshotEntry entry, long expiry) {
+        expiresAt.put(new Key(entry.playerId(), entry.target()), expiry);
+    }
+
+    public void clear() { expiresAt.clear(); }
     public void clearTargets(Set<RestrictionTarget> targets) {
         expiresAt.keySet().removeIf(key -> targets.contains(key.target()));
     }
+    public int size() { discardExpired(); return expiresAt.size(); }
 
-    public int size() {
-        discardExpired();
-        return expiresAt.size();
+    public record Snapshot(List<SnapshotEntry> entries) {
+        public Snapshot { entries = List.copyOf(entries); }
+        public static Snapshot empty() { return new Snapshot(List.of()); }
     }
-
+    public record SnapshotEntry(UUID playerId, RestrictionTarget target, long expiresAtMillis) { }
     private record Key(UUID playerId, RestrictionTarget target) { }
 }

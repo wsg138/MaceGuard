@@ -127,6 +127,7 @@ public final class WarzoneModule {
         WarzoneConfig.ActiveSet oldSet = old == null ? null : old.rotations().active();
         com.lincoln.maceguard.warzone.rotation.RotationState oldState =
                 old == null ? null : old.rotations().state();
+        WarzoneRuntime.ReloadState reloadState = old == null ? null : old.snapshotReloadState();
         ReloadGuard.Result<WarzoneRuntime> candidate = ReloadGuard.prepare(old, prepared.valid(),
                 () -> new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
                         prepared.messages(), stateStore, clock, worldGuardQueries));
@@ -139,21 +140,29 @@ public final class WarzoneModule {
             return;
         }
         WarzoneRuntime replacement = candidate.value();
-        try { replacement.start(); }
-        catch (RuntimeException ex) {
+        if (reloadState != null) replacement.adoptReloadState(reloadState);
+        try {
+            replacement.start();
+        } catch (RuntimeException ex) {
+            replacement.abortReloadState();
             replacement.shutdown(false);
+            if (old != null) old.reconcileVisualCooldowns();
             if (oldState != null) stateStore.update(oldState);
             plugin.getLogger().severe("Warzone reload could not start the replacement runtime: "
                     + ex.getMessage());
             send(sender, "<red>Reload rejected; the current runtime remains active.");
             return;
         }
-        if (old != null) old.shutdown(false);
+        if (old != null) {
+            old.releaseReloadState();
+            old.shutdown(false);
+        }
         runtime = replacement;
+        replacement.reconcileVisualCooldowns();
         if (oldSet != null && oldSet.cobwebsAllowed()
                 && !replacement.rotations().active().cobwebsAllowed()
                 && prepared.control().gameplay().cobwebs().clearOnMetaChange()) old.clearTrackedCobwebs();
-        send(sender, "<green>Warzone configuration reloaded atomically; valid automatic and override state was preserved when possible.");
+        send(sender, "<green>Warzone configuration reloaded atomically; valid automatic, override, and cooldown state was preserved when possible.");
     }
 
     public void validate(CommandSender sender) {

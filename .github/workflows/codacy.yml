@@ -15,10 +15,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - uses: codacy/codacy-analysis-cli-action@v4
+      - name: Verify exact source commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run Codacy analysis with project settings
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
         if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
         with:
           project-token: ${{ env.CODACY_PROJECT_TOKEN }}
-      - run: echo "CODACY_PROJECT_TOKEN is not configured; add it to enable analysis."
+      - name: Run Codacy analysis with default settings
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
         if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
