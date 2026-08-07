@@ -39,6 +39,7 @@ public final class WarzoneModule {
     private final WorldGuardQueryService worldGuardQueries;
     private volatile WarzoneRuntime runtime;
     private WarzonePlaceholderHook placeholder;
+    private ReloadState pendingReloadState;
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io) {
         this(plugin, temporaryBlocks, io, Clock.systemUTC(), null, null);
@@ -74,34 +75,77 @@ public final class WarzoneModule {
     }
 
     public void start() {
+        startInternal(false, true);
+    }
+
+    /**
+     * Starts a fully functional replacement without stealing command/placeholder bindings,
+     * cooldown ownership, or pending cobweb-recovery authority. Those transfer only after the
+     * complete plugin candidate wins.
+     */
+    public void startReloadCandidate(ReloadState reloadState) {
+        stageReloadState(reloadState);
         try {
-            WarzoneCommand handler = new WarzoneCommand(this);
-            var command = Objects.requireNonNull(plugin.getCommand("warzone"),
-                    "warzone command missing from plugin.yml");
-            command.setExecutor(handler);
-            command.setTabCompleter(handler);
-            new WarzoneMigrationService(plugin).prepare();
+            startInternal(true, false);
+        } catch (RuntimeException ex) {
+            pendingReloadState = null;
+            throw ex;
+        }
+    }
+
+    private void startInternal(boolean strict, boolean activateBindings) {
+        try {
+            requireCommand();
+            if (activateBindings) bindCommand();
+            if (!new WarzoneMigrationService(plugin).prepare())
+                throw new IllegalStateException("Warzone migration preparation failed");
             Prepared prepared = validateFiles(false);
             log(prepared);
-            if (prepared.valid()) {
+            if (!prepared.valid()) {
+                plugin.getLogger().severe("Integrated warzone module is inactive; "
+                        + "the rest of MaceGuard remains enabled.");
+                if (strict)
+                    throw new IllegalStateException("Validated full reload produced an invalid "
+                            + "Warzone candidate");
+            } else {
                 runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
                         prepared.messages(), stateStore, clock, worldGuardQueries);
-                runtime.start();
+                if (activateBindings) runtime.start();
+                else runtime.startStaged();
                 plugin.getLogger().info("Integrated Warzone module started with "
                         + prepared.control().gameplay().modifiers().size() + " modifiers and "
                         + prepared.control().kits().size() + " kits; selected set is "
                         + runtime.rotations().active().modifierIds() + "; gameplay scope is "
                         + (runtime.gameplayScopeActive() ? "active" : "inactive") + ".");
-            } else {
-                plugin.getLogger().severe("Integrated warzone module is inactive; "
-                        + "the rest of MaceGuard remains enabled.");
             }
         } catch (RuntimeException ex) {
-            if (runtime != null) runtime.shutdown(false);
+            if (runtime != null) {
+                try { runtime.shutdown(false); }
+                catch (RuntimeException cleanup) {
+                    plugin.getLogger().severe("Failed Warzone candidate cleanup also failed: "
+                            + cleanup.getMessage());
+                }
+            }
             runtime = null;
             plugin.getLogger().severe("Integrated warzone startup failed without disabling MaceGuard: "
                     + ex.getMessage());
+            if (strict) throw ex;
         }
+        if (activateBindings) {
+            try { registerPlaceholder(); }
+            catch (RuntimeException | LinkageError ex) {
+                placeholder = null;
+                plugin.getLogger().warning("PlaceholderAPI warzone integration is unavailable: "
+                        + ex.getMessage());
+            }
+        }
+    }
+
+    /** Finalizes cooldown, cobweb-recovery, command, and placeholder ownership after old retirement. */
+    public void activateReloadCandidate() {
+        completeReloadStateHandoff();
+        if (runtime != null) runtime.activatePendingCobwebRecovery();
+        bindCommand();
         try { registerPlaceholder(); }
         catch (RuntimeException | LinkageError ex) {
             placeholder = null;
@@ -110,7 +154,40 @@ public final class WarzoneModule {
         }
     }
 
+    void stageReloadState(ReloadState reloadState) {
+        pendingReloadState = reloadState;
+    }
+
+    void completeReloadStateHandoff() {
+        ReloadState reloadState = pendingReloadState;
+        pendingReloadState = null;
+        if (runtime == null || reloadState == null || reloadState.runtimeState == null) return;
+        runtime.adoptReloadState(reloadState.runtimeState);
+        runtime.reconcileVisualCooldowns();
+    }
+
+    private org.bukkit.command.PluginCommand requireCommand() {
+        return Objects.requireNonNull(plugin.getCommand("warzone"),
+                "warzone command missing from plugin.yml");
+    }
+
+    private void bindCommand() {
+        WarzoneCommand handler = new WarzoneCommand(this);
+        var command = requireCommand();
+        command.setExecutor(handler);
+        command.setTabCompleter(handler);
+    }
+
+    public ReloadState snapshotReloadState() {
+        return runtime == null ? null : new ReloadState(runtime.snapshotReloadState());
+    }
+
+    public void releaseReloadState() {
+        if (runtime != null) runtime.releaseReloadState();
+    }
+
     public void shutdown(boolean pluginDisable) {
+        pendingReloadState = null;
         if (runtime != null) runtime.shutdown(pluginDisable);
         runtime = null;
         if (placeholder != null) placeholder.close();
@@ -143,7 +220,7 @@ public final class WarzoneModule {
         WarzoneRuntime replacement = candidate.value();
         if (reloadState != null) replacement.adoptReloadState(reloadState);
         try {
-            replacement.start();
+            replacement.startStaged();
         } catch (RuntimeException ex) {
             replacement.abortReloadState();
             replacement.shutdown(false);
@@ -183,6 +260,7 @@ public final class WarzoneModule {
                 }
             }
         }
+        replacement.activatePendingCobwebRecovery();
         replacement.reconcileVisualCooldowns();
     }
 
@@ -305,5 +383,13 @@ public final class WarzoneModule {
     public record Prepared(WarzoneControlConfig control, WarzoneMessages messages,
                            List<String> errors, List<String> warnings) {
         public boolean valid() { return control != null && messages != null && errors.isEmpty(); }
+    }
+
+    public static final class ReloadState {
+        private final WarzoneRuntime.ReloadState runtimeState;
+
+        private ReloadState(WarzoneRuntime.ReloadState runtimeState) {
+            this.runtimeState = runtimeState;
+        }
     }
 }

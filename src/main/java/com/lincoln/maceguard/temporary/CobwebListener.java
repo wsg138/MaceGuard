@@ -21,21 +21,30 @@ public final class CobwebListener implements Listener {
     private final TemporaryBlockService temporary;
     private final MaceGuardConfig config;
     private final BlockPolicyResolver policies;
+    private final TemporaryBlockAdmissionJournal admissions;
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config) {
         this(worldGuard, warzone, temporary, config,
-                new BlockPolicyResolver(config, worldGuard));
+                new BlockPolicyResolver(config, worldGuard), null);
     }
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config,
                           BlockPolicyResolver policies) {
+        this(worldGuard, warzone, temporary, config, policies, null);
+    }
+
+    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
+                          TemporaryBlockService temporary, MaceGuardConfig config,
+                          BlockPolicyResolver policies,
+                          TemporaryBlockAdmissionJournal admissions) {
         this.worldGuard = worldGuard;
         this.warzone = warzone;
         this.temporary = temporary;
         this.config = config;
         this.policies = policies;
+        this.admissions = admissions;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -119,8 +128,11 @@ public final class CobwebListener implements Listener {
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
-        boolean tracked = temporary.track(event.getBlockPlaced(), original, expiresAt,
-                warzoneApplies && !policy.referenced());
+        boolean warzoneOwned = warzoneApplies && !policy.referenced();
+        boolean tracked = admissions == null
+                ? temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneOwned)
+                : admissions.track(temporary, event.getBlockPlaced(), original, expiresAt,
+                        warzoneOwned);
         if (!tracked) {
             rollbackUnmanagedPlacement(event);
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);

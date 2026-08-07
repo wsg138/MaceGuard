@@ -18,6 +18,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.EnumSet;
 import java.util.Optional;
@@ -28,10 +29,11 @@ public final class MaceDurabilityListener implements Listener {
     private final WorldGuardQueryService worldGuard;
     private final MaceDurabilityTracker tracker = new MaceDurabilityTracker();
     private final MaceAttackClassifier classifier = new MaceAttackClassifier();
+    private final BukkitTask ticker;
 
     public MaceDurabilityListener(JavaPlugin plugin, MaceGuardConfig config, WorldGuardQueryService worldGuard) {
         this.config = config; this.worldGuard = worldGuard;
-        plugin.getServer().getScheduler().runTaskTimer(plugin, tracker::advanceTick, 1L, 1L);
+        ticker = plugin.getServer().getScheduler().runTaskTimer(plugin, tracker::advanceTick, 1L, 1L);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -60,7 +62,10 @@ public final class MaceDurabilityListener implements Listener {
 
     @EventHandler public void onQuit(PlayerQuitEvent event) { tracker.clearPlayer(event.getPlayer().getUniqueId()); }
     @EventHandler public void onDeath(PlayerDeathEvent event) { tracker.clearPlayer(event.getEntity().getUniqueId()); }
-    public void clear() { tracker.clear(); }
+    public void clear() {
+        ticker.cancel();
+        tracker.clear();
+    }
 
     private EnumSet<MaceDurabilityTracker.ArmorSlot> equippedArmor(Player player) {
         EnumSet<MaceDurabilityTracker.ArmorSlot> result = EnumSet.noneOf(MaceDurabilityTracker.ArmorSlot.class);

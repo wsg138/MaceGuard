@@ -70,6 +70,7 @@ public final class WarzoneRuntime {
     private BukkitTask clockTask;
     private BukkitTask regionRefreshTask;
     private volatile boolean pendingWarzoneCobwebClear;
+    private boolean pendingCobwebRecoveryActivated;
 
     public WarzoneRuntime(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, WarzoneConfig config,
                           WarzoneMessages templates, WarzoneStateStore store, Clock clock) {
@@ -130,11 +131,18 @@ public final class WarzoneRuntime {
         this.restrictionListener = new ItemRestrictionListener(plugin, restrictions, combatScopes,
                 cooldowns, visualCooldowns, region, messages, rotations::active,
                 new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
-        clearCobwebsAfterOfflineTransition();
-        if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
     }
 
     public void start() {
+        startInternal(true);
+    }
+
+    void startStaged() {
+        startInternal(false);
+    }
+
+    private void startInternal(boolean activatePendingRecovery) {
+        if (activatePendingRecovery) activatePendingCobwebRecovery();
         plugin.getServer().getPluginManager().registerEvents(guis, plugin);
         clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             rotations.tick();
@@ -157,6 +165,13 @@ public final class WarzoneRuntime {
             restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
             if (resolved && pendingWarzoneCobwebClear) clearTrackedCobwebs();
         }, 20L, 100L);
+    }
+
+    void activatePendingCobwebRecovery() {
+        if (pendingCobwebRecoveryActivated) return;
+        pendingCobwebRecoveryActivated = true;
+        clearCobwebsAfterOfflineTransition();
+        if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
     }
 
     public void shutdown(boolean pluginDisable) {
