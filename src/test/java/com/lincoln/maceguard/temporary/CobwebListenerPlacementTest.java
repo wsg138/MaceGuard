@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CobwebListenerPlacementTest {
-    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+    private static final String POLICY_BYPASS_PERMISSION = "maceguard.block-policy.bypass";
 
     @Test
     void creativeAndSurvivalPlacementsUseTheSameGuaranteedTrackingPath() {
@@ -98,10 +98,10 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void bypassedPolicyCobwebIsSilentAndNotCancelled() {
+    void dedicatedPolicyBypassCobwebIsSilentAndNotCancelled() {
         Harness harness = harness(true, true);
         BlockPlaceEvent event = event(GameMode.SURVIVAL, 6, Material.AIR);
-        when(event.getPlayer().hasPermission(BYPASS_PERMISSION)).thenReturn(true);
+        when(event.getPlayer().hasPermission(POLICY_BYPASS_PERMISSION)).thenReturn(true);
         when(harness.policies.resolve(any(Location.class))).thenReturn(
                 new BlockPolicyResolver.Resolution("scope", "missing", null, true,
                         "region", false,

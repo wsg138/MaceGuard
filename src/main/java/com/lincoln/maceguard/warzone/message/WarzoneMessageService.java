@@ -33,6 +33,13 @@ public final class WarzoneMessageService {
     private static final long DECIMAL_SECONDS_LIMIT_TENTHS = 100L;
     private static final int NANOS_PER_TENTH = 100_000_000;
     private static final String STASIS_THROTTLE_KEY = "STASIS_PEARL";
+    private static final String RESTRICTION_PREFIX = "RESTRICTION:";
+    private static final String POLICY_PLACE_PREFIX = "POLICY_PLACE:";
+    private static final String POLICY_BREAK_PREFIX = "POLICY_BREAK:";
+    private static final String POLICY_BUCKET_EMPTY_PREFIX = "POLICY_BUCKET_EMPTY:";
+    private static final String POLICY_BUCKET_FILL_PREFIX = "POLICY_BUCKET_FILL:";
+    private static final String COMBAT_ELYTRA_KEY = "COMBAT_ELYTRA";
+    private static final String COMBAT_ELYTRA_BOOST_KEY = "COMBAT_ELYTRA_BOOST";
     private static final Duration MINIMUM_THROTTLE_RETENTION = Duration.ofSeconds(1);
 
     private final MiniMessage mini = MiniMessage.miniMessage();
@@ -67,7 +74,8 @@ public final class WarzoneMessageService {
 
     public void denial(Player player, RestrictionDecision decision, Material actualMaterial) {
         RestrictionTarget target = decision.target();
-        if (target == null || !decision.denied() || !acquire(player, target)) return;
+        if (target == null || !decision.denied()
+                || !acquire(player, RESTRICTION_PREFIX + target.id())) return;
         boolean ability = target.effectOnly();
         String template = decision.result() == RestrictionDecision.Result.DISABLED
                 ? ability ? templates.abilityDisabled() : templates.itemDisabled()
@@ -89,44 +97,51 @@ public final class WarzoneMessageService {
 
     public void cobwebUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("COBWEB").orElseThrow();
-        if (!acquire(player, target)) return;
+        if (!acquire(player, RESTRICTION_PREFIX + target.id())) return;
         player.sendMessage(render(templates.cobwebUnavailable(), target, Material.COBWEB,
                 Duration.ZERO, Duration.ZERO));
     }
 
     public void elytraUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("ELYTRA").orElseThrow();
-        if (!acquire(player, target)) return;
+        if (!acquire(player, COMBAT_ELYTRA_KEY)) return;
         player.sendMessage(render(templates.elytraUnavailable(), target, Material.ELYTRA,
                 Duration.ZERO, Duration.ZERO));
     }
 
     public void rocketUnavailable(Player player) {
         RestrictionTarget target = RestrictionTarget.parse("FIREWORK_ROCKET").orElseThrow();
-        if (!acquire(player, target)) return;
+        if (!acquire(player, COMBAT_ELYTRA_BOOST_KEY)) return;
         player.sendMessage(render(templates.fireworkUnavailable(), target, Material.FIREWORK_ROCKET,
                 Duration.ZERO, Duration.ZERO));
     }
 
     public void blockPlaceDenied(Player player, Material material) {
-        policyDenied(player, material, templates.blockPlaceDenied());
+        policyDenied(player, material, templates.blockPlaceDenied(), POLICY_PLACE_PREFIX);
     }
 
     public void blockBreakDenied(Player player, Material material) {
-        policyDenied(player, material, templates.blockBreakDenied());
+        policyDenied(player, material, templates.blockBreakDenied(), POLICY_BREAK_PREFIX);
     }
 
-    public void bucketUseDenied(Player player, Material material) {
-        policyDenied(player, material, templates.bucketUseDenied());
+    public void bucketEmptyDenied(Player player, Material material) {
+        policyDenied(player, material, templates.bucketUseDenied(),
+                POLICY_BUCKET_EMPTY_PREFIX);
     }
 
-    private void policyDenied(Player player, Material material, String template) {
+    public void bucketFillDenied(Player player, Material material) {
+        policyDenied(player, material, templates.bucketUseDenied(),
+                POLICY_BUCKET_FILL_PREFIX);
+    }
+
+    private void policyDenied(Player player, Material material, String template,
+                              String keyPrefix) {
         if (material == null) {
             player.sendMessage(render(template, null, null, Duration.ZERO, Duration.ZERO));
             return;
         }
         RestrictionTarget target = RestrictionTarget.parse(material.name()).orElseThrow();
-        if (!acquire(player, target)) return;
+        if (!acquire(player, keyPrefix + target.id())) return;
         player.sendMessage(render(template, target, material, Duration.ZERO, Duration.ZERO));
     }
 
@@ -135,11 +150,6 @@ public final class WarzoneMessageService {
         if (!acquire(player, STASIS_THROTTLE_KEY)) return;
         player.sendMessage(render(templates.stasisBlocked(), target, Material.ENDER_PEARL,
                 Duration.ZERO, Duration.ZERO));
-    }
-
-    private boolean acquire(Player player, RestrictionTarget target) {
-        return denialThrottle.acquire(player.getUniqueId(), target, clock.millis(),
-                config.messages().blockedMessageCooldown());
     }
 
     private boolean acquire(Player player, String targetKey) {

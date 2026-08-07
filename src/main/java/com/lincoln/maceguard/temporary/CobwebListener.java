@@ -12,42 +12,57 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 
 public final class CobwebListener implements Listener {
-    private static final String BYPASS_PERMISSION = "warzonerotator.bypass";
+    private static final String BLOCK_POLICY_BYPASS_PERMISSION = "maceguard.block-policy.bypass";
+    private static final String TEMPORARY_COBWEB_BYPASS_PERMISSION =
+            "maceguard.temporary-cobweb.bypass";
 
     private final WorldGuardQueryService worldGuard;
     private final WarzoneModule warzone;
     private final TemporaryBlockService temporary;
     private final MaceGuardConfig config;
     private final BlockPolicyResolver policies;
+    private final TemporaryBlockAdmissionJournal admissions;
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config) {
         this(worldGuard, warzone, temporary, config,
-                new BlockPolicyResolver(config, worldGuard));
+                new BlockPolicyResolver(config, worldGuard), null);
     }
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config,
                           BlockPolicyResolver policies) {
+        this(worldGuard, warzone, temporary, config, policies, null);
+    }
+
+    public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
+                          TemporaryBlockService temporary, MaceGuardConfig config,
+                          BlockPolicyResolver policies,
+                          TemporaryBlockAdmissionJournal admissions) {
         this.worldGuard = worldGuard;
         this.warzone = warzone;
         this.temporary = temporary;
         this.config = config;
         this.policies = policies;
+        this.admissions = admissions;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
-        if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
         var location = event.getBlockPlaced().getLocation();
+        boolean policyBypass = event.getPlayer().hasPermission(
+                BLOCK_POLICY_BYPASS_PERMISSION);
+        boolean temporaryBypass = event.getPlayer().hasPermission(
+                TEMPORARY_COBWEB_BYPASS_PERMISSION);
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
         if (policy.referenced()) {
-            boolean allowed = policyTemporaryAllowed(policy,
-                    worldGuard.buildAllowed(location, event.getPlayer()),
-                    worldGuard.cobwebsAllowed(location, event.getPlayer()));
+            boolean worldGuardAllowed = worldGuard.buildAllowed(location, event.getPlayer())
+                    && worldGuard.cobwebsAllowed(location, event.getPlayer());
+            boolean allowed = worldGuardAllowed && (policyBypass
+                    || policyTemporaryAllowed(policy, true, true));
             if (!allowed || !replacementAllowed(config, event.getBlockReplacedState().getType())) {
                 event.setCancelled(true);
                 warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
@@ -57,15 +72,15 @@ public final class CobwebListener implements Listener {
 
         if (!warzone.appliesAt(location)) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
-        boolean allowed = worldGuard.buildAllowed(location, event.getPlayer())
-                && worldGuard.cobwebsAllowed(location, event.getPlayer())
-                && worldGuard.warzoneCobwebsAllowed(location)
-                && decision.allowed();
-        if (allowed && !replacementAllowed(config, event.getBlockReplacedState().getType()))
-            allowed = false;
-        if (allowed) return;
+        boolean effectiveCobwebDenied = !temporaryBypass && !decision.allowed();
+        boolean blockPlacementDenied =
+                !worldGuard.buildAllowed(location, event.getPlayer())
+                || !worldGuard.cobwebsAllowed(location, event.getPlayer())
+                || !worldGuard.warzoneCobwebsAllowed(location)
+                || !replacementAllowed(config, event.getBlockReplacedState().getType());
+        if (!effectiveCobwebDenied && !blockPlacementDenied) return;
         event.setCancelled(true);
-        if (!decision.allowed()) warzone.sendCobwebDenial(event.getPlayer(), decision);
+        if (effectiveCobwebDenied) warzone.sendCobwebDenial(event.getPlayer(), decision);
         else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
     }
 
@@ -76,21 +91,24 @@ public final class CobwebListener implements Listener {
 
         var location = event.getBlockPlaced().getLocation();
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
-        boolean policyOverride = policyTemporaryAllowed(policy,
-                worldGuard.buildAllowed(location, event.getPlayer()),
-                worldGuard.cobwebsAllowed(location, event.getPlayer()));
+        boolean policyBypass = event.getPlayer().hasPermission(
+                BLOCK_POLICY_BYPASS_PERMISSION);
+        boolean temporaryBypass = event.getPlayer().hasPermission(
+                TEMPORARY_COBWEB_BYPASS_PERMISSION);
+        boolean worldGuardAllowed = worldGuard.buildAllowed(location, event.getPlayer())
+                && worldGuard.cobwebsAllowed(location, event.getPlayer());
+        boolean policyAllowed = worldGuardAllowed && (policyBypass
+                || policyTemporaryAllowed(policy, true, true));
         boolean warzoneApplies = warzone.appliesAt(location);
         WarzoneRuntime.CobwebDecision decision = null;
 
         if (policy.referenced()) {
-            if (!policyOverride) return;
+            if (!policyAllowed) return;
         } else {
+            if (!warzoneApplies) return;
             decision = warzone.cobwebDecision(event.getPlayer(), location);
-            if (!warzoneApplies
-                    || !worldGuard.buildAllowed(location, event.getPlayer())
-                    || !worldGuard.cobwebsAllowed(location, event.getPlayer())
-                    || !worldGuard.warzoneCobwebsAllowed(location)
-                    || !decision.allowed()) return;
+            if (!worldGuardAllowed || !worldGuard.warzoneCobwebsAllowed(location)
+                    || !temporaryBypass && !decision.allowed()) return;
         }
         if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
             rollbackUnmanagedPlacement(event);
@@ -110,14 +128,18 @@ public final class CobwebListener implements Listener {
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
-        boolean tracked = temporary.track(event.getBlockPlaced(), original, expiresAt,
-                warzoneApplies && !policyOverride);
+        boolean warzoneOwned = warzoneApplies && !policy.referenced();
+        boolean tracked = admissions == null
+                ? temporary.track(event.getBlockPlaced(), original, expiresAt, warzoneOwned)
+                : admissions.track(temporary, event.getBlockPlaced(), original, expiresAt,
+                        warzoneOwned);
         if (!tracked) {
             rollbackUnmanagedPlacement(event);
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
-        if (decision != null) warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+        if (decision != null && !temporaryBypass)
+            warzone.successfulCobweb(event.getPlayer(), decision.restriction());
     }
 
     private static void rollbackUnmanagedPlacement(BlockPlaceEvent event) {

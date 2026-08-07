@@ -24,7 +24,7 @@ public final class RotationManager {
     }
 
     private volatile WarzoneControlConfig control;
-    private final WarzoneStateStore store;
+    private WarzoneStateStore store;
     private final Clock clock;
     private final ModifierSelector selector;
     private final Transition transition;
@@ -497,6 +497,12 @@ public final class RotationManager {
         if (enabled) refreshAutomatic(clock.millis(), true);
     }
     public WarzoneStateStore store() { return store; }
+
+    /** Promotes a staged reload candidate to the shared persistent state owner. */
+    public void adoptStateStore(WarzoneStateStore replacement) {
+        store = java.util.Objects.requireNonNull(replacement, "replacement");
+        store.update(state);
+    }
 
     public String entryName(WarzoneControlConfig.Entry entry) {
         return switch (entry.type()) {

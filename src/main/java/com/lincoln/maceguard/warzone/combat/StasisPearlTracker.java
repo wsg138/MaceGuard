@@ -17,6 +17,7 @@ public final class StasisPearlTracker {
     private static final int MAX_TRACKED_PEARLS = 4_096;
     private static final int MAX_PEARLS_PER_PLAYER = 32;
     private static final int MAX_IMPACTS_PER_PLAYER = 8;
+    private static final int MAX_OVERFLOW_SEGMENTS_PER_WORLD = 256;
     private static final double DIAGNOSTIC_DISTANCE_SQUARED = 9.0;
     private static final int MIN_AMBIGUOUS_CANDIDATES = 2;
     private static final int MIN_RETAINED_OVERFLOW_COUNT = 2;
@@ -25,8 +26,9 @@ public final class StasisPearlTracker {
     private final Map<UUID, Launch> launches = new ConcurrentHashMap<>();
     /** Per-owner callback order is retained by each ArrayDeque, not by this owner lookup map. */
     private final Map<UUID, ArrayDeque<Impact>> impacts = new ConcurrentHashMap<>();
-    /** One count-based overflow bucket per affected owner/world; memory does not grow per impact. */
-    private final Map<UUID, Map<UUID, Overflow>> overflow = new ConcurrentHashMap<>();
+    /** Ordered compressed segments retain tick and enforcement identity independently. */
+    private final Map<UUID, Map<UUID, ArrayDeque<OverflowSegment>>> overflow =
+            new ConcurrentHashMap<>();
     private long nextSequence;
 
     public void launched(UUID pearlId, UUID ownerId, long launchEpochMillis, long launchNanos) {
@@ -64,13 +66,10 @@ public final class StasisPearlTracker {
         cleanup(nowNanos);
         ArrayDeque<Impact> ownerImpacts = impacts.get(ownerId);
         ExactCandidates exact = exactCandidates(ownerImpacts, serverTick, destination);
-        Overflow selectedOverflow = matchingOverflow(ownerId, serverTick, destination);
-        int candidateCount = exact.count();
-        boolean anyEnforce = exact.enforce();
-        if (selectedOverflow != null) {
-            candidateCount = saturatedAdd(candidateCount, selectedOverflow.count());
-            anyEnforce |= selectedOverflow.enforce();
-        }
+        OverflowCandidates overflowCandidates = overflowCandidates(ownerId, serverTick, destination);
+        int candidateCount = saturatedAdd(exact.count(), overflowCandidates.count());
+        boolean anyEnforce = exact.enforce() || overflowCandidates.enforce();
+        OverflowSegment selectedOverflow = overflowCandidates.selected();
         if (exact.selected() == null && selectedOverflow == null) return Correlation.none();
         if (selectExact(exact.selected(), selectedOverflow))
             return consumeExact(ownerId, ownerImpacts, exact.selected(), destination,
@@ -85,7 +84,7 @@ public final class StasisPearlTracker {
         boolean enforce = false;
         Impact selected = null;
         for (Impact impact : ownerImpacts) {
-            if (!matches(impact.serverTick(), impact.serverTick(), 1L,
+            if (!matches(impact.serverTick(), 1L,
                     impact.position().worldId(), serverTick, destination.worldId())) continue;
             count = saturatedAdd(count, 1);
             enforce |= impact.enforce();
@@ -94,16 +93,27 @@ public final class StasisPearlTracker {
         return new ExactCandidates(selected, count, enforce);
     }
 
-    private Overflow matchingOverflow(UUID ownerId, long serverTick, Position destination) {
-        Map<UUID, Overflow> ownerOverflow = overflow.get(ownerId);
-        if (ownerOverflow == null) return null;
-        Overflow value = ownerOverflow.get(destination.worldId());
-        if (value == null) return null;
-        return matches(value.firstServerTick(), value.lastServerTick(), value.maxTickLag(),
-                value.worldId(), serverTick, destination.worldId()) ? value : null;
+    private OverflowCandidates overflowCandidates(UUID ownerId, long serverTick,
+                                                   Position destination) {
+        Map<UUID, ArrayDeque<OverflowSegment>> ownerOverflow = overflow.get(ownerId);
+        if (ownerOverflow == null) return OverflowCandidates.empty();
+        ArrayDeque<OverflowSegment> values = ownerOverflow.get(destination.worldId());
+        if (values == null) return OverflowCandidates.empty();
+        OverflowSegment selected = null;
+        int count = 0;
+        boolean enforce = false;
+        for (OverflowSegment value : values) {
+            if (!matches(value.serverTick(), value.maxTickLag(), value.worldId(), serverTick,
+                    destination.worldId())) continue;
+            count = saturatedAdd(count, value.count());
+            enforce |= value.enforce();
+            if (selected == null || value.firstSequence() < selected.firstSequence())
+                selected = value;
+        }
+        return new OverflowCandidates(selected, count, enforce);
     }
 
-    private boolean selectExact(Impact selectedImpact, Overflow selectedOverflow) {
+    private boolean selectExact(Impact selectedImpact, OverflowSegment selectedOverflow) {
         return selectedImpact != null && (selectedOverflow == null
                 || selectedImpact.sequence() <= selectedOverflow.firstSequence());
     }
@@ -120,7 +130,7 @@ public final class StasisPearlTracker {
                 distanceMatched);
     }
 
-    private Correlation consumeOverflowCandidate(UUID ownerId, Overflow selectedOverflow,
+    private Correlation consumeOverflowCandidate(UUID ownerId, OverflowSegment selectedOverflow,
                                                   int candidateCount, boolean anyEnforce) {
         UUID syntheticId = selectedOverflow.representativePearlId();
         consumeOverflow(ownerId, selectedOverflow);
@@ -128,10 +138,10 @@ public final class StasisPearlTracker {
                 candidateCount >= MIN_AMBIGUOUS_CANDIDATES, candidateCount, true, false);
     }
 
-    private boolean matches(long firstImpactTick, long lastImpactTick, long maxLag, UUID impactWorld,
+    private boolean matches(long impactTick, long maxLag, UUID impactWorld,
                             long teleportTick, UUID teleportWorld) {
-        if (!impactWorld.equals(teleportWorld)) return false;
-        return teleportTick >= firstImpactTick && teleportTick <= safeAdd(lastImpactTick, maxLag);
+        if (!impactWorld.equals(teleportWorld) || teleportTick < impactTick) return false;
+        return teleportTick <= safeAdd(impactTick, maxLag);
     }
 
     private Age age(Launch cached, LaunchMetadata metadata, Duration minimumAge,
@@ -148,8 +158,13 @@ public final class StasisPearlTracker {
         if (nowMillis < metadata.launchEpochMillis())
             return new Age(true, true, Long.MAX_VALUE, AgeSource.INVALID);
         long elapsedMillis = nowMillis - metadata.launchEpochMillis();
-        return new Age(elapsedMillis >= Math.max(0L, minimumAge.toMillis()), false,
+        return new Age(elapsedMillis >= saturatedMillis(minimumAge), false,
                 elapsedMillis, AgeSource.WALL_CLOCK);
+    }
+
+    private long saturatedMillis(Duration duration) {
+        try { return Math.max(0L, duration.toMillis()); }
+        catch (ArithmeticException overflowed) { return Long.MAX_VALUE; }
     }
 
     private long saturatedNanos(Duration duration) {
@@ -170,9 +185,8 @@ public final class StasisPearlTracker {
 
     /**
      * Exact impacts use the short ordinary lifetime expected by the targeted Paper callback model.
-     * Any unusual expiry becomes owner/world-scoped fail-closed overflow instead of disappearing.
-     * Overflow is count-bounded and survives time cleanup until one event consumes each record or
-     * lifecycle cleanup clears the affected owner; neither time nor tick lag creates a bypass.
+     * Any unusual expiry becomes an ordered owner/world-scoped fail-closed segment instead of
+     * disappearing. Segments merge only when tick, lag, and enforcement state are identical.
      */
     public void cleanup(long nowNanos) {
         for (Map.Entry<UUID, ArrayDeque<Impact>> entry : impacts.entrySet()) {
@@ -186,13 +200,15 @@ public final class StasisPearlTracker {
             }
             if (ownerImpacts.isEmpty()) impacts.remove(entry.getKey(), ownerImpacts);
         }
-        for (Map.Entry<UUID, Map<UUID, Overflow>> ownerEntry : overflow.entrySet()) {
-            Map<UUID, Overflow> values = ownerEntry.getValue();
-            for (Map.Entry<UUID, Overflow> entry : values.entrySet()) {
-                if (entry.getValue().count() <= 0)
-                    values.remove(entry.getKey(), entry.getValue());
+        for (Map.Entry<UUID, Map<UUID, ArrayDeque<OverflowSegment>>> ownerEntry
+                : overflow.entrySet()) {
+            Map<UUID, ArrayDeque<OverflowSegment>> byWorld = ownerEntry.getValue();
+            for (Map.Entry<UUID, ArrayDeque<OverflowSegment>> worldEntry : byWorld.entrySet()) {
+                worldEntry.getValue().removeIf(value -> value.count() <= 0);
+                if (worldEntry.getValue().isEmpty())
+                    byWorld.remove(worldEntry.getKey(), worldEntry.getValue());
             }
-            if (values.isEmpty()) overflow.remove(ownerEntry.getKey(), values);
+            if (byWorld.isEmpty()) overflow.remove(ownerEntry.getKey(), byWorld);
         }
     }
 
@@ -200,33 +216,69 @@ public final class StasisPearlTracker {
     public int trackedPearls() { return launches.size(); }
     public int pendingImpacts() {
         int count = impacts.values().stream().mapToInt(ArrayDeque::size).sum();
-        for (Map<UUID, Overflow> byWorld : overflow.values()) {
-            for (Overflow value : byWorld.values()) count = saturatedAdd(count, value.count());
+        for (Map<UUID, ArrayDeque<OverflowSegment>> byWorld : overflow.values()) {
+            for (ArrayDeque<OverflowSegment> values : byWorld.values()) {
+                for (OverflowSegment value : values)
+                    count = saturatedAdd(count, value.count());
+            }
         }
         return count;
     }
 
     private void addOverflow(UUID ownerId, Impact impact, boolean forceEnforce, long maxTickLag) {
-        Map<UUID, Overflow> byWorld = overflow.computeIfAbsent(ownerId,
+        Map<UUID, ArrayDeque<OverflowSegment>> byWorld = overflow.computeIfAbsent(ownerId,
                 ignored -> new ConcurrentHashMap<>());
         UUID worldId = impact.position().worldId();
-        Overflow existing = byWorld.get(worldId);
+        ArrayDeque<OverflowSegment> values = byWorld.computeIfAbsent(worldId,
+                ignored -> new ArrayDeque<>());
         boolean enforce = forceEnforce || impact.enforce();
-        if (existing == null) {
-            byWorld.put(worldId, new Overflow(impact.pearlId(), worldId, impact.serverTick(),
-                    impact.serverTick(), maxTickLag, 1, enforce, impact.sequence()));
+        OverflowSegment last = values.peekLast();
+        if (last != null && last.canMerge(impact.serverTick(), maxTickLag, enforce)) {
+            values.removeLast();
+            values.addLast(last.increment());
             return;
         }
-        byWorld.put(worldId, existing.merge(impact, enforce, maxTickLag));
+        if (values.size() >= MAX_OVERFLOW_SEGMENTS_PER_WORLD) {
+            // More than 256 distinct pending ticks cannot occur inside the ordinary five-second
+            // callback window. If lifecycle callbacks are missing for longer than that, retain a
+            // bounded fail-closed recovery segment rather than expanding memory without limit.
+            OverflowSegment oldest = values.removeFirst();
+            long recoveryCount = (long) oldest.count() + 1L;
+            values.addFirst(new OverflowSegment(oldest.representativePearlId(), worldId,
+                    Math.min(oldest.serverTick(), impact.serverTick()), Long.MAX_VALUE,
+                    recoveryCount > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) recoveryCount,
+                    true, Math.min(oldest.firstSequence(), impact.sequence())));
+            return;
+        }
+        values.addLast(new OverflowSegment(impact.pearlId(), worldId, impact.serverTick(),
+                maxTickLag, 1, enforce, impact.sequence()));
     }
 
-    private void consumeOverflow(UUID ownerId, Overflow selected) {
-        Map<UUID, Overflow> values = overflow.get(ownerId);
+    private void consumeOverflow(UUID ownerId, OverflowSegment selected) {
+        Map<UUID, ArrayDeque<OverflowSegment>> byWorld = overflow.get(ownerId);
+        if (byWorld == null) return;
+        ArrayDeque<OverflowSegment> values = byWorld.get(selected.worldId());
         if (values == null) return;
-        if (selected.count() >= MIN_RETAINED_OVERFLOW_COUNT)
-            values.put(selected.worldId(), selected.withCount(selected.count() - 1));
-        else values.remove(selected.worldId());
-        if (values.isEmpty()) overflow.remove(ownerId, values);
+        consumeSelectedOverflow(byWorld, values, selected);
+        ArrayDeque<OverflowSegment> remaining = byWorld.get(selected.worldId());
+        if (remaining != null && remaining.isEmpty()) byWorld.remove(selected.worldId(), remaining);
+        if (byWorld.isEmpty()) overflow.remove(ownerId, byWorld);
+    }
+
+    private void consumeSelectedOverflow(
+            Map<UUID, ArrayDeque<OverflowSegment>> byWorld,
+            ArrayDeque<OverflowSegment> values,
+            OverflowSegment selected) {
+        if (selected.count() < MIN_RETAINED_OVERFLOW_COUNT) {
+            values.remove(selected);
+            return;
+        }
+        ArrayDeque<OverflowSegment> replacement = new ArrayDeque<>();
+        for (OverflowSegment value : values) {
+            if (value == selected) replacement.addLast(selected.withCount(selected.count() - 1));
+            else replacement.addLast(value);
+        }
+        byWorld.put(selected.worldId(), replacement);
     }
 
     private void evictOldestForOwner(UUID ownerId) {
@@ -270,6 +322,9 @@ public final class StasisPearlTracker {
     private record ExactCandidates(Impact selected, int count, boolean enforce) {
         static ExactCandidates empty() { return new ExactCandidates(null, 0, false); }
     }
+    private record OverflowCandidates(OverflowSegment selected, int count, boolean enforce) {
+        static OverflowCandidates empty() { return new OverflowCandidates(null, 0, false); }
+    }
     private record Launch(UUID ownerId, long launchEpochMillis, long launchNanos) { }
     private record Age(boolean aged, boolean failClosed, long elapsedMillis, AgeSource source) { }
     public enum AgeSource { MONOTONIC, WALL_CLOCK, INVALID }
@@ -294,21 +349,19 @@ public final class StasisPearlTracker {
         public boolean matched() { return selectedPearlId != null; }
     }
 
-    private record Overflow(UUID representativePearlId, UUID worldId,
-                            long firstServerTick, long lastServerTick, long maxTickLag,
-                            int count, boolean enforce, long firstSequence) {
-        Overflow merge(Impact impact, boolean nextEnforce, long nextMaxTickLag) {
-            int mergedCount = saturatedAdd(count, 1);
-            boolean older = impact.sequence() < firstSequence;
-            return new Overflow(older ? impact.pearlId() : representativePearlId, worldId,
-                    Math.min(firstServerTick, impact.serverTick()),
-                    Math.max(lastServerTick, impact.serverTick()),
-                    Math.max(maxTickLag, nextMaxTickLag), mergedCount,
-                    enforce || nextEnforce, Math.min(firstSequence, impact.sequence()));
+    private record OverflowSegment(UUID representativePearlId, UUID worldId,
+                                   long serverTick, long maxTickLag, int count,
+                                   boolean enforce, long firstSequence) {
+        boolean canMerge(long nextTick, long nextMaxTickLag, boolean nextEnforce) {
+            return serverTick == nextTick && maxTickLag == nextMaxTickLag
+                    && enforce == nextEnforce;
         }
-        Overflow withCount(int value) {
-            return new Overflow(representativePearlId, worldId, firstServerTick, lastServerTick,
-                    maxTickLag, value, enforce, firstSequence);
+        OverflowSegment increment() {
+            return withCount(saturatedAdd(count, 1));
+        }
+        OverflowSegment withCount(int value) {
+            return new OverflowSegment(representativePearlId, worldId, serverTick, maxTickLag,
+                    value, enforce, firstSequence);
         }
     }
 

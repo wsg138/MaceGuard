@@ -14,6 +14,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.logging.Logger;
@@ -33,9 +34,16 @@ public final class WarzoneStateStore {
         this.writer = writer;
     }
 
+    /** Creates an in-memory candidate store that can never write the production state file. */
+    public static WarzoneStateStore staged(RotationState initial, Logger logger) {
+        WarzoneStateStore store = new WarzoneStateStore(null, logger, Runnable::run);
+        store.current = Objects.requireNonNull(initial, "initial");
+        return store;
+    }
+
     public synchronized Optional<RotationState> load() {
         if (current != null) return Optional.of(current);
-        if (!Files.isRegularFile(file)) return Optional.empty();
+        if (file == null || !Files.isRegularFile(file)) return Optional.empty();
         try {
             YamlConfiguration yaml = new YamlConfiguration();
             yaml.load(file.toFile());
@@ -144,6 +152,7 @@ public final class WarzoneStateStore {
 
     public synchronized void update(RotationState state) {
         current = state;
+        if (file == null) return;
         dirty = state;
         if (writerScheduled) return;
         writerScheduled = true;
