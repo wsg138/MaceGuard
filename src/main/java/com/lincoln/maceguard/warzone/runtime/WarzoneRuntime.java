@@ -25,6 +25,7 @@ import com.lincoln.maceguard.warzone.restriction.RestrictionTarget;
 import com.lincoln.maceguard.warzone.restriction.VisualCooldownService;
 import com.lincoln.maceguard.warzone.rotation.ModifierSelector;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
+import com.lincoln.maceguard.warzone.rotation.RotationState;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
@@ -151,7 +152,8 @@ public final class WarzoneRuntime {
             restrictionListener.cleanup();
             combatIntegration.cleanup();
             guis.cleanup();
-            if (pendingWarzoneCobwebClear && region.fullyResolved()) clearTrackedCobwebs();
+            if (pendingCobwebRecoveryActivated && pendingWarzoneCobwebClear
+                    && region.fullyResolved()) clearTrackedCobwebs();
         }, 20L, 20L);
         if (!config.enabled()) return;
         plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
@@ -163,7 +165,8 @@ public final class WarzoneRuntime {
         regionRefreshTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             boolean resolved = region.refresh();
             restrictionListener.reconcileVisualCooldowns(plugin.getServer().getOnlinePlayers());
-            if (resolved && pendingWarzoneCobwebClear) clearTrackedCobwebs();
+            if (pendingCobwebRecoveryActivated && resolved && pendingWarzoneCobwebClear)
+                clearTrackedCobwebs();
         }, 20L, 100L);
     }
 
@@ -193,12 +196,20 @@ public final class WarzoneRuntime {
     }
 
     ReloadState snapshotReloadState() {
-        return new ReloadState(cooldowns.snapshot(), visualCooldowns.snapshot());
+        return new ReloadState(cooldowns.snapshot(), visualCooldowns.snapshot(), rotations.state());
     }
 
     void adoptReloadState(ReloadState state) {
         cooldowns.restore(state.cooldowns(), currentCooldownDurations());
         visualCooldowns.restore(state.visualCooldowns());
+        // Staged startup may already have recorded players as inside while cooldown state was empty.
+        // Drop only the candidate's transient listener bookkeeping so final reconciliation must
+        // project the transferred authoritative state onto Bukkit again.
+        restrictionListener.clearTransientState();
+    }
+
+    void adoptStateStore(WarzoneStateStore stateStore) {
+        rotations.adoptStateStore(stateStore);
     }
 
     void releaseReloadState() {
@@ -218,12 +229,18 @@ public final class WarzoneRuntime {
     // Bukkit-main-thread snapshot; sorted iteration makes reload reconciliation deterministic.
     @SuppressWarnings("PMD.UseConcurrentHashMap")
     private Map<RestrictionTarget, Duration> currentCooldownDurations() {
+        return reloadCooldownDurations(config.enabled(), rotations.active());
+    }
+
+    static Map<RestrictionTarget, Duration> reloadCooldownDurations(
+            boolean enabled, WarzoneConfig.ActiveSet active) {
+        if (!enabled) return Map.of();
         Map<RestrictionTarget, Duration> result = new TreeMap<>();
-        rotations.active().restrictions().forEach((target, restriction) -> {
+        active.restrictions().forEach((target, restriction) -> {
             if (restriction.mode() == RestrictionMode.COOLDOWN)
                 result.put(target, restriction.cooldown());
         });
-        rotations.active().carriedRestrictions().forEach((target, restriction) -> {
+        active.carriedRestrictions().forEach((target, restriction) -> {
             if (restriction.mode() == RestrictionMode.COOLDOWN)
                 result.merge(target, restriction.cooldown(), (left, right) ->
                         left.compareTo(right) <= 0 ? left : right);
@@ -409,7 +426,8 @@ public final class WarzoneRuntime {
     }
 
     record ReloadState(CooldownService.Snapshot cooldowns,
-                       VisualCooldownService.Snapshot visualCooldowns) { }
+                       VisualCooldownService.Snapshot visualCooldowns,
+                       RotationState rotationState) { }
 
     public record CobwebDecision(boolean allowed, boolean rotationUnavailable,
                                  RestrictionDecision restriction) {

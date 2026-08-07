@@ -138,6 +138,7 @@ To roll back:
 
 1. Stop the server.
 2. Preserve the current schema-7 config and state for diagnosis.
-3. Restore the matching pre-migration `warzone.yml` backup and plugin JAR together.
-4. Restore a matching older state file only when the older plugin expects it.
-5. Leave WorldGuard regions, reset snapshots, and temporary-block recovery files intact unless a separate verified rollback procedure requires otherwise.
+3. If rolling back from 6.1.3 to 6.1.2, verify `state/temporary-blocks-admission.json` is empty before replacing the JAR. MaceGuard 6.1.2 cannot replay this 6.1.3 admission WAL. If it is non-empty after a crash or timeout, run 6.1.3 first and allow it to reconcile the admissions into `temporary-blocks.json`.
+4. Restore the matching pre-migration `warzone.yml` backup and plugin JAR together.
+5. Restore a matching older state file only when the older plugin expects it.
+6. Leave WorldGuard regions, reset snapshots, and reconciled temporary-block recovery files intact unless a separate verified rollback procedure requires otherwise.

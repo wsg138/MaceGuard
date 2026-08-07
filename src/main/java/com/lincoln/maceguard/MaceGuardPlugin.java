@@ -23,6 +23,7 @@ import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.util.Compat;
 import com.lincoln.maceguard.warzone.combat.PearlEventDiagnostics;
 import com.lincoln.maceguard.warzone.combat.PearlTraceCommand;
+import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
 import com.lincoln.maceguard.warzone.runtime.ReloadGuard;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.worldguard.MaceGuardFlags;
@@ -156,6 +157,8 @@ public final class MaceGuardPlugin extends JavaPlugin {
                 ? null : sharedRuntime.temporaryAdmissions();
         BukkitTask admissionTask = ownsSharedStorage
                 ? null : sharedRuntime.temporaryAdmissionTask();
+        WarzoneStateStore warzoneStateStore = sharedRuntime == null
+                ? null : sharedRuntime.warzone().stateStore();
         WarzoneModule warzone = null;
         MaceDurabilityListener durability = null;
         BukkitTask resetTask = null;
@@ -202,7 +205,8 @@ public final class MaceGuardPlugin extends JavaPlugin {
                                     entry.worldUuid().equals(world.getUID().toString())
                                             && region.contains(entry.x(), entry.y(), entry.z()))));
 
-            warzone = new WarzoneModule(this, temporary, io, policyResolver, queries);
+            warzone = new WarzoneModule(this, temporary, io, policyResolver, queries,
+                    warzoneStateStore);
             if (reloadCandidate) warzone.startReloadCandidate(reloadState);
             else warzone.start();
 

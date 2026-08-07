@@ -42,27 +42,40 @@ public final class WarzoneModule {
     private ReloadState pendingReloadState;
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC(), null, null);
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), null, null, null);
     }
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                          BlockPolicyResolver blockPolicies) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, null);
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, null, null);
     }
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                          BlockPolicyResolver blockPolicies, WorldGuardQueryService worldGuardQueries) {
-        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, worldGuardQueries);
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, worldGuardQueries, null);
+    }
+
+    public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                         BlockPolicyResolver blockPolicies, WorldGuardQueryService worldGuardQueries,
+                         WarzoneStateStore sharedStateStore) {
+        this(plugin, temporaryBlocks, io, Clock.systemUTC(), blockPolicies, worldGuardQueries,
+                sharedStateStore);
     }
 
     WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                   Clock clock) {
-        this(plugin, temporaryBlocks, io, clock, null, null);
+        this(plugin, temporaryBlocks, io, clock, null, null, null);
     }
 
     WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
                   Clock clock, BlockPolicyResolver blockPolicies,
                   WorldGuardQueryService worldGuardQueries) {
+        this(plugin, temporaryBlocks, io, clock, blockPolicies, worldGuardQueries, null);
+    }
+
+    WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io,
+                  Clock clock, BlockPolicyResolver blockPolicies,
+                  WorldGuardQueryService worldGuardQueries, WarzoneStateStore sharedStateStore) {
         this.plugin = plugin;
         this.temporaryBlocks = temporaryBlocks;
         this.clock = clock;
@@ -70,8 +83,10 @@ public final class WarzoneModule {
         this.worldGuardQueries = worldGuardQueries;
         this.configFile = plugin.getDataFolder().toPath().resolve("warzone.yml");
         this.messagesFile = plugin.getDataFolder().toPath().resolve("warzone-messages.yml");
-        this.stateStore = new WarzoneStateStore(plugin.getDataFolder().toPath().resolve("state")
-                .resolve("warzone-state.yml"), plugin.getLogger(), io);
+        this.stateStore = sharedStateStore == null
+                ? new WarzoneStateStore(plugin.getDataFolder().toPath().resolve("state")
+                        .resolve("warzone-state.yml"), plugin.getLogger(), io)
+                : sharedStateStore;
     }
 
     public void start() {
@@ -80,8 +95,8 @@ public final class WarzoneModule {
 
     /**
      * Starts a fully functional replacement without stealing command/placeholder bindings,
-     * cooldown ownership, or pending cobweb-recovery authority. Those transfer only after the
-     * complete plugin candidate wins.
+     * cooldown ownership, rotation persistence, or pending cobweb-recovery authority. Those
+     * transfer only after the complete plugin candidate wins.
      */
     public void startReloadCandidate(ReloadState reloadState) {
         stageReloadState(reloadState);
@@ -108,8 +123,14 @@ public final class WarzoneModule {
                     throw new IllegalStateException("Validated full reload produced an invalid "
                             + "Warzone candidate");
             } else {
+                WarzoneStateStore runtimeStore = stateStore;
+                if (!activateBindings && pendingReloadState != null
+                        && pendingReloadState.runtimeState != null) {
+                    runtimeStore = WarzoneStateStore.staged(
+                            pendingReloadState.runtimeState.rotationState(), plugin.getLogger());
+                }
                 runtime = new WarzoneRuntime(plugin, temporaryBlocks, prepared.control(),
-                        prepared.messages(), stateStore, clock, worldGuardQueries);
+                        prepared.messages(), runtimeStore, clock, worldGuardQueries);
                 if (activateBindings) runtime.start();
                 else runtime.startStaged();
                 plugin.getLogger().info("Integrated Warzone module started with "
@@ -141,7 +162,7 @@ public final class WarzoneModule {
         }
     }
 
-    /** Finalizes cooldown, cobweb-recovery, command, and placeholder ownership after old retirement. */
+    /** Finalizes cooldown, rotation, cobweb-recovery, command, and placeholder ownership. */
     public void activateReloadCandidate() {
         completeReloadStateHandoff();
         if (runtime != null) runtime.activatePendingCobwebRecovery();
@@ -163,6 +184,7 @@ public final class WarzoneModule {
         pendingReloadState = null;
         if (runtime == null || reloadState == null || reloadState.runtimeState == null) return;
         runtime.adoptReloadState(reloadState.runtimeState);
+        runtime.adoptStateStore(stateStore);
         runtime.reconcileVisualCooldowns();
     }
 
@@ -359,6 +381,7 @@ public final class WarzoneModule {
     public boolean placeholderActive() { return placeholder != null && placeholder.active(); }
     public int temporaryCobwebCount() { return temporaryBlocks.count(); }
     public BlockPolicyResolver blockPolicies() { return blockPolicies; }
+    public WarzoneStateStore stateStore() { return stateStore; }
 
     public void send(CommandSender sender, String template) {
         if (runtime != null) runtime.messages().send(sender, template);
