@@ -184,9 +184,9 @@ public final class WarzoneStateStore {
                     logger.severe("Could not persist warzone state; the newest state remains queued "
                             + "and will be retried: " + ex.getMessage());
                 synchronized (this) {
-                    // Never let an older failed snapshot overwrite a state accepted while save ran.
-                    if (dirty == null || dirty.selectionSequence() <= snapshot.selectionSequence())
-                        dirty = snapshot;
+                    // Any dirty value arrived after this snapshot was dequeued and is therefore
+                    // newer, even if its selection sequence did not change (warnings are one case).
+                    if (dirty == null) dirty = snapshot;
                 }
                 CompletableFuture.delayedExecutor(RETRY_DELAY_SECONDS, TimeUnit.SECONDS, writer)
                         .execute(this::drain);
