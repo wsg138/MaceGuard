@@ -1,53 +1,117 @@
 # Enthusia Sentinel staging
 
-MaceGuard is onboarded as a dependency-aware Sentinel target through `.enthusia-test.yml`.
+MaceGuard uses the existing production Enthusia Sentinel service in `wsg138/EnthusiaStaff-Staging`. The repository is authorized as a **manual-only** dependency target under immutable GitHub repository ID `1209823832`.
+
+The canonical Sentinel rules live in the control repository. When this guide and the control-plane documentation disagree, reconcile current `EnthusiaStaff-Staging/main` and follow its current `docs/repository-onboarding.md`, `docs/sentinel-dependencies.md`, and trusted policy/registry state.
+
+## Production R02 trust model
+
+The existing `Enthusia Sentinel` GitHub App may remain installed in the owner-selected **All repositories** mode. App visibility is not execution authorization.
+
+Sentinel separately enforces:
+
+1. **Execution authorization** — MaceGuard is enabled in trusted policy as `wsg138/MaceGuard`, repository ID `1209823832`, with `automatic_transitions = false` and only manual `dependencies` allowed.
+2. **Dependency source trust** — dependency JAR provenance is locked in the private control-plane registry. A dependency source is not thereby allowed to be polled or executed.
+3. **Operation-scoped credentials** — short-lived GitHub App tokens are requested and server-verified for only the repository IDs needed by the current execution or dependency-source operation.
+
+Do not create another GitHub App, use a PAT fallback, broaden token scope, or treat App installation visibility as Sentinel authorization.
 
 ## Why the dependency profile is required
 
-MaceGuard declares WorldGuard as a hard Bukkit dependency. Sentinel's ordinary bare-Paper startup/restart profiles do not inherit production plugins, so running them without WorldGuard would only prove that Bukkit correctly rejects a missing hard dependency. That is not a meaningful MaceGuard smoke test.
+MaceGuard declares WorldGuard as a hard Bukkit dependency. A bare-Paper startup without that dependency is not a meaningful MaceGuard smoke test.
 
-The repository manifest therefore requests the `dependencies` profile and the trusted dependency ID `worldguard` with `kind: hard`. The profile also executes `warzone debug` after startup so staging exercises MaceGuard command registration and Warzone runtime diagnostics after both plugins enable.
+`.enthusia-test.yml` therefore declares:
 
-## Control-plane onboarding required
+```yaml
+profiles:
+  - dependencies
+dependencies:
+  - id: worldguard
+    kind: hard
+actions:
+  - profile: dependencies
+    stage: after-start
+    type: console-command
+    command: warzone debug
+```
 
-Before this profile can run, the private `wsg138/EnthusiaStaff-Staging` control plane must contain both of the following:
+MaceGuard declares only its **direct** trusted dependency, `worldguard`. The private Sentinel registry owns the transitive closure. The production lock resolves in dependency-first order:
 
-1. A policy entry for MaceGuard's immutable GitHub repository ID `1209823832`, canonical name `wsg138/MaceGuard`, with the `dependencies` profile allowed.
-2. An enabled `worldguard` entry in `config/sentinel-dependencies.toml` locked to an exact repository ID/name, commit SHA, successful workflow run, unexpired artifact ID/name, JAR path, SHA-256, plugin name, and main class.
+```text
+WorldEdit -> WorldGuard -> MaceGuard
+```
 
-Do not put a WorldGuard URL, version, checksum, repository, or artifact identity in `.enthusia-test.yml`; Sentinel deliberately keeps those values in the trusted private dependency registry.
+Do not add a direct `worldedit` declaration merely because WorldGuard requires it. Do not put dependency versions, URLs, repositories, SHAs, workflow runs, artifact IDs, JAR paths, checksums, plugin identities, or transitive requirements in `.enthusia-test.yml`.
 
-The GitHub App `Enthusia Sentinel` must also have selected-repository access to MaceGuard. If that installation permission is missing, repository onboarding is incomplete even when this manifest is present.
+The authoritative WorldEdit/WorldGuard coordinates are always the current committed control-plane files:
 
-## Running the staging test
+```text
+config/sentinel-dependencies.toml
+ai-agents/reports/sen-r02-dependency-artifacts.json
+```
 
-After the control-plane policy, dependency registry, and GitHub App access are ready, use the exact same-repository PR comment:
+Do not copy dependency coordinates from an old handoff or this repository's documentation.
+
+## Exact target artifact
+
+Sentinel must test the exact current PR head. MaceGuard's build workflow publishes the canonical target artifact:
+
+```text
+artifact name: MaceGuard
+JAR path: target/MaceGuard.jar
+```
+
+The acceptance PR must be:
+
+- open;
+- non-draft;
+- same-repository;
+- unchanged at the exact head being tested;
+- backed by a successful exact-SHA build that contains the declared `MaceGuard` artifact and `target/MaceGuard.jar`.
+
+Do not substitute a branch-latest, local, or older PR artifact.
+
+## Production acceptance command
+
+Post this as an exact standalone PR comment:
 
 ```text
 @enthusia-sentinel test dependencies
 ```
 
-A successful dependency staging run must finish with:
+Do not add prose to the command comment and do not manually enqueue a replacement job.
+
+The integration is accepted only when the terminal result is exactly:
 
 ```text
 PAPER_DEPENDENCIES_OK
 ```
 
-That result should show WorldGuard and MaceGuard both enabled, the exact MaceGuard PR-head artifact, successful execution of `warzone debug`, normal Paper shutdown, process cleanup, and sandbox cleanup.
+A passing production result must retain evidence for:
 
-Keep a gameplay-changing PR in staging until the Sentinel dependency run is green. For Warzone behavior changes, live production-equivalent checks are still required for WorldGuard region geometry, Java/Bedrock event ordering, and mechanics that a no-client Sentinel profile cannot exercise.
+- exact MaceGuard repository, PR, head SHA, successful target workflow run, artifact identity, JAR path, and checksum;
+- exact locked WorldEdit and WorldGuard provenance from the deployed control-plane registry;
+- resolved/staged/enabled order `WorldEdit -> WorldGuard -> MaceGuard`;
+- successful MaceGuard enablement and `warzone debug` after-start action;
+- normal Paper readiness and clean `stop` shutdown;
+- complete process-group reap;
+- zero sandbox, temporary-download, and artifact-lease residue;
+- queue returning clean/idle;
+- durable GitHub result reporting.
 
-## Warzone regression checks for this change
+Queued, rejected, stale-head, resource-gated, cancelled, timed-out, or any other terminal code is not a pass.
 
-In addition to Sentinel startup evidence, manually verify on the staging server:
+## Live gameplay checks remain separate
 
-- A Wind Charge cooldown starts only after a successful player launch.
-- During that cooldown, right-clicking air and blocks does not create a Wind Charge entity and does not consume the item.
-- When the cooldown expires, Wind Charges work normally on the ground and in the air.
-- The `wind-charge-disabled` modifier prevents player use before entity creation.
-- Dispenser Wind Charges retain the existing automated-projectile behavior.
-- `/warzone menu` main buttons open their intended screens.
-- GUI names and lore render with explicit colors and without default purple/italic lore styling.
-- `/warzone info`, `/warzone items`, `/warzone modifiers`, `/warzone schedule`, `/warzone next`, `/warzone help`, and `/warzone debug` remain readable and accurate.
-- A temporary failure writing `warzone-state.yml` reports unhealthy persistence, retains the newest accepted state, and writes that state after storage recovers.
-- WorldGuard `build`/placement restrictions are tested separately from MaceGuard: MaceGuard must not un-cancel cobweb, water, or lava placement that WorldGuard already denied.
+The `dependencies` profile proves dependency-aware startup, the declared console action, and cleanup. It does not replace production-equivalent gameplay checks for WorldGuard region geometry, Java/Bedrock event ordering, or player mechanics.
+
+For Warzone behavior changes, separately verify:
+
+- Wind Charge cooldown begins only after successful player launch and blocks item use before entity creation while active;
+- disabled Wind Charges are denied before entity creation;
+- dispenser behavior remains intentional;
+- `/warzone menu` and every nested kit/modifier/schedule/detail/back path works;
+- GUI names/lore remain readable and correctly styled;
+- `/warzone info`, `/warzone items`, `/warzone modifiers`, `/warzone schedule`, `/warzone next`, `/warzone help`, and `/warzone debug` remain accurate;
+- persistence failure/recovery retains the newest accepted state;
+- WorldGuard-denied cobweb, water, or lava placement is never un-cancelled by MaceGuard.
