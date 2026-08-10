@@ -75,17 +75,18 @@ public final class AttributeSwapRestrictionListener implements Listener {
         Optional<Material> recent = recentSwappedWeapon(player, current);
         if (recent.isEmpty()) return;
 
-        AttackDecisions decisions = decisions(runtime, player, recent.orElseThrow(),
+        Material sourceMaterial = recent.orElseThrow();
+        AttackDecisions decisions = decisions(runtime, player, sourceMaterial,
                 event.getAttacked().getLocation());
         RestrictionDecision denial = decisions.denial();
         if (denial != null) {
             event.setCancelled(true);
-            runtime.messages().denial(player, denial, recent.orElseThrow());
+            runtime.messages().denial(player, denial, sourceMaterial);
             return;
         }
         if (decisions.startsCooldown()) {
             swaps.recordAttack(player.getUniqueId(), event.getAttacked().getUniqueId(),
-                    recent.orElseThrow(), decisions.item(), decisions.spearDamage());
+                    sourceMaterial, decisions.item(), decisions.spearDamage());
         }
     }
 
@@ -103,7 +104,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
         if (source == null) return;
 
         AttackDecisions decisions = source.spear()
-                ? spearDecisions(runtime, player, source.material(), event.getEntity().getLocation())
+                ? spearDecisions(runtime, player, event.getEntity().getLocation())
                 : decisions(runtime, player, Material.MACE, event.getEntity().getLocation());
         RestrictionDecision denial = decisions.denial();
         if (denial != null) {
@@ -117,15 +118,15 @@ public final class AttributeSwapRestrictionListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onSuccessfulDirectDamage(EntityDamageByEntityEvent event) {
-        if (event.getFinalDamage() <= 0 || !(event.getDamager() instanceof Player player)) return;
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onDirectDamageFinalized(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player player)) return;
         AttributeSwapTracker.AttackAttempt attempt = swaps.consumeAttack(
                 player.getUniqueId(), event.getEntity().getUniqueId()).orElse(null);
-        if (attempt == null) return;
+        if (attempt == null || event.isCancelled() || event.getFinalDamage() <= 0) return;
+
         WarzoneRuntime runtime = authoritativeRuntime();
         if (runtime == null) return;
-
         startCooldown(runtime, player, attempt.itemDecision(), attempt.material());
         startCooldown(runtime, player, attempt.spearDamageDecision(), null);
     }
@@ -152,14 +153,14 @@ public final class AttributeSwapRestrictionListener implements Listener {
     private AttackDecisions decisions(WarzoneRuntime runtime, Player player, Material material,
                                       org.bukkit.Location targetLocation) {
         if (RestrictionTarget.isSpear(material)) {
-            return spearDecisions(runtime, player, material, targetLocation);
+            return spearDecisions(runtime, player, targetLocation);
         }
         RestrictionDecision item = decide(runtime, player, RestrictionTarget.parse("MACE").orElseThrow(),
                 targetLocation);
         return new AttackDecisions(item, RestrictionDecision.unrestricted());
     }
 
-    private AttackDecisions spearDecisions(WarzoneRuntime runtime, Player player, Material material,
+    private AttackDecisions spearDecisions(WarzoneRuntime runtime, Player player,
                                            org.bukkit.Location targetLocation) {
         RestrictionDecision item = decide(runtime, player, RestrictionTarget.SPEAR, targetLocation);
         RestrictionDecision damage = decide(runtime, player, RestrictionTarget.SPEAR_DAMAGE, targetLocation);
@@ -195,18 +196,12 @@ public final class AttributeSwapRestrictionListener implements Listener {
                                RestrictionDecision decision, Material concreteMaterial) {
         if (decision == null || !decision.startsCooldownAfterSuccess()
                 || decision.target() == null || decision.restriction() == null) return;
-        Duration duration = decision.restriction().cooldown();
-        runtime.cooldowns().start(player.getUniqueId(), decision.target(), duration, concreteMaterial);
+        runtime.cooldowns().start(player.getUniqueId(), decision.target(),
+                decision.restriction().cooldown(), concreteMaterial);
         runtime.messages().cooldownStarted(player, decision, concreteMaterial);
-
-        // The authoritative expiry above is the source of truth. For a concrete whole-item target,
-        // mirror it to Bukkit without shortening a longer vanilla/third-party cooldown.
-        if (concreteMaterial != null && decision.target() != RestrictionTarget.SPEAR_DAMAGE) {
-            int requested = VisualCooldownService.toTicks(duration);
-            if (requested > player.getCooldown(concreteMaterial)) {
-                player.setCooldown(concreteMaterial, requested);
-            }
-        }
+        // Do not write an unowned Bukkit item cooldown here. The authoritative expiry above is
+        // sufficient to enforce the exploit path; normal MaceGuard visual projection retains sole
+        // ownership of client cooldown overlays so reload/shutdown cannot clobber another plugin.
     }
 
     private boolean damageType(EntityDamageByEntityEvent event, String key) {
