@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -70,18 +71,30 @@ class AttributeSwapRestrictionListenerTest {
         harness.listener.onPreAttack(attack);
         verify(attack, never()).setCancelled(true);
 
-        EntityDamageByEntityEvent damage = mock(EntityDamageByEntityEvent.class);
-        when(damage.getDamager()).thenReturn(harness.player);
-        when(damage.getEntity()).thenReturn(harness.target);
-        when(damage.getFinalDamage()).thenReturn(8.0D);
+        EntityDamageByEntityEvent damage = harness.damage(8.0D, false);
         harness.listener.onDirectDamage(damage);
-        harness.listener.onSuccessfulDirectDamage(damage);
+        harness.listener.onDirectDamageFinalized(damage);
 
         assertTrue(harness.cooldowns.active(harness.playerId,
                 RestrictionTarget.parse("MACE").orElseThrow()));
         verify(harness.messages).cooldownStarted(eq(harness.player),
                 argThat(RestrictionDecision::startsCooldownAfterSuccess), eq(Material.MACE));
-        verify(harness.player).setCooldown(eq(Material.MACE), intThat(ticks -> ticks >= 100));
+        verify(harness.player, never()).setCooldown(any(Material.class), anyInt());
+    }
+
+    @Test void cancelledSwappedHitCannotStartCooldown() {
+        Duration duration = Duration.ofSeconds(5);
+        Harness harness = harness(restricted(RestrictionTarget.parse("MACE").orElseThrow(),
+                RestrictionMode.COOLDOWN, duration));
+        harness.swap(Material.MACE, Material.DIAMOND_SWORD);
+        harness.listener.onPreAttack(harness.preAttack());
+
+        EntityDamageByEntityEvent damage = harness.damage(8.0D, true);
+        harness.listener.onDirectDamageFinalized(damage);
+
+        assertFalse(harness.cooldowns.active(harness.playerId,
+                RestrictionTarget.parse("MACE").orElseThrow()));
+        verify(harness.messages, never()).cooldownStarted(any(), any(), any());
     }
 
     private Harness harness(WarzoneConfig.Restriction restriction) {
@@ -115,7 +128,6 @@ class AttributeSwapRestrictionListenerTest {
         when(target.getUniqueId()).thenReturn(targetId);
         when(target.getLocation()).thenReturn(targetLocation);
         when(region.contains(any(Location.class))).thenReturn(true);
-        when(player.getCooldown(any(Material.class))).thenReturn(0);
 
         WarzoneConfig.ActiveSet active = new WarzoneConfig.ActiveSet(
                 List.of("test"), "<white>Test", "test", Set.of(),
@@ -179,6 +191,15 @@ class AttributeSwapRestrictionListenerTest {
             when(attack.getAttacked()).thenReturn(target);
             when(attack.willAttack()).thenReturn(true);
             return attack;
+        }
+
+        private EntityDamageByEntityEvent damage(double finalDamage, boolean cancelled) {
+            EntityDamageByEntityEvent damage = mock(EntityDamageByEntityEvent.class);
+            when(damage.getDamager()).thenReturn(player);
+            when(damage.getEntity()).thenReturn(target);
+            when(damage.getFinalDamage()).thenReturn(finalDamage);
+            when(damage.isCancelled()).thenReturn(cancelled);
+            return damage;
         }
     }
 }
