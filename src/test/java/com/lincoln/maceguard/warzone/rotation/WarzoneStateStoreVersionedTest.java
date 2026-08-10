@@ -29,6 +29,32 @@ class WarzoneStateStoreVersionedTest {
         assertEquals(List.of("cobwebs", "no-lunge"), actual.overrideModifierIds());
     }
 
+    @Test void automaticVanillaKitRoundTripsWithNoModifiers() {
+        Path file = directory.resolve("state.yml");
+        RotationState expected = new RotationState(RotationState.VERSION, "1000:0:0", 0, 0, 0,
+                null, 1_000, 2_000, 1_000, SelectionSourceType.KIT, "vanilla",
+                List.of(), null, null, List.of(), null, 0, 0,
+                Set.of(60L), 8);
+        store(file).update(expected);
+
+        RotationState actual = store(file).load().orElseThrow();
+        assertEquals(expected, actual);
+        assertEquals("vanilla", actual.automaticSourceId());
+        assertTrue(actual.automaticModifierIds().isEmpty());
+    }
+
+    @Test void manualVanillaKitOverrideRoundTripsWithNoModifiers() {
+        Path file = directory.resolve("state.yml");
+        RotationState expected = state().withOverride(SelectionSourceType.KIT, "vanilla",
+                List.of(), OverrideDurationMode.UNTIL_CLEARED, 1_500, 0, 8);
+        store(file).update(expected);
+
+        RotationState actual = store(file).load().orElseThrow();
+        assertEquals(expected, actual);
+        assertEquals("vanilla", actual.overrideSourceId());
+        assertTrue(actual.overrideModifierIds().isEmpty());
+    }
+
     @Test void failedWriteKeepsNewestStateQueuedAndRetries() throws Exception {
         Path blockedParent = directory.resolve("blocked-parent");
         Files.writeString(blockedParent, "not a directory");
