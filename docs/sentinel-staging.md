@@ -1,45 +1,50 @@
 # Enthusia Sentinel staging
 
-MaceGuard is onboarded as a dependency-aware Sentinel target through `.enthusia-test.yml`.
+MaceGuard uses the existing production Enthusia Sentinel shared service in `wsg138/EnthusiaStaff-Staging`. Its Sentinel target contract is declared by `.enthusia-test.yml` and uses the manual-only `dependencies` profile.
 
 ## Why the dependency profile is required
 
-MaceGuard declares WorldGuard as a hard Bukkit dependency. Sentinel's ordinary bare-Paper startup/restart profiles do not inherit production plugins, so running them without WorldGuard would only prove that Bukkit correctly rejects a missing hard dependency. That is not a meaningful MaceGuard smoke test.
+MaceGuard declares WorldGuard as a hard Bukkit dependency. Sentinel's ordinary bare-Paper startup/restart profiles do not inherit production plugins, so running them without the trusted dependency closure would only prove that Bukkit rejects a missing hard dependency. That is not a meaningful MaceGuard smoke test.
 
-The repository manifest therefore requests the `dependencies` profile and the trusted dependency ID `worldguard` with `kind: hard`. The profile also executes `warzone debug` after startup so staging exercises MaceGuard command registration and Warzone runtime diagnostics after both plugins enable.
+The repository manifest therefore requests the `dependencies` profile and the direct trusted dependency ID `worldguard` with `kind: hard`. Trusted Sentinel registry state expands that declaration to the dependency-first closure WorldEdit -> WorldGuard -> MaceGuard. The manifest intentionally does not duplicate WorldEdit or choose dependency source/version/artifact coordinates.
 
-## Control-plane onboarding required
+The profile also executes `warzone debug` after startup so staging exercises MaceGuard command registration and Warzone runtime diagnostics after the approved dependency closure enables.
 
-Before this profile can run, the private `wsg138/EnthusiaStaff-Staging` control plane must contain both of the following:
+## Control-plane trust boundary
 
-1. A policy entry for MaceGuard's immutable GitHub repository ID `1209823832`, canonical name `wsg138/MaceGuard`, with the `dependencies` profile allowed.
-2. An enabled `worldguard` entry in `config/sentinel-dependencies.toml` locked to an exact repository ID/name, commit SHA, successful workflow run, unexpired artifact ID/name, JAR path, SHA-256, plugin name, and main class.
+Production Sentinel must contain all of the following before a MaceGuard dependency test is accepted:
 
-Do not put a WorldGuard URL, version, checksum, repository, or artifact identity in `.enthusia-test.yml`; Sentinel deliberately keeps those values in the trusted private dependency registry.
+1. MaceGuard's immutable GitHub repository ID `1209823832` and canonical name `wsg138/MaceGuard` in `config/sentinel-policy.toml`, configured with `automatic_transitions = false` and only the manual `dependencies` profile allowed.
+2. Reviewed WorldEdit and WorldGuard entries in `config/sentinel-dependencies.toml` locked to exact source repository identity, producer commit SHA, successful workflow run, artifact ID/name, JAR path, SHA-256, plugin identity, and the WorldGuard -> WorldEdit registry dependency edge.
+3. The existing `Enthusia Sentinel` GitHub App installation covering the repositories required by those operations.
 
-The GitHub App `Enthusia Sentinel` must also have selected-repository access to MaceGuard. If that installation permission is missing, repository onboarding is incomplete even when this manifest is present.
+The owner intentionally keeps the existing GitHub App installed with **All repositories**. That visibility is not Sentinel execution authorization and must not be changed to selected-repository mode for MaceGuard onboarding. Sentinel execution remains fail-closed through immutable policy, and production uses short-lived installation tokens scoped to the exact enabled execution repository IDs. Dependency acquisition uses a separate short-lived token scoped only to the exact trusted artifact-source repository IDs.
+
+Do not put WorldGuard/WorldEdit URLs, versions, checksums, repository identities, artifact identities, or credentials in `.enthusia-test.yml`; those values remain control-plane trust state.
 
 ## Running the staging test
 
-After the control-plane policy, dependency registry, and GitHub App access are ready, use the exact same-repository PR comment:
+After the control-plane policy, dependency registry, runtime, and token boundaries are canonically deployed, use the exact standalone comment on an open, non-draft, same-repository MaceGuard PR whose current head has a successful exact-SHA `MaceGuard` Actions artifact:
 
 ```text
 @enthusia-sentinel test dependencies
 ```
 
-A successful dependency staging run must finish with:
+A successful production dependency staging run must finish exactly with:
 
 ```text
 PAPER_DEPENDENCIES_OK
 ```
 
-That result should show WorldGuard and MaceGuard both enabled, the exact MaceGuard PR-head artifact, successful execution of `warzone debug`, normal Paper shutdown, process cleanup, and sandbox cleanup.
+That result must bind the exact MaceGuard PR head and artifact, resolve and verify the locked WorldEdit/WorldGuard provenance, stage only the target plus approved closure, enable WorldEdit then WorldGuard then MaceGuard, execute `warzone debug`, stop Paper normally, reap processes, clean the disposable sandbox, and report terminal evidence through the established GitHub path.
 
-Keep a gameplay-changing PR in staging until the Sentinel dependency run is green. For Warzone behavior changes, live production-equivalent checks are still required for WorldGuard region geometry, Java/Bedrock event ordering, and mechanics that a no-client Sentinel profile cannot exercise.
+A queued or resource-gated job is not a pass. Do not cancel unrelated legitimate Sentinel work to obtain the shared lane, and do not weaken resource, authorization, artifact, isolation, credential, or cleanup controls.
 
-## Warzone regression checks for this change
+For Warzone behavior changes, live production-equivalent checks are still required for WorldGuard region geometry, Java/Bedrock event ordering, and mechanics that this no-client dependency profile cannot exercise.
 
-In addition to Sentinel startup evidence, manually verify on the staging server:
+## Warzone regression checks for gameplay changes
+
+In addition to Sentinel dependency evidence, manually verify when a change touches these behaviors:
 
 - A Wind Charge cooldown starts only after a successful player launch.
 - During that cooldown, right-clicking air and blocks does not create a Wind Charge entity and does not consume the item.
