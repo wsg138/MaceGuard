@@ -857,7 +857,7 @@ public final class WarzoneGuiManager implements Listener {
         }
 
         modifier.restrictions().entrySet().stream()
-                .sorted(Comparator.comparing(entry -> entry.getKey().name()))
+                .sorted(Comparator.comparing(entry -> entry.getKey().id()))
                 .forEach(entry -> {
                     WarzoneConfig.Restriction restriction = entry.getValue();
                     String detail = friendly(restriction.mode());
@@ -866,7 +866,8 @@ public final class WarzoneGuiManager implements Listener {
                             && !restriction.cooldown().isNegative()) {
                         detail += " <dark_gray>• <white>" + readableDuration(restriction.cooldown());
                     }
-                    lore.add("<dark_gray>• <white>" + friendly(entry.getKey())
+                    lore.add("<dark_gray>• <white>"
+                            + com.lincoln.maceguard.warzone.message.WarzoneMessageService.friendly(entry.getKey())
                             + ": <yellow>" + detail);
                 });
     }
