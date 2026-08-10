@@ -127,9 +127,15 @@ class AttributeSwapRestrictionListenerTest {
     }
 
     private WarzoneConfig.Restriction restricted(RestrictionTarget target,
-                                                 RestrictionMode mode,
-                                                 Duration duration) {
+                                                  RestrictionMode mode,
+                                                  Duration duration) {
         return new WarzoneConfig.Restriction(target, mode, duration);
+    }
+
+    private static ItemStack item(Material material) {
+        ItemStack stack = mock(ItemStack.class);
+        when(stack.getType()).thenReturn(material);
+        return stack;
     }
 
     private static final class Harness {
@@ -155,9 +161,11 @@ class AttributeSwapRestrictionListenerTest {
         }
 
         private void swap(Material previous, Material current) {
-            when(inventory.getItem(0)).thenReturn(new ItemStack(previous));
-            when(inventory.getItem(1)).thenReturn(new ItemStack(current));
-            when(inventory.getItemInMainHand()).thenReturn(new ItemStack(current));
+            ItemStack previousItem = item(previous);
+            ItemStack currentItem = item(current);
+            when(inventory.getItem(0)).thenReturn(previousItem);
+            when(inventory.getItem(1)).thenReturn(currentItem);
+            when(inventory.getItemInMainHand()).thenReturn(currentItem);
             PlayerItemHeldEvent held = mock(PlayerItemHeldEvent.class);
             when(held.getPlayer()).thenReturn(player);
             when(held.getPreviousSlot()).thenReturn(0);
