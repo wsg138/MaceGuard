@@ -261,8 +261,8 @@ public final class WarzoneStateStore {
             throw new IllegalArgumentException(path + " source ID is only valid for KIT");
         if (type == SelectionSourceType.NONE && !modifiers.isEmpty())
             throw new IllegalArgumentException(path + " NONE source must not contain modifiers");
-        if ((type == SelectionSourceType.RANDOM || type == SelectionSourceType.KIT
-                || type == SelectionSourceType.SCHEDULED_MODIFIERS) && modifiers.isEmpty())
+        if ((type == SelectionSourceType.RANDOM || type == SelectionSourceType.SCHEDULED_MODIFIERS)
+                && modifiers.isEmpty())
             throw new IllegalArgumentException(path + " source type " + type
                     + " requires at least one modifier");
     }
