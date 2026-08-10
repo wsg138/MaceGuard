@@ -15,6 +15,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -90,7 +91,21 @@ public final class ItemRestrictionListener implements Listener {
     public void onInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         Material material = event.getItem() == null ? null : event.getItem().getType();
-        if (material == null || material == Material.COBWEB || supports(material, CooldownCapability.PROJECTILE)) return;
+        if (material == null || material == Material.COBWEB) return;
+
+        // Wind Charges need to be stopped at the player's item-use boundary. Cancelling the
+        // subsequent projectile launch creates and then suppresses the physical entity, which is
+        // visibly different from a vanilla item cooldown and behaves poorly against the ground.
+        if (material == Material.WIND_CHARGE) {
+            RestrictionDecision decision = materialDecision(event.getPlayer(), material, false);
+            if (decision.denied()) {
+                event.setUseItemInHand(Event.Result.DENY);
+                messages.denial(event.getPlayer(), decision, material);
+            }
+            return;
+        }
+
+        if (supports(material, CooldownCapability.PROJECTILE)) return;
         RestrictionDecision decision = materialDecision(event.getPlayer(), material, false);
         if (!decision.denied()) return;
         event.setCancelled(true);
@@ -99,11 +114,15 @@ public final class ItemRestrictionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerLaunch(PlayerLaunchProjectileEvent event) {
-        RestrictionDecision decision = materialDecision(event.getPlayer(), event.getItemStack().getType(), false);
+        Material material = event.getItemStack().getType();
+        // Player Wind Charges are gated in PlayerInteractEvent so the item use is denied before a
+        // WindCharge entity exists. Dispenser handling remains in the dedicated automated path.
+        if (material == Material.WIND_CHARGE) return;
+        RestrictionDecision decision = materialDecision(event.getPlayer(), material, false);
         if (!decision.denied()) return;
         event.setCancelled(true);
         event.setShouldConsume(false);
-        messages.denial(event.getPlayer(), decision, event.getItemStack().getType());
+        messages.denial(event.getPlayer(), decision, material);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
