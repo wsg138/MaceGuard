@@ -4,10 +4,10 @@ import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.config.WarzoneControlConfig;
 import com.lincoln.maceguard.warzone.rotation.ActiveSelection;
 import com.lincoln.maceguard.warzone.rotation.OverrideDurationMode;
-import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.rotation.SelectionSourceType;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -39,8 +39,14 @@ import java.util.UUID;
 /** Bukkit-only inventory UI with holder identity and short-lived per-player sessions. */
 public final class WarzoneGuiManager implements Listener {
     private static final int PAGE_SIZE = 45;
+    private static final String NAME_STYLE = "<!italic><gold>";
+    private static final String LORE_STYLE = "<!italic><gray>";
+    private static final String GOOD = "<green>";
+    private static final String BAD = "<red>";
+    private static final String VALUE = "<white>";
     private final JavaPlugin plugin;
     private final WarzoneRuntime runtime;
+    private final MiniMessage mini = MiniMessage.miniMessage();
     private final Map<UUID, Session> sessions = new HashMap<>();
 
     public WarzoneGuiManager(JavaPlugin plugin, WarzoneRuntime runtime) {
@@ -50,28 +56,35 @@ public final class WarzoneGuiManager implements Listener {
 
     public void openMain(Player player) {
         Session session = start(player, Operation.MENU);
-        Inventory inventory = inventory(session, Screen.MAIN, 27, "Warzone");
+        Inventory inventory = inventory(session, Screen.MAIN, 27, "<gold><bold>Warzone Control");
         ActiveSelection active = runtime.rotations().activeSelection();
-        inventory.setItem(4, item(Material.NETHER_STAR, "Active: " + active.sourceType(),
-                "Kit: " + value(active.sourceId()),
-                "Modifiers: " + names(active.activeSet().modifierIds()),
-                expiration(),
+        inventory.setItem(4, item(Material.NETHER_STAR, "<aqua><bold>Current Warzone",
+                "<gray>Source: <white>" + friendly(active.sourceType()),
+                "<gray>Kit: <white>" + value(active.sourceId()),
+                "<gray>Modifiers: <white>" + names(active.activeSet().modifierIds()),
+                "<gray>Duration: <white>" + expiration(),
                 runtime.rotations().scheduleEnabled()
-                        ? "Next: " + runtime.rotations().nextSlot().entry().type() + " — "
-                        + runtime.rotations().entryName(runtime.rotations().nextSlot().entry())
-                        : "Next: none — schedule disabled",
+                        ? "<gray>Next: <yellow>" + friendly(runtime.rotations().nextSlot().entry().type())
+                        + " <dark_gray>• <white>" + runtime.rotations().entryName(runtime.rotations().nextSlot().entry())
+                        : "<gray>Next: <red>Schedule disabled",
                 runtime.rotations().scheduleEnabled()
-                        ? "Changes: " + runtime.messages().formatInstant(
+                        ? "<gray>Changes: <white>" + runtime.messages().formatInstant(
                         runtime.rotations().state().automaticSlotEndMillis())
-                        : "Changes: none"));
-        inventory.setItem(10, item(Material.CHEST, "Kits", "Browse configured kits."));
-        inventory.setItem(12, item(Material.BOOK, "Modifiers", "Browse active and configured modifiers."));
-        inventory.setItem(14, item(Material.CLOCK, "Schedule", "View the repeating cycle."));
-        inventory.setItem(16, item(Material.COBWEB, "Item Status", "Use /warzone items for full details."));
+                        : "<gray>Changes: <dark_gray>None"));
+        inventory.setItem(10, item(Material.CHEST, "<green>Kits",
+                "<gray>Browse named Warzone kits.", "<yellow>Click to open"));
+        inventory.setItem(12, item(Material.BOOK, "<aqua>Modifiers",
+                "<gray>See every configured modifier and its status.", "<yellow>Click to open"));
+        inventory.setItem(14, item(Material.CLOCK, "<gold>Schedule",
+                "<gray>View the repeating automatic cycle.", "<yellow>Click to open"));
+        inventory.setItem(16, item(Material.COBWEB, "<light_purple>Item Status",
+                "<gray>Show current item and ability rules.", "<yellow>Click to view in chat"));
         if (player.hasPermission("warzonerotator.manage.kit"))
-            inventory.setItem(21, item(Material.COMMAND_BLOCK, "Set Kit", "Choose a manual kit override."));
+            inventory.setItem(21, item(Material.COMMAND_BLOCK, "<green>Set Kit Override",
+                    "<gray>Choose a kit to apply manually.", "<yellow>Click to configure"));
         if (player.hasPermission("warzonerotator.manage.modifier"))
-            inventory.setItem(23, item(Material.REPEATER, "Add Modifier", "Create a custom override."));
+            inventory.setItem(23, item(Material.REPEATER, "<yellow>Add Modifier",
+                    "<gray>Create a custom modifier override.", "<yellow>Click to configure"));
         open(player, session, inventory);
     }
 
@@ -85,7 +98,7 @@ public final class WarzoneGuiManager implements Listener {
         List<WarzoneControlConfig.Kit> kits = runtime.controlConfig().kits().values().stream()
                 .filter(kit -> kit.enabled() || runtime.controlConfig().gui().showDisabledKits())
                 .sorted(Comparator.comparing(WarzoneControlConfig.Kit::id)).toList();
-        Inventory inventory = inventory(session, Screen.KITS, 54, "Warzone Kits");
+        Inventory inventory = inventory(session, Screen.KITS, 54, "<gold><bold>Warzone Kits");
         int from = page * PAGE_SIZE;
         for (int index = from; index < Math.min(kits.size(), from + PAGE_SIZE); index++) {
             WarzoneControlConfig.Kit kit = kits.get(index);
@@ -97,8 +110,12 @@ public final class WarzoneGuiManager implements Listener {
             inventory.setItem(index - from, tagged(kit.enabled() ? kit.icon() : Material.GRAY_DYE,
                     kit.enabled() ? "kit" : "disabled", kit.id(),
                     kit.displayName(), kit.description(),
-                    "Modifiers: " + names(kit.modifierIds()),
-                    "Enabled: " + kit.enabled(), "Active: " + active, "Scheduled next: " + next));
+                    "<gray>Modifiers: <white>" + names(kit.modifierIds()),
+                    "<gray>Enabled: " + status(kit.enabled()),
+                    "<gray>Active now: " + status(active),
+                    "<gray>Scheduled next: " + status(next),
+                    session.operation == Operation.KIT_SET && kit.enabled()
+                            ? "<yellow>Click to preview this override" : null));
         }
         navigation(inventory, page, kits.size());
         open(player, session, inventory);
@@ -113,7 +130,7 @@ public final class WarzoneGuiManager implements Listener {
         session.page = page;
         List<WarzoneConfig.Modifier> modifiers = runtime.config().modifiers().values().stream()
                 .sorted(Comparator.comparing(WarzoneConfig.Modifier::id)).toList();
-        Inventory inventory = inventory(session, Screen.MODIFIERS, 54, "Warzone Modifiers");
+        Inventory inventory = inventory(session, Screen.MODIFIERS, 54, "<gold><bold>Warzone Modifiers");
         int from = page * PAGE_SIZE;
         Set<String> active = Set.copyOf(runtime.rotations().active().modifierIds());
         for (int index = from; index < Math.min(modifiers.size(), from + PAGE_SIZE); index++) {
@@ -125,12 +142,15 @@ public final class WarzoneGuiManager implements Listener {
             Material icon = selectable ? Material.PAPER : Material.GRAY_DYE;
             inventory.setItem(index - from, tagged(icon, selectable ? "modifier" : "disabled",
                     modifier.id(), modifier.displayName(), modifier.description(),
-                    "Weight: " + modifier.weight(),
-                    "Conflict: " + conflictGroup(modifier.id()),
-                    "Selected: " + selected,
-                    "Effects: " + modifier.effects(),
-                    "Restrictions: " + modifier.restrictions(),
-                    "Selectable: " + selectable));
+                    "<gray>ID: <white>" + modifier.id(),
+                    "<gray>Weight: <white>" + modifier.weight(),
+                    "<gray>Conflict group: <white>" + conflictGroup(modifier.id()),
+                    "<gray>Active now: " + status(selected),
+                    "<gray>Effects: <white>" + modifier.effects(),
+                    "<gray>Restrictions: <white>" + modifier.restrictions(),
+                    selectable && (session.operation == Operation.MODIFIER_ADD
+                            || session.operation == Operation.MODIFIER_REMOVE)
+                            ? "<yellow>Click to preview this change" : null));
         }
         navigation(inventory, page, modifiers.size());
         open(player, session, inventory);
@@ -143,25 +163,28 @@ public final class WarzoneGuiManager implements Listener {
 
     private void openSchedule(Player player, Session session, int page) {
         session.page = page;
-        Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "Warzone Schedule");
+        Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
         List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
         int current = runtime.rotations().state().currentCycleIndex();
         int from = page * PAGE_SIZE;
         for (int index = from; index < Math.min(cycle.size(), from + PAGE_SIZE); index++) {
             WarzoneControlConfig.Entry entry = cycle.get(index);
             inventory.setItem(index - from, item(index == current ? Material.LIME_DYE : Material.CLOCK,
-                    (index + 1) + ". " + entry.type(), runtime.rotations().entryName(entry),
-                    index == current ? "Current automatic slot" : "Cycle entry"));
+                    (index == current ? "<green>" : "<gold>") + (index + 1) + ". " + friendly(entry.type()),
+                    "<gray>Selection: <white>" + runtime.rotations().entryName(entry),
+                    index == current ? "<green>Current automatic slot" : "<dark_gray>Cycle entry"));
         }
         navigation(inventory, page, cycle.size());
         if (runtime.rotations().scheduleEnabled()) {
-            inventory.setItem(49, item(Material.COMPASS, "Next Change",
-                    runtime.messages().formatInstant(runtime.rotations().state().automaticSlotEndMillis()),
-                    runtime.rotations().nextSlot().entry().type() + ": "
+            inventory.setItem(49, item(Material.COMPASS, "<aqua>Next Automatic Change",
+                    "<gray>At: <white>" + runtime.messages().formatInstant(
+                            runtime.rotations().state().automaticSlotEndMillis()),
+                    "<gray>Next: <yellow>" + friendly(runtime.rotations().nextSlot().entry().type())
+                            + " <dark_gray>• <white>"
                             + runtime.rotations().entryName(runtime.rotations().nextSlot().entry())));
         } else {
-            inventory.setItem(49, item(Material.GRAY_DYE, "Schedule Disabled",
-                    "No automatic transition is pending."));
+            inventory.setItem(49, item(Material.GRAY_DYE, "<red>Schedule Disabled",
+                    "<gray>No automatic transition is pending."));
         }
         open(player, session, inventory);
     }
@@ -175,46 +198,49 @@ public final class WarzoneGuiManager implements Listener {
         session.proposedId = proposedId;
         session.proposedModifiers = proposed.modifierIds();
         session.proposedSet = proposed;
-        Inventory inventory = inventory(session, Screen.PREVIEW, 27, "Confirm Warzone Change");
+        Inventory inventory = inventory(session, Screen.PREVIEW, 27, "<gold><bold>Confirm Warzone Change");
         ActiveSelection current = runtime.rotations().activeSelection();
-        inventory.setItem(10, item(Material.RED_STAINED_GLASS_PANE, "Current",
-                "Source: " + current.sourceType(), "Kit: " + value(current.sourceId()),
-                "Modifiers: " + names(current.activeSet().modifierIds())));
+        inventory.setItem(10, item(Material.RED_STAINED_GLASS_PANE, "<red>Current Selection",
+                "<gray>Source: <white>" + friendly(current.sourceType()),
+                "<gray>Kit: <white>" + value(current.sourceId()),
+                "<gray>Modifiers: <white>" + names(current.activeSet().modifierIds())));
         List<String> lore = new ArrayList<>();
-        lore.add("Source: " + proposedType);
-        lore.add("Kit: " + value(proposedId));
-        lore.add("Modifiers: " + names(proposed.modifierIds()));
-        lore.add("Added: " + names(added(current.activeSet().modifierIds(), proposed.modifierIds())));
-        lore.add("Removed: " + names(added(proposed.modifierIds(), current.activeSet().modifierIds())));
-        if (current.sourceType() == SelectionSourceType.KIT
-                && operation != Operation.KIT_SET) {
-            lore.add("This detaches the active selection from " + current.sourceId());
-            lore.add("and creates a Custom Override.");
+        lore.add("<gray>Source: <white>" + friendly(proposedType));
+        lore.add("<gray>Kit: <white>" + value(proposedId));
+        lore.add("<gray>Modifiers: <white>" + names(proposed.modifierIds()));
+        lore.add("<green>Added: <white>" + names(added(current.activeSet().modifierIds(), proposed.modifierIds())));
+        lore.add("<red>Removed: <white>" + names(added(proposed.modifierIds(), current.activeSet().modifierIds())));
+        if (current.sourceType() == SelectionSourceType.KIT && operation != Operation.KIT_SET) {
+            lore.add("<yellow>This detaches the active selection from " + current.sourceId());
+            lore.add("<yellow>and creates a Custom Override.");
         }
-        inventory.setItem(12, item(Material.WRITABLE_BOOK, "Proposed", lore.toArray(String[]::new)));
+        inventory.setItem(12, item(Material.WRITABLE_BOOK, "<yellow>Proposed Selection", lore.toArray(String[]::new)));
         inventory.setItem(15, tagged(Material.LIME_CONCRETE, "action", "confirm",
-                "Confirm", "Continue to duration selection."));
+                "<green><bold>Confirm", "<gray>Continue to duration selection."));
         inventory.setItem(17, tagged(Material.RED_CONCRETE, "action", "cancel",
-                "Cancel", "Discard this operation."));
+                "<red><bold>Cancel", "<gray>Discard this operation."));
         open(player, session, inventory);
     }
 
     private void openDuration(Player player, Session session) {
-        Inventory inventory = inventory(session, Screen.DURATION, 27, "Override Duration");
-        inventory.setItem(11, tagged(Material.CLOCK, "duration", "1h", "One Hour",
-                "Ends exactly one hour after confirmation."));
+        Inventory inventory = inventory(session, Screen.DURATION, 27, "<gold><bold>Override Duration");
+        inventory.setItem(11, tagged(Material.CLOCK, "duration", "1h", "<yellow>One Hour",
+                "<gray>Ends exactly one hour after confirmation."));
         if (runtime.rotations().scheduleEnabled()) {
             inventory.setItem(13, tagged(Material.COMPASS, "duration", "next",
-                    "Until Next Scheduled Change",
-                    runtime.messages().formatInstant(runtime.rotations().state().automaticSlotEndMillis()),
-                    runtime.rotations().nextSlot().entry().type() + ": "
+                    "<aqua>Until Next Scheduled Change",
+                    "<gray>Ends: <white>" + runtime.messages().formatInstant(
+                            runtime.rotations().state().automaticSlotEndMillis()),
+                    "<gray>Then: <yellow>" + friendly(runtime.rotations().nextSlot().entry().type())
+                            + " <dark_gray>• <white>"
                             + runtime.rotations().entryName(runtime.rotations().nextSlot().entry())));
         } else {
-            inventory.setItem(13, item(Material.GRAY_DYE, "Until Next Scheduled Change",
-                    "Unavailable while the automatic schedule is disabled."));
+            inventory.setItem(13, item(Material.GRAY_DYE, "<red>Until Next Scheduled Change",
+                    "<gray>Unavailable while the automatic schedule is disabled."));
         }
         inventory.setItem(15, tagged(Material.LEVER, "duration", "manual",
-                "Until Manually Cleared", "Persists across restart and reload."));
+                "<light_purple>Until Manually Cleared",
+                "<gray>Persists across restart and reload."));
         open(player, session, inventory);
     }
 
@@ -225,12 +251,18 @@ public final class WarzoneGuiManager implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) return;
         Session session = valid(player, holder);
         if (session == null || event.getClickedInventory() != event.getView().getTopInventory()) return;
-        String type = tag(event.getCurrentItem(), "warzone-type");
-        String value = tag(event.getCurrentItem(), "warzone-value");
-        if (type == null) return;
         try {
+            // MAIN is intentionally slot-driven. Requiring a PDC action tag before this branch made
+            // every main-menu button a dead button because those presentation items are untagged.
+            if (session.screen == Screen.MAIN) {
+                mainClick(player, session, event.getSlot());
+                return;
+            }
+            String type = tag(event.getCurrentItem(), "warzone-type");
+            String value = tag(event.getCurrentItem(), "warzone-value");
+            if (type == null) return;
             switch (session.screen) {
-                case MAIN -> mainClick(player, session, event.getSlot());
+                case MAIN -> throw new IllegalStateException("Unexpected main-menu dispatch.");
                 case KITS -> kitClick(player, session, type, value);
                 case MODIFIERS -> modifierClick(player, session, type, value);
                 case PREVIEW -> previewClick(player, session, type, value);
@@ -238,7 +270,8 @@ public final class WarzoneGuiManager implements Listener {
                 case SCHEDULE -> scheduleClick(player, session, type, value);
             }
         } catch (IllegalArgumentException | IllegalStateException ex) {
-            player.sendMessage(Component.text("Warzone change rejected: " + ex.getMessage()));
+            player.sendMessage(gui("<red><bold>Warzone change rejected</bold> <dark_gray>• <gray>"
+                    + ex.getMessage()));
             sessions.remove(player.getUniqueId());
             player.closeInventory();
         }
@@ -320,9 +353,9 @@ public final class WarzoneGuiManager implements Listener {
         }
         sessions.remove(player.getUniqueId());
         player.closeInventory();
-        player.sendMessage(Component.text("Warzone override applied: " + mode.name()));
+        player.sendMessage(gui("<green><bold>Warzone override applied</bold> <dark_gray>• <gray>Duration: <white>"
+                + friendly(mode)));
     }
-
 
     private void requireCurrentPermission(Player player, Session session) {
         String permission = switch (session.operation) {
@@ -402,7 +435,7 @@ public final class WarzoneGuiManager implements Listener {
         session.screen = screen;
         session.currentViewId = UUID.randomUUID();
         ManagedHolder holder = new ManagedHolder(session.id, screen, session.currentViewId);
-        Inventory inventory = Bukkit.createInventory(holder, size, Component.text(title));
+        Inventory inventory = Bukkit.createInventory(holder, size, gui("<!italic>" + title));
         holder.inventory = inventory;
         return inventory;
     }
@@ -413,9 +446,9 @@ public final class WarzoneGuiManager implements Listener {
 
     private void navigation(Inventory inventory, int page, int total) {
         if (page > 0) inventory.setItem(45, tagged(Material.ARROW, "page",
-                Integer.toString(page - 1), "Previous Page"));
+                Integer.toString(page - 1), "<yellow>Previous Page"));
         if ((page + 1) * PAGE_SIZE < total) inventory.setItem(53, tagged(Material.ARROW,
-                "page", Integer.toString(page + 1), "Next Page"));
+                "page", Integer.toString(page + 1), "<yellow>Next Page"));
     }
 
     private ItemStack tagged(Material material, String type, String value,
@@ -440,14 +473,21 @@ public final class WarzoneGuiManager implements Listener {
     private ItemStack item(Material material, String name, String... lore) {
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        meta.displayName(Component.text(name));
-        meta.lore(java.util.Arrays.stream(lore).filter(value -> value != null && !value.isBlank())
-                .map(Component::text).toList());
+        meta.displayName(gui(NAME_STYLE + name));
+        meta.lore(java.util.Arrays.stream(lore)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(value -> gui(LORE_STYLE + value))
+                .toList());
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         item.setItemMeta(meta);
         return item;
     }
 
+    private Component gui(String markup) {
+        return mini.deserialize(markup);
+    }
 
     void requireUnchangedOriginal(Session session) {
         ActiveSelection current = runtime.rotations().activeSelection();
@@ -468,7 +508,7 @@ public final class WarzoneGuiManager implements Listener {
         var state = runtime.rotations().state();
         if (!state.overrideActive()) return "Automatic schedule";
         if (state.overrideExpiresAtMillis() == 0) return "Until manually cleared";
-        return "Ends: " + runtime.messages().formatInstant(state.overrideExpiresAtMillis());
+        return "Ends " + runtime.messages().formatInstant(state.overrideExpiresAtMillis());
     }
 
     private static List<String> added(List<String> before, List<String> after) {
@@ -477,8 +517,22 @@ public final class WarzoneGuiManager implements Listener {
         return List.copyOf(result);
     }
 
+    private static String status(boolean value) {
+        return value ? GOOD + "Yes" : BAD + "No";
+    }
+
     private static String names(List<String> ids) { return ids.isEmpty() ? "None" : String.join(", ", ids); }
     private static String value(String value) { return value == null || value.isBlank() ? "None" : value; }
+    private static String friendly(Enum<?> value) {
+        if (value == null) return "None";
+        String[] words = value.name().toLowerCase(java.util.Locale.ROOT).split("_");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (!result.isEmpty()) result.append(' ');
+            result.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return result.toString();
+    }
 
     public enum Operation {
         MENU, KIT_LIST, KIT_SET, MODIFIER_LIST, MODIFIER_ADD, MODIFIER_REMOVE,
