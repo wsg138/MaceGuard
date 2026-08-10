@@ -13,9 +13,12 @@ import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.event.Event;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityToggleGlideEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -85,6 +88,41 @@ class ItemRestrictionListenerFeedbackTest {
                 argThat(RestrictionDecision::denied), eq(Material.ENDER_PEARL));
         assertEquals(before, harness.cooldowns.remaining(harness.playerId,
                 target(PEARL_TARGET)));
+    }
+
+    @Test void activeWindChargeCooldownDeniesItemUseBeforeAnyProjectileExists() {
+        Harness harness = harness(target("WIND_CHARGE"), RestrictionMode.COOLDOWN);
+        RestrictionDecision ready = harness.restrictions.material(harness.playerId,
+                Material.WIND_CHARGE, false, true, false);
+        harness.restrictions.success(harness.playerId, ready, Material.WIND_CHARGE);
+        Duration before = harness.cooldowns.remaining(harness.playerId, target("WIND_CHARGE"));
+
+        PlayerInteractEvent interact = windChargeInteract(harness.player);
+        harness.listener.onInteract(interact);
+
+        verify(interact).setUseItemInHand(Event.Result.DENY);
+        verify(interact, never()).setCancelled(true);
+        verify(harness.messages).denial(eq(harness.player),
+                argThat(RestrictionDecision::denied), eq(Material.WIND_CHARGE));
+        assertEquals(before, harness.cooldowns.remaining(harness.playerId, target("WIND_CHARGE")));
+
+        PlayerLaunchProjectileEvent launch = launch(harness.player, Material.WIND_CHARGE).accepted;
+        harness.listener.onPlayerLaunch(launch);
+        verify(launch, never()).setCancelled(true);
+        verify(launch, never()).setShouldConsume(false);
+    }
+
+    @Test void disabledWindChargeAlsoDeniesOnlyThePlayerItemUse() {
+        Harness harness = harness(target("WIND_CHARGE"), RestrictionMode.DISABLED);
+        PlayerInteractEvent interact = windChargeInteract(harness.player);
+
+        harness.listener.onInteract(interact);
+
+        verify(interact).setUseItemInHand(Event.Result.DENY);
+        verify(interact, never()).setCancelled(true);
+        verify(harness.messages).denial(eq(harness.player),
+                argThat(decision -> decision.result() == RestrictionDecision.Result.DISABLED),
+                eq(Material.WIND_CHARGE));
     }
 
     @Test void successfulWindChargeLaunchHasNoInteractionLaunchDuplicate() {
@@ -210,6 +248,16 @@ class ItemRestrictionListenerFeedbackTest {
                 new LungeVelocityGate(System::nanoTime, Duration.ofMillis(250)));
         return new Harness(playerId, player, restrictions, cooldowns, combatScopes,
                 visuals, messages, listener);
+    }
+
+    private PlayerInteractEvent windChargeInteract(Player player) {
+        PlayerInteractEvent event = mock(PlayerInteractEvent.class);
+        ItemStack item = mock(ItemStack.class);
+        when(item.getType()).thenReturn(Material.WIND_CHARGE);
+        when(event.getPlayer()).thenReturn(player);
+        when(event.getAction()).thenReturn(Action.RIGHT_CLICK_BLOCK);
+        when(event.getItem()).thenReturn(item);
+        return event;
     }
 
     private Launch launch(Player player, Material material) {

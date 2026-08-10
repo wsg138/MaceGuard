@@ -46,6 +46,18 @@ public final class RestrictionService {
                 ? decision : RestrictionDecision.unrestricted();
     }
 
+    /**
+     * Evaluates the whole-spear group without requiring a concrete spear material. This is used
+     * when the damage source proves a spear attack but an attribute swap has already replaced the
+     * visible main-hand item.
+     */
+    public RestrictionDecision spear(UUID playerId, boolean bypass,
+                                     boolean actorInside, boolean targetInside) {
+        if (bypass) return RestrictionDecision.unrestricted();
+        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside)
+                .get(RestrictionTarget.SPEAR));
+    }
+
     public RestrictionDecision spearDamage(UUID playerId, boolean bypass,
                                            boolean actorInside, boolean targetInside) {
         if (bypass) return RestrictionDecision.unrestricted();

@@ -23,6 +23,7 @@ import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.util.Compat;
 import com.lincoln.maceguard.warzone.combat.PearlEventDiagnostics;
 import com.lincoln.maceguard.warzone.combat.PearlTraceCommand;
+import com.lincoln.maceguard.warzone.restriction.AttributeSwapRestrictionListener;
 import com.lincoln.maceguard.warzone.rotation.WarzoneStateStore;
 import com.lincoln.maceguard.warzone.runtime.ReloadGuard;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
@@ -215,6 +216,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
             durability = new MaceDurabilityListener(this, settings, queries);
             registerListener(listeners, durability);
+            registerListener(listeners, new AttributeSwapRestrictionListener(this, warzone));
             registerListener(listeners, new BlockPolicyListener(policyResolver, warzone));
             registerListener(listeners,
                     new CobwebListener(queries, warzone, temporary, settings, policyResolver,

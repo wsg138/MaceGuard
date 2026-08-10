@@ -168,8 +168,9 @@ public final class WarzoneControlConfigLoader {
             String display = nonBlank(section.get("display-name"), path + ".display-name", errors);
             String description = nonBlank(section.get("description"), path + ".description", errors);
             Material icon = material(section.get("icon"), path + ".icon", errors);
-            List<String> modifiers = idList(section.get("modifiers"), path + ".modifiers", errors);
-            if (modifiers.isEmpty()) errors.add(path + ".modifiers must not be empty.");
+            List<String> modifiers = section.containsKey("modifiers")
+                    ? idList(section.get("modifiers"), path + ".modifiers", errors)
+                    : List.of();
             if (result.putIfAbsent(id, new WarzoneControlConfig.Kit(id, enabled, display,
                     description, icon, modifiers)) != null) errors.add(path + " is duplicated.");
         }

@@ -6,6 +6,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
@@ -25,6 +27,31 @@ class WarzoneStateStoreVersionedTest {
         RotationState actual = store(file).load().orElseThrow();
         assertEquals(expected, actual);
         assertEquals(List.of("cobwebs", "no-lunge"), actual.overrideModifierIds());
+    }
+
+    @Test void failedWriteKeepsNewestStateQueuedAndRetries() throws Exception {
+        Path blockedParent = directory.resolve("blocked-parent");
+        Files.writeString(blockedParent, "not a directory");
+        Path file = blockedParent.resolve("state.yml");
+        RotationState expected = state().withOverride(SelectionSourceType.CUSTOM_OVERRIDE, null,
+                List.of("cobwebs", "no-lunge"), OverrideDurationMode.UNTIL_CLEARED,
+                1_500, 0, 9);
+        WarzoneStateStore store = store(file);
+
+        store.update(expected);
+        assertFalse(store.healthy(), "the initial filesystem failure should be visible");
+        assertEquals(expected, store.snapshot().orElseThrow(),
+                "live state must remain the accepted newest state");
+
+        Files.delete(blockedParent);
+        Files.createDirectory(blockedParent);
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(4));
+        while (!Files.isRegularFile(file) && Instant.now().isBefore(deadline))
+            Thread.sleep(25L);
+
+        assertTrue(Files.isRegularFile(file), "queued state should be retried after storage recovers");
+        assertTrue(store.healthy(), "successful retry should restore persistence health");
+        assertEquals(expected, store(file).load().orElseThrow());
     }
 
     @Test void untilClearedOverrideRejectsUnexpectedExpiration() throws Exception {
@@ -62,7 +89,6 @@ class WarzoneStateStoreVersionedTest {
 
         assertTrue(store(file).load().isEmpty());
     }
-
 
     @Test void malformedScheduleOverrideTypeIsRejectedInsteadOfCoerced() throws Exception {
         Path file = write(state());

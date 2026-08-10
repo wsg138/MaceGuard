@@ -16,10 +16,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public final class WarzoneStateStore {
+    private static final long RETRY_DELAY_SECONDS = 1L;
+
     private final Path file;
     private final Logger logger;
     private final Executor writer;
@@ -174,8 +178,19 @@ public final class WarzoneStateStore {
                 save(snapshot);
                 lastFailure = "";
             } catch (IOException ex) {
+                boolean firstFailure = !Objects.equals(lastFailure, ex.getMessage());
                 lastFailure = ex.getMessage();
-                logger.severe("Could not persist warzone state: " + ex.getMessage());
+                if (firstFailure)
+                    logger.severe("Could not persist warzone state; the newest state remains queued "
+                            + "and will be retried: " + ex.getMessage());
+                synchronized (this) {
+                    // Any dirty value arrived after this snapshot was dequeued and is therefore
+                    // newer, even if its selection sequence did not change (warnings are one case).
+                    if (dirty == null) dirty = snapshot;
+                }
+                CompletableFuture.delayedExecutor(RETRY_DELAY_SECONDS, TimeUnit.SECONDS, writer)
+                        .execute(this::drain);
+                return;
             }
         }
     }

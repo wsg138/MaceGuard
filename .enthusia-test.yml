@@ -1,0 +1,20 @@
+schema_version: 1
+plugin:
+  id: maceguard
+  name: MaceGuard
+  main_class: com.lincoln.maceguard.MaceGuardPlugin
+artifact:
+  name: MaceGuard
+  jar_path: target/MaceGuard.jar
+profiles:
+  - dependencies
+configs: []
+databases: []
+dependencies:
+  - id: worldguard
+    kind: hard
+actions:
+  - profile: dependencies
+    stage: after-start
+    type: console-command
+    command: warzone debug
