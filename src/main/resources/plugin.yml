@@ -1,6 +1,6 @@
 name: MaceGuard
 main: com.lincoln.maceguard.MaceGuardPlugin
-version: 6.1.3
+version: 6.1.4
 api-version: '1.21'
 author: P2wn
 description: WorldGuard-scoped Warzone kits, repeating schedules, manual overrides, combat restrictions, temporary cobwebs, and safe region resets.
