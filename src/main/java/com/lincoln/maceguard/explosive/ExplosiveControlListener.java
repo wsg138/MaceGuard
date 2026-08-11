@@ -3,6 +3,7 @@ package com.lincoln.maceguard.explosive;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Material;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -55,11 +56,13 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPrime(ExplosionPrimeEvent event) {
+        if (isWindCharge(event.getEntityType())) return;
         if (denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityExplosion(EntityExplodeEvent event) {
+        if (isWindCharge(event.getEntityType())) return;
         if (denied(event.getLocation(), null)) event.setCancelled(true);
         else event.blockList().removeIf(block -> denied(block.getLocation(), null));
     }
@@ -72,9 +75,18 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
+        if (isWindCharge(event.getDamageSource().getDirectEntity())) return;
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
+    }
+
+    static boolean isWindCharge(EntityType type) {
+        return type == EntityType.WIND_CHARGE || type == EntityType.BREEZE_WIND_CHARGE;
+    }
+
+    private static boolean isWindCharge(Entity entity) {
+        return entity != null && isWindCharge(entity.getType());
     }
 
     private boolean denied(org.bukkit.Location location, Player player) { return plugin.isFeatureEnabled() && worldGuard.explosivesDenied(location, player); }
