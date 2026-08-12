@@ -669,17 +669,25 @@ public final class WarzoneGuiManager implements Listener {
             RestrictionTarget target = targets.get(index);
             inventory.setItem(slots[index], ruleItem(target, active, scope));
         }
+        if (targets.size() > slots.length) {
+            inventory.setItem(43, item(Material.PAPER, "<yellow>Additional Rules Configured",
+                    "<gray>Not shown on this page: <white>" + (targets.size() - slots.length),
+                    "<yellow>Some configured rules do not fit here."));
+        }
+
 
         inventory.setItem(38, item(Material.COBWEB, "<white>Cobwebs",
                 !scope ? "<dark_gray>Inactive"
                         : active.cobwebsAllowed() ? "<green>Allowed" : "<red>Disabled",
                 "<gray>Temporary Warzone cobweb placement"));
+        List<String> elytraLore = new ArrayList<>();
+        elytraLore.add(!scope ? "<dark_gray>Inactive"
+                : active.elytraGlidingAllowed() ? "<green>Gliding allowed" : "<red>Disabled");
+        if (scope && active.elytraGlidingAllowed()) {
+            elytraLore.add("<red>Firework boosting disabled");
+        }
         inventory.setItem(40, item(Material.ELYTRA, "<aqua>Elytra",
-                !scope ? "<dark_gray>Inactive"
-                        : active.elytraGlidingAllowed()
-                        ? "<green>Gliding allowed" : "<red>Disabled",
-                scope && active.elytraGlidingAllowed()
-                        ? "<red>Firework boosting disabled" : null));
+                elytraLore.toArray(String[]::new)));
         inventory.setItem(42, nextSelectionItem());
 
         inventory.setItem(49, tagged(Material.ARROW, "back-main", "",
