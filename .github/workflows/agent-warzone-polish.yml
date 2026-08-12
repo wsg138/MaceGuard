@@ -1,0 +1,58 @@
+name: Agent Warzone GUI Polish
+
+on:
+  push:
+    branches: [agent/warzone-gui-overhaul]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/warzone-gui-overhaul
+          fetch-depth: 0
+      - name: Apply final GUI summary polish
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
+          text = path.read_text()
+
+          old = '''        if (active.sourceType() == SelectionSourceType.KIT) {
+              WarzoneControlConfig.Kit kit = runtime.controlConfig().kits().get(active.sourceId());
+              if (kit != null && kit.description() != null && !kit.description().isBlank()) {
+                  selectionLore.add("<gray>" + kit.description());
+              }
+          } else if (active.activeSet().description() != null && !active.activeSet().description().isBlank()) {
+              selectionLore.add("<gray>" + active.activeSet().description());
+          }
+          '''
+          new = '''        if (active.sourceType() == SelectionSourceType.KIT) {
+              WarzoneControlConfig.Kit kit = runtime.controlConfig().kits().get(active.sourceId());
+              if (kit != null && kit.description() != null && !kit.description().isBlank()) {
+                  selectionLore.add("<gray>" + kit.description());
+              }
+          }
+          '''
+
+          if old not in text:
+              raise SystemExit('Expected Current-selection description block was not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('    private static final String MUTED = "<dark_gray>";\n', '', 1)
+          path.write_text(text)
+          PY
+      - name: Commit source polish and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/agent-warzone-polish.yml
+          git add src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+          git commit -m "Polish Warzone GUI summaries"
+          git push origin HEAD:agent/warzone-gui-overhaul
