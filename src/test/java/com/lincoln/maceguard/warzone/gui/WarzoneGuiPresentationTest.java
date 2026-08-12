@@ -13,6 +13,8 @@ class WarzoneGuiPresentationTest {
                 WarzoneGuiManager.humanizeIdentifier("SPEAR_LUNGE"));
         assertEquals("Wind Charge Cooldown 10",
                 WarzoneGuiManager.humanizeIdentifier("wind-charge-cooldown-10"));
+        assertEquals("Mace Disabled",
+                WarzoneGuiManager.humanizeIdentifier("mace_disabled"));
     }
 
     @Test
