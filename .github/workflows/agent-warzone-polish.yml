@@ -22,28 +22,22 @@ jobs:
           from pathlib import Path
 
           path = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
-          text = path.read_text()
+          lines = path.read_text().splitlines(keepends=True)
 
-          old = '''        if (active.sourceType() == SelectionSourceType.KIT) {
-              WarzoneControlConfig.Kit kit = runtime.controlConfig().kits().get(active.sourceId());
-              if (kit != null && kit.description() != null && !kit.description().isBlank()) {
-                  selectionLore.add("<gray>" + kit.description());
-              }
-          } else if (active.activeSet().description() != null && !active.activeSet().description().isBlank()) {
-              selectionLore.add("<gray>" + active.activeSet().description());
-          }
-          '''
-          new = '''        if (active.sourceType() == SelectionSourceType.KIT) {
-              WarzoneControlConfig.Kit kit = runtime.controlConfig().kits().get(active.sourceId());
-              if (kit != null && kit.description() != null && !kit.description().isBlank()) {
-                  selectionLore.add("<gray>" + kit.description());
-              }
-          }
-          '''
+          marker = '} else if (active.activeSet().description() != null && !active.activeSet().description().isBlank()) {'
+          matches = [index for index, line in enumerate(lines) if marker in line]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected exactly one generated-description branch, found {len(matches)}')
 
-          if old not in text:
-              raise SystemExit('Expected Current-selection description block was not found')
-          text = text.replace(old, new, 1)
+          index = matches[0]
+          indent = lines[index][:len(lines[index]) - len(lines[index].lstrip())]
+          if index + 2 >= len(lines) or 'selectionLore.add("<gray>" + active.activeSet().description())' not in lines[index + 1]:
+              raise SystemExit('Generated-description branch shape changed unexpectedly')
+          if lines[index + 2].strip() != '}':
+              raise SystemExit('Generated-description branch closing brace changed unexpectedly')
+
+          lines[index:index + 3] = [indent + '}\n']
+          text = ''.join(lines)
           text = text.replace('    private static final String MUTED = "<dark_gray>";\n', '', 1)
           path.write_text(text)
           PY
