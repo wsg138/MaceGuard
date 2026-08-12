@@ -54,7 +54,6 @@ public final class WarzoneGuiManager implements Listener {
     private static final String LORE_STYLE = "<!italic><gray>";
     private static final String GOOD = "<green>";
     private static final String BAD = "<red>";
-    private static final String MUTED = "<dark_gray>";
     private static final String SECTION = "<dark_gray>────────────";
     private static final int CURRENT_MODIFIER_PREVIEW_LIMIT = 9;
 
@@ -192,8 +191,6 @@ public final class WarzoneGuiManager implements Listener {
             if (kit != null && kit.description() != null && !kit.description().isBlank()) {
                 selectionLore.add("<gray>" + kit.description());
             }
-        } else if (active.activeSet().description() != null && !active.activeSet().description().isBlank()) {
-            selectionLore.add("<gray>" + active.activeSet().description());
         }
         selectionLore.add(SECTION);
         selectionLore.add("<gray>Modifiers: <white>" + active.activeSet().modifierIds().size());
