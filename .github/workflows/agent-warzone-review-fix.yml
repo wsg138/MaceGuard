@@ -1,0 +1,75 @@
+name: Agent Warzone GUI Review Fix
+
+on:
+  push:
+    branches: [agent/warzone-gui-overhaul]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/warzone-gui-overhaul
+          fetch-depth: 0
+      - name: Apply reviewed GUI fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
+          lines = path.read_text().splitlines(keepends=True)
+
+          loop_marker = 'for (int index = 0; index < Math.min(targets.size(), slots.length); index++) {'
+          matches = [i for i, line in enumerate(lines) if loop_marker in line]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one rules target loop, found {len(matches)}')
+          loop = matches[0]
+          if lines[loop + 3].strip() != '}':
+              raise SystemExit('Rules target loop shape changed unexpectedly')
+          overflow = [
+              '        if (targets.size() > slots.length) {\n',
+              '            inventory.setItem(43, item(Material.PAPER, "<yellow>Additional Rules Configured",\n',
+              '                    "<gray>Not shown on this page: <white>" + (targets.size() - slots.length),\n',
+              '                    "<yellow>Some configured rules do not fit here."));\n',
+              '        }\n',
+              '\n',
+          ]
+          lines[loop + 4:loop + 4] = overflow
+
+          start_marker = 'inventory.setItem(40, item(Material.ELYTRA, "<aqua>Elytra",'
+          starts = [i for i, line in enumerate(lines) if start_marker in line]
+          if len(starts) != 1:
+              raise SystemExit(f'Expected one Elytra rule item, found {len(starts)}')
+          start = starts[0]
+          end = start
+          while end < len(lines) and 'Firework boosting disabled" : null));' not in lines[end]:
+              end += 1
+          if end >= len(lines):
+              raise SystemExit('Elytra rule item end was not found')
+          replacement = [
+              '        List<String> elytraLore = new ArrayList<>();\n',
+              '        elytraLore.add(!scope ? "<dark_gray>Inactive"\n',
+              '                : active.elytraGlidingAllowed() ? "<green>Gliding allowed" : "<red>Disabled");\n',
+              '        if (scope && active.elytraGlidingAllowed()) {\n',
+              '            elytraLore.add("<red>Firework boosting disabled");\n',
+              '        }\n',
+              '        inventory.setItem(40, item(Material.ELYTRA, "<aqua>Elytra",\n',
+              '                elytraLore.toArray(String[]::new)));\n',
+          ]
+          lines[start:end + 1] = replacement
+          path.write_text(''.join(lines))
+          PY
+      - name: Commit fixes and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/agent-warzone-review-fix.yml
+          git add src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+          git commit -m "Address Warzone GUI review findings"
+          git push origin HEAD:agent/warzone-gui-overhaul
