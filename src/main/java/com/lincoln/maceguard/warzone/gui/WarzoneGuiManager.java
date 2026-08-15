@@ -929,43 +929,73 @@ public final class WarzoneGuiManager implements Listener {
     }
 
     private void modifierClick(Player player, Session session, String type, String value, int slot) {
-        if ("back-main".equals(type)) {
-            openMain(player);
-            return;
-        }
-        if ("back-modifiers".equals(type)) {
-            openModifiers(player, session, Integer.parseInt(value));
-            return;
-        }
-        if (navigationClick(player, session, type, value, false)) return;
-        if (slot < 0 || slot >= session.visibleModifierIds.size()) return;
+        if (modifierNavigationClick(player, session, type, value)) return;
 
-        String modifierId = session.visibleModifierIds.get(slot);
-        WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(modifierId);
-        if (modifier == null) throw new IllegalArgumentException("That modifier no longer exists.");
-        boolean selected = runtime.rotations().active().modifierIds().contains(modifierId);
-        boolean actionable = modifier.enabled()
-                && (session.operation == Operation.MODIFIER_ADD && !selected
-                || session.operation == Operation.MODIFIER_REMOVE && selected);
-        if (!actionable) {
+        String modifierId = visibleModifierId(session, slot);
+        if (modifierId == null) return;
+        WarzoneConfig.Modifier modifier = requireModifier(modifierId);
+        if (!modifierActionable(session, modifier, modifierId)) {
             openModifierDetail(player, session, modifierId);
             return;
         }
 
-        boolean custom = player.hasPermission("warzonerotator.admin")
+        boolean custom = hasCustomCombinationPermission(player);
+        requireKitDetachmentPermission(custom);
+        WarzoneConfig.ActiveSet proposed = previewModifierChange(session.operation, modifierId, custom);
+        if (proposed != null) {
+            openPreview(player, session.operation, SelectionSourceType.CUSTOM_OVERRIDE, null, proposed);
+        }
+    }
+
+    private boolean modifierNavigationClick(Player player, Session session, String type, String value) {
+        if ("back-main".equals(type)) {
+            openMain(player);
+            return true;
+        }
+        if ("back-modifiers".equals(type)) {
+            openModifiers(player, session, Integer.parseInt(value));
+            return true;
+        }
+        return navigationClick(player, session, type, value, false);
+    }
+
+    private String visibleModifierId(Session session, int slot) {
+        if (slot < 0 || slot >= session.visibleModifierIds.size()) return null;
+        return session.visibleModifierIds.get(slot);
+    }
+
+    private WarzoneConfig.Modifier requireModifier(String modifierId) {
+        WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(modifierId);
+        if (modifier == null) throw new IllegalArgumentException("That modifier no longer exists.");
+        return modifier;
+    }
+
+    private boolean modifierActionable(Session session, WarzoneConfig.Modifier modifier,
+                                       String modifierId) {
+        if (!modifier.enabled()) return false;
+        boolean selected = runtime.rotations().active().modifierIds().contains(modifierId);
+        return session.operation == Operation.MODIFIER_ADD && !selected
+                || session.operation == Operation.MODIFIER_REMOVE && selected;
+    }
+
+    private boolean hasCustomCombinationPermission(Player player) {
+        return player.hasPermission("warzonerotator.admin")
                 || player.hasPermission("warzonerotator.manage.custom-combinations");
+    }
+
+    private void requireKitDetachmentPermission(boolean custom) {
         if (runtime.rotations().activeSelection().sourceType() == SelectionSourceType.KIT && !custom) {
             throw new IllegalArgumentException("Kit detachment requires custom-combinations permission.");
         }
+    }
 
-        WarzoneConfig.ActiveSet proposed = switch (session.operation) {
+    private WarzoneConfig.ActiveSet previewModifierChange(Operation operation, String modifierId,
+                                                          boolean custom) {
+        return switch (operation) {
             case MODIFIER_ADD -> runtime.rotations().previewAdd(modifierId, custom);
             case MODIFIER_REMOVE -> runtime.rotations().previewRemove(modifierId, custom);
             default -> null;
         };
-        if (proposed != null) {
-            openPreview(player, session.operation, SelectionSourceType.CUSTOM_OVERRIDE, null, proposed);
-        }
     }
 
     private boolean navigationClick(Player player, Session session, String type,
