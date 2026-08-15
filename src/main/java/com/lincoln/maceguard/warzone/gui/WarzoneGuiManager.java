@@ -299,8 +299,7 @@ public final class WarzoneGuiManager implements Listener {
             else if (next) lore.add("<aqua><bold>UP NEXT");
             else if (!kit.enabled()) lore.add("<red>Disabled");
             lore.add(SECTION);
-            lore.add("<gold>Includes");
-            appendModifierLines(lore, kit.modifierIds(), 5);
+            lore.add("<gold>Includes: " + inlineModifierNames(kit.modifierIds()));
             lore.add(actionable
                     ? "<yellow>Click to preview this override"
                     : "<aqua>Click for kit details");
@@ -334,14 +333,8 @@ public final class WarzoneGuiManager implements Listener {
                 kit.description(),
                 kit.enabled() ? "<green>Available in rotation" : "<red>Disabled in configuration"));
 
-        List<String> modifierLore = new ArrayList<>();
-        if (kit.modifierIds().isEmpty()) {
-            modifierLore.add("<gray>This kit has no modifiers.");
-        } else {
-            appendModifierLines(modifierLore, kit.modifierIds(), Integer.MAX_VALUE);
-        }
         inventory.setItem(13, item(Material.BOOK, "<gold>Included Modifiers",
-                modifierLore.toArray(String[]::new)));
+                inlineModifierNames(kit.modifierIds())));
 
         List<String> statusLore = new ArrayList<>();
         statusLore.add(active ? "<green>Active now" : "<gray>Not active now");
@@ -373,8 +366,11 @@ public final class WarzoneGuiManager implements Listener {
                 });
 
         int from = page * PAGE_SIZE;
+        int to = Math.min(modifiers.size(), from + PAGE_SIZE);
+        session.visibleModifierIds = modifiers.subList(from, to).stream()
+                .map(WarzoneConfig.Modifier::id).toList();
         Set<String> active = Set.copyOf(runtime.rotations().active().modifierIds());
-        for (int index = from; index < Math.min(modifiers.size(), from + PAGE_SIZE); index++) {
+        for (int index = from; index < to; index++) {
             WarzoneConfig.Modifier modifier = modifiers.get(index);
             boolean selected = active.contains(modifier.id());
             boolean actionable = modifier.enabled()
@@ -389,11 +385,8 @@ public final class WarzoneGuiManager implements Listener {
                     ? "<yellow>Click to preview this change"
                     : "<aqua>Click for modifier details");
 
-            inventory.setItem(index - from, tagged(icon,
-                    actionable ? "modifier" : "modifier-detail",
-                    modifier.id(),
-                    modifier.displayName(),
-                    lore.toArray(String[]::new)));
+            inventory.setItem(index - from, item(icon,
+                    modifier.displayName(), lore.toArray(String[]::new)));
         }
 
         navigation(inventory, page, modifiers.size());
@@ -431,6 +424,7 @@ public final class WarzoneGuiManager implements Listener {
     }
 
     private void openModifierDetail(Player player, Session session, String modifierId) {
+        session.visibleModifierIds = List.of();
         WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(modifierId);
         if (modifier == null) {
             throw new IllegalArgumentException("That modifier no longer exists.");
@@ -675,7 +669,6 @@ public final class WarzoneGuiManager implements Listener {
                     "<yellow>Some configured rules do not fit here."));
         }
 
-
         inventory.setItem(38, item(Material.COBWEB, "<white>Cobwebs",
                 !scope ? "<dark_gray>Inactive"
                         : active.cobwebsAllowed() ? "<green>Allowed" : "<red>Disabled",
@@ -829,18 +822,19 @@ public final class WarzoneGuiManager implements Listener {
         try {
             String type = tag(event.getCurrentItem(), "warzone-type");
             String value = tag(event.getCurrentItem(), "warzone-value");
+            int slot = event.getRawSlot();
 
             if (session.screen == Screen.MAIN) {
                 mainClick(player, session, type, value);
                 return;
             }
-            if (type == null) return;
+            if (type == null && session.screen != Screen.MODIFIERS) return;
 
             switch (session.screen) {
                 case MAIN -> throw new IllegalStateException("Unexpected main-menu dispatch.");
                 case CURRENT -> currentClick(player, session, type);
                 case KITS -> kitClick(player, session, type, value);
-                case MODIFIERS -> modifierClick(player, session, type, value);
+                case MODIFIERS -> modifierClick(player, session, type, value, slot);
                 case RULES -> rulesClick(player, type);
                 case PREVIEW -> previewClick(player, session, type, value);
                 case DURATION -> durationClick(player, session, type, value);
@@ -934,36 +928,74 @@ public final class WarzoneGuiManager implements Listener {
         openPreview(player, session.operation, SelectionSourceType.KIT, value, proposed);
     }
 
-    private void modifierClick(Player player, Session session, String type, String value) {
-        if ("back-main".equals(type)) {
-            openMain(player);
-            return;
-        }
-        if ("back-modifiers".equals(type)) {
-            openModifiers(player, session, Integer.parseInt(value));
-            return;
-        }
-        if (navigationClick(player, session, type, value, false)) return;
-        if ("modifier-detail".equals(type)) {
-            openModifierDetail(player, session, value);
-            return;
-        }
-        if (!"modifier".equals(type)) return;
+    private void modifierClick(Player player, Session session, String type, String value, int slot) {
+        if (modifierNavigationClick(player, session, type, value)) return;
 
-        boolean custom = player.hasPermission("warzonerotator.admin")
-                || player.hasPermission("warzonerotator.manage.custom-combinations");
-        if (runtime.rotations().activeSelection().sourceType() == SelectionSourceType.KIT && !custom) {
-            throw new IllegalArgumentException("Kit detachment requires custom-combinations permission.");
+        String modifierId = visibleModifierId(session, slot);
+        if (modifierId == null) return;
+        WarzoneConfig.Modifier modifier = requireModifier(modifierId);
+        if (!modifierActionable(session, modifier, modifierId)) {
+            openModifierDetail(player, session, modifierId);
+            return;
         }
 
-        WarzoneConfig.ActiveSet proposed = switch (session.operation) {
-            case MODIFIER_ADD -> runtime.rotations().previewAdd(value, custom);
-            case MODIFIER_REMOVE -> runtime.rotations().previewRemove(value, custom);
-            default -> null;
-        };
+        boolean custom = hasCustomCombinationPermission(player);
+        requireKitDetachmentPermission(custom);
+        WarzoneConfig.ActiveSet proposed = previewModifierChange(session.operation, modifierId, custom);
         if (proposed != null) {
             openPreview(player, session.operation, SelectionSourceType.CUSTOM_OVERRIDE, null, proposed);
         }
+    }
+
+    private boolean modifierNavigationClick(Player player, Session session, String type, String value) {
+        if ("back-main".equals(type)) {
+            openMain(player);
+            return true;
+        }
+        if ("back-modifiers".equals(type)) {
+            openModifiers(player, session, Integer.parseInt(value));
+            return true;
+        }
+        return navigationClick(player, session, type, value, false);
+    }
+
+    private String visibleModifierId(Session session, int slot) {
+        if (slot < 0 || slot >= session.visibleModifierIds.size()) return null;
+        return session.visibleModifierIds.get(slot);
+    }
+
+    private WarzoneConfig.Modifier requireModifier(String modifierId) {
+        WarzoneConfig.Modifier modifier = runtime.config().modifiers().get(modifierId);
+        if (modifier == null) throw new IllegalArgumentException("That modifier no longer exists.");
+        return modifier;
+    }
+
+    private boolean modifierActionable(Session session, WarzoneConfig.Modifier modifier,
+                                       String modifierId) {
+        if (!modifier.enabled()) return false;
+        boolean selected = runtime.rotations().active().modifierIds().contains(modifierId);
+        return session.operation == Operation.MODIFIER_ADD && !selected
+                || session.operation == Operation.MODIFIER_REMOVE && selected;
+    }
+
+    private boolean hasCustomCombinationPermission(Player player) {
+        return player.hasPermission("warzonerotator.admin")
+                || player.hasPermission("warzonerotator.manage.custom-combinations");
+    }
+
+    private void requireKitDetachmentPermission(boolean custom) {
+        if (runtime.rotations().activeSelection().sourceType() == SelectionSourceType.KIT && !custom) {
+            throw new IllegalArgumentException("Kit detachment requires custom-combinations permission.");
+        }
+    }
+
+    private WarzoneConfig.ActiveSet previewModifierChange(Operation operation, String modifierId,
+                                                          boolean custom) {
+        return switch (operation) {
+            case MODIFIER_ADD -> runtime.rotations().previewAdd(modifierId, custom);
+            case MODIFIER_REMOVE -> runtime.rotations().previewRemove(modifierId, custom);
+            default -> null;
+        };
     }
 
     private boolean navigationClick(Player player, Session session, String type,
@@ -1197,6 +1229,12 @@ public final class WarzoneGuiManager implements Listener {
         }
     }
 
+    private String inlineModifierNames(List<String> ids) {
+        if (ids == null || ids.isEmpty()) return "<gray>None";
+        return ids.stream().map(this::modifierName)
+                .collect(java.util.stream.Collectors.joining("<gray>, "));
+    }
+
     private void appendEntryModifierPreview(List<String> lore, WarzoneControlConfig.Entry entry, int limit) {
         switch (entry.type()) {
             case KIT -> {
@@ -1425,6 +1463,7 @@ public final class WarzoneGuiManager implements Listener {
         private String proposedId;
         private List<String> proposedModifiers = List.of();
         private WarzoneConfig.ActiveSet proposedSet;
+        private List<String> visibleModifierIds = List.of();
         UUID currentViewId = UUID.randomUUID();
 
         private Session(UUID id, Operation operation, SelectionSourceType originalSource,
