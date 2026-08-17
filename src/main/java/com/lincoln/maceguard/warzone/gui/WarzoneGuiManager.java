@@ -478,6 +478,8 @@ public final class WarzoneGuiManager implements Listener {
     private void openSchedule(Player player, Session session, int page) {
         session.operation = Operation.SCHEDULE;
         session.page = page;
+        session.scheduleDetailOrigin = null;
+        session.scheduleDetailReturnPage = page;
         Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
         List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
         int current = runtime.rotations().state().currentCycleIndex();
@@ -508,11 +510,15 @@ public final class WarzoneGuiManager implements Listener {
         open(player, session, inventory);
     }
 
-    private void openScheduleDetail(Player player, Session session, int index) {
+    private void openScheduleDetail(Player player, Session session, int index,
+                                    ScheduleDetailOrigin origin, int returnPage) {
         List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
         if (index < 0 || index >= cycle.size()) {
             throw new IllegalArgumentException("That schedule entry no longer exists.");
         }
+
+        session.scheduleDetailOrigin = Objects.requireNonNull(origin, "origin");
+        session.scheduleDetailReturnPage = returnPage;
 
         int current = runtime.rotations().state().currentCycleIndex();
         int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
@@ -526,8 +532,18 @@ public final class WarzoneGuiManager implements Listener {
                 index == current ? Material.LIME_DYE : index == next ? Material.COMPASS : Material.CLOCK,
                 entryDisplayName(entry), lore.toArray(String[]::new)));
         inventory.setItem(15, currentSelectionItem());
-        inventory.setItem(22, tagged(Material.ARROW, "back-schedule", Integer.toString(session.page),
-                "<yellow>Back to Schedule"));
+
+        ScheduleDetailNavigation navigation = scheduleDetailNavigation(
+                session.scheduleDetailOrigin, session.scheduleDetailReturnPage);
+        int backSlot = navigation.showFullSchedule() ? 21 : 22;
+        inventory.setItem(backSlot, tagged(Material.ARROW, navigation.backType(), navigation.backValue(),
+                "<yellow>" + navigation.backLabel()));
+        if (navigation.showFullSchedule()) {
+            inventory.setItem(23, tagged(Material.CLOCK, "view-schedule",
+                    Integer.toString(navigation.fullSchedulePage()),
+                    "<gold>View Full Schedule",
+                    "<gray>Browse every configured schedule entry."));
+        }
         open(player, session, inventory);
     }
 
@@ -855,7 +871,8 @@ public final class WarzoneGuiManager implements Listener {
             case "next" -> {
                 session.operation = Operation.SCHEDULE;
                 if (runtime.rotations().scheduleEnabled()) {
-                    openScheduleDetail(player, session, runtime.rotations().nextSlot().cycleIndex());
+                    openScheduleDetail(player, session, runtime.rotations().nextSlot().cycleIndex(),
+                            ScheduleDetailOrigin.MAIN, 0);
                 } else {
                     openSchedule(player, session, 0);
                 }
@@ -1008,20 +1025,13 @@ public final class WarzoneGuiManager implements Listener {
     }
 
     private void scheduleClick(Player player, Session session, String type, String value) {
-        if ("back-main".equals(type)) {
-            openMain(player);
-            return;
-        }
-        if ("back-schedule".equals(type)) {
-            openSchedule(player, session, Integer.parseInt(value));
-            return;
-        }
-        if ("page".equals(type)) {
-            openSchedule(player, session, Integer.parseInt(value));
-            return;
-        }
-        if ("schedule-entry".equals(type)) {
-            openScheduleDetail(player, session, Integer.parseInt(value));
+        ScheduleClickAction action = scheduleClickAction(type, value);
+        switch (action.destination()) {
+            case MAIN -> openMain(player);
+            case SCHEDULE -> openSchedule(player, session, action.value());
+            case DETAIL -> openScheduleDetail(player, session, action.value(),
+                    ScheduleDetailOrigin.SCHEDULE, session.page);
+            case NONE -> { }
         }
     }
 
@@ -1403,6 +1413,32 @@ public final class WarzoneGuiManager implements Listener {
         return runtime.messages().plain(miniMessage);
     }
 
+    static ScheduleDetailNavigation scheduleDetailNavigation(ScheduleDetailOrigin origin, int schedulePage) {
+        Objects.requireNonNull(origin, "origin");
+        return switch (origin) {
+            case MAIN -> new ScheduleDetailNavigation(
+                    "back-main", "", "Back to Warzone", true, 0);
+            case SCHEDULE -> new ScheduleDetailNavigation(
+                    "back-schedule", Integer.toString(schedulePage),
+                    "Back to Schedule", false, schedulePage);
+        };
+    }
+
+    static ScheduleClickAction scheduleClickAction(String type, String value) {
+        if ("back-main".equals(type)) {
+            return new ScheduleClickAction(ScheduleDestination.MAIN, 0);
+        }
+        if ("back-schedule".equals(type)
+                || "view-schedule".equals(type)
+                || "page".equals(type)) {
+            return new ScheduleClickAction(ScheduleDestination.SCHEDULE, Integer.parseInt(value));
+        }
+        if ("schedule-entry".equals(type)) {
+            return new ScheduleClickAction(ScheduleDestination.DETAIL, Integer.parseInt(value));
+        }
+        return new ScheduleClickAction(ScheduleDestination.NONE, 0);
+    }
+
     static String humanizeIdentifier(String value) {
         if (value == null || value.isBlank()) return "None";
         String normalized = value.trim().replace('-', ' ').replace('_', ' ');
@@ -1450,6 +1486,21 @@ public final class WarzoneGuiManager implements Listener {
         MAIN, CURRENT, KITS, MODIFIERS, RULES, PREVIEW, DURATION, SCHEDULE
     }
 
+    enum ScheduleDetailOrigin {
+        MAIN, SCHEDULE
+    }
+
+    enum ScheduleDestination {
+        MAIN, SCHEDULE, DETAIL, NONE
+    }
+
+    record ScheduleDetailNavigation(String backType, String backValue, String backLabel,
+                                    boolean showFullSchedule, int fullSchedulePage) {
+    }
+
+    record ScheduleClickAction(ScheduleDestination destination, int value) {
+    }
+
     static final class Session {
         final UUID id;
         private Operation operation;
@@ -1459,6 +1510,8 @@ public final class WarzoneGuiManager implements Listener {
         private final long openedAt;
         Screen screen;
         private int page;
+        private ScheduleDetailOrigin scheduleDetailOrigin;
+        private int scheduleDetailReturnPage;
         private SelectionSourceType proposedType;
         private String proposedId;
         private List<String> proposedModifiers = List.of();
