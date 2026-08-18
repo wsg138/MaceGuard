@@ -1,0 +1,54 @@
+name: PR 31 SARIF diagnostics
+
+on:
+  push:
+    branches:
+      - agent/fix-warzone-schedule-detail-navigation
+
+permissions:
+  contents: write
+  security-events: read
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Capture code scanning alerts for this branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: refs/heads/agent/fix-warzone-schedule-detail-navigation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .agent
+          gh api --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "/repos/${GH_REPO}/code-scanning/alerts?state=open&ref=${HEAD_REF}&per_page=100" \
+            > .agent/pr31-code-scanning-alerts.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('.agent/pr31-code-scanning-alerts.json')
+          raw = path.read_text().strip()
+          data = json.loads(raw) if raw else []
+          path.write_text(json.dumps(data, indent=2, sort_keys=True) + '\n')
+          print(f'Captured {len(data) if isinstance(data, list) else "non-list"} alerts')
+          PY
+          rm .github/workflows/pr31-sarif-diagnostics.yml
+
+      - name: Commit diagnostics snapshot
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .agent/pr31-code-scanning-alerts.json .github/workflows/pr31-sarif-diagnostics.yml
+          git commit -m 'chore: capture PR 31 code scanning alerts'
+          git push origin HEAD:agent/fix-warzone-schedule-detail-navigation
