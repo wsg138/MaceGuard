@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/31/issues'
+          url='https://app.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/31/issues'
           mkdir -p .agent
           for attempt in $(seq 1 36); do
             curl --fail-with-body --silent --show-error "$url" > /tmp/codacy.json
