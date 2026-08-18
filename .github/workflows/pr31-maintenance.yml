@@ -1,0 +1,273 @@
+name: PR 31 maintenance patch
+
+on:
+  push:
+    branches:
+      - agent/fix-warzone-schedule-detail-navigation
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Apply asserted maintenance patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manager_path = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
+          text = manager_path.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once('''    private void openSchedule(Player player, Session session, int page) {
+              session.operation = Operation.SCHEDULE;
+              session.page = page;
+              session.scheduleDetailOrigin = null;
+              session.scheduleDetailReturnPage = page;
+              Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
+              List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
+              int current = runtime.rotations().state().currentCycleIndex();
+              int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
+              List<Integer> order = scheduleOrder(cycle.size(), current);
+              int from = page * PAGE_SIZE;
+          ''', '''    private void openSchedule(Player player, Session session, int page) {
+              session.operation = Operation.SCHEDULE;
+              List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
+              int current = runtime.rotations().state().currentCycleIndex();
+              int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
+              List<Integer> order = scheduleOrder(cycle.size(), current);
+              int normalizedPage = normalizePage(page, order.size());
+              session.page = normalizedPage;
+              Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
+              int from = normalizedPage * PAGE_SIZE;
+          ''', 'openSchedule state')
+
+          replace_once('''        navigation(inventory, page, order.size());
+          ''', '''        navigation(inventory, normalizedPage, order.size());
+          ''', 'schedule navigation page')
+
+          replace_once('''        session.scheduleDetailOrigin = Objects.requireNonNull(origin, "origin");
+              session.scheduleDetailReturnPage = returnPage;
+
+          ''', '', 'duplicate schedule detail session state')
+
+          replace_once('''        ScheduleDetailNavigation navigation = scheduleDetailNavigation(
+                      session.scheduleDetailOrigin, session.scheduleDetailReturnPage);
+          ''', '''        ScheduleDetailNavigation navigation = scheduleDetailNavigation(
+                      origin, returnPage, cycle.size());
+          ''', 'detail navigation rendering')
+
+          replace_once('''    private void scheduleClick(Player player, Session session, String type, String value) {
+              ScheduleClickAction action = scheduleClickAction(type, value);
+              switch (action.destination()) {
+                  case MAIN -> openMain(player);
+                  case SCHEDULE -> openSchedule(player, session, action.value());
+                  case DETAIL -> openScheduleDetail(player, session, action.value(),
+                          ScheduleDetailOrigin.SCHEDULE, session.page);
+                  case NONE -> { }
+              }
+          }
+          ''', '''    private void scheduleClick(Player player, Session session, String type, String value) {
+              if ("back-main".equals(type)) {
+                  openMain(player);
+                  return;
+              }
+              if ("back-schedule".equals(type)
+                      || "view-schedule".equals(type)
+                      || "page".equals(type)) {
+                  openSchedule(player, session, Integer.parseInt(value));
+                  return;
+              }
+              if ("schedule-entry".equals(type)) {
+                  openScheduleDetail(player, session, Integer.parseInt(value),
+                          ScheduleDetailOrigin.SCHEDULE, session.page);
+              }
+          }
+          ''', 'schedule click dispatch')
+
+          replace_once('''    static ScheduleDetailNavigation scheduleDetailNavigation(ScheduleDetailOrigin origin, int schedulePage) {
+              Objects.requireNonNull(origin, "origin");
+              return switch (origin) {
+                  case MAIN -> new ScheduleDetailNavigation(
+                          "back-main", "", "Back to Warzone", true, 0);
+                  case SCHEDULE -> new ScheduleDetailNavigation(
+                          "back-schedule", Integer.toString(schedulePage),
+                          "Back to Schedule", false, schedulePage);
+              };
+          }
+
+              static ScheduleClickAction scheduleClickAction(String type, String value) {
+              if ("back-main".equals(type)) {
+                  return new ScheduleClickAction(ScheduleDestination.MAIN, 0);
+              }
+              if ("back-schedule".equals(type)
+                      || "view-schedule".equals(type)
+                      || "page".equals(type)) {
+                  return new ScheduleClickAction(ScheduleDestination.SCHEDULE, Integer.parseInt(value));
+              }
+              if ("schedule-entry".equals(type)) {
+                  return new ScheduleClickAction(ScheduleDestination.DETAIL, Integer.parseInt(value));
+              }
+              return new ScheduleClickAction(ScheduleDestination.NONE, 0);
+          }
+
+          ''', '''    static ScheduleDetailNavigation scheduleDetailNavigation(
+                  ScheduleDetailOrigin origin, int schedulePage, int totalItems) {
+              if (origin == null) {
+                  throw new IllegalArgumentException("Schedule detail origin is required.");
+              }
+              return switch (origin) {
+                  case MAIN -> new ScheduleDetailNavigation(
+                          "back-main", "", "Back to Warzone", true, 0);
+                  case SCHEDULE -> {
+                      int normalizedPage = normalizePage(schedulePage, totalItems);
+                      yield new ScheduleDetailNavigation(
+                              "back-schedule", Integer.toString(normalizedPage),
+                              "Back to Schedule", false, normalizedPage);
+                  }
+              };
+          }
+
+              static int normalizePage(int page, int totalItems) {
+              int safeTotal = Math.max(0, totalItems);
+              int lastPage = safeTotal == 0 ? 0 : (safeTotal - 1) / PAGE_SIZE;
+              return Math.max(0, Math.min(page, lastPage));
+          }
+
+          ''', 'navigation helpers')
+
+          replace_once('''    enum ScheduleDestination {
+              MAIN, SCHEDULE, DETAIL, NONE
+          }
+
+          ''', '', 'schedule destination enum')
+
+          replace_once('''    record ScheduleClickAction(ScheduleDestination destination, int value) {
+          }
+
+          ''', '', 'schedule click action record')
+
+          replace_once('''        private int page;
+              private ScheduleDetailOrigin scheduleDetailOrigin;
+              private int scheduleDetailReturnPage;
+              private SelectionSourceType proposedType;
+          ''', '''        private int page;
+              private SelectionSourceType proposedType;
+          ''', 'duplicate session navigation fields')
+
+          manager_path.write_text(text)
+
+          test_path = Path('src/test/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiScheduleNavigationTest.java')
+          test_path.write_text('''package com.lincoln.maceguard.warzone.gui;
+
+          import org.junit.jupiter.api.Test;
+
+          import static org.junit.jupiter.api.Assertions.assertEquals;
+          import static org.junit.jupiter.api.Assertions.assertFalse;
+          import static org.junit.jupiter.api.Assertions.assertThrows;
+          import static org.junit.jupiter.api.Assertions.assertTrue;
+
+          class WarzoneGuiScheduleNavigationTest {
+              @Test
+              void mainNextScheduledRendersWarzoneBackAndFullScheduleActions() {
+                  WarzoneGuiManager.ScheduleDetailNavigation navigation =
+                          WarzoneGuiManager.scheduleDetailNavigation(
+                                  WarzoneGuiManager.ScheduleDetailOrigin.MAIN, 7, 200);
+
+                  assertEquals("back-main", navigation.backType());
+                  assertEquals("", navigation.backValue());
+                  assertEquals("Back to Warzone", navigation.backLabel());
+                  assertTrue(navigation.showFullSchedule());
+                  assertEquals(0, navigation.fullSchedulePage());
+              }
+
+              @Test
+              void scheduleDetailReturnsToCapturedSchedulePage() {
+                  int sourcePage = 3;
+                  WarzoneGuiManager.ScheduleDetailNavigation navigation =
+                          WarzoneGuiManager.scheduleDetailNavigation(
+                                  WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, sourcePage, 200);
+
+                  assertEquals("back-schedule", navigation.backType());
+                  assertEquals(Integer.toString(sourcePage), navigation.backValue());
+                  assertEquals("Back to Schedule", navigation.backLabel());
+                  assertFalse(navigation.showFullSchedule());
+                  assertEquals(sourcePage, navigation.fullSchedulePage());
+              }
+
+              @Test
+              void scheduleReturnPageIsClampedToAvailablePages() {
+                  WarzoneGuiManager.ScheduleDetailNavigation negative =
+                          WarzoneGuiManager.scheduleDetailNavigation(
+                                  WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, -4, 46);
+                  WarzoneGuiManager.ScheduleDetailNavigation oversized =
+                          WarzoneGuiManager.scheduleDetailNavigation(
+                                  WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, 99, 46);
+
+                  assertEquals("0", negative.backValue());
+                  assertEquals(0, negative.fullSchedulePage());
+                  assertEquals("1", oversized.backValue());
+                  assertEquals(1, oversized.fullSchedulePage());
+              }
+
+              @Test
+              void pageNormalizationHandlesEmptyAndBoundaryCases() {
+                  assertEquals(0, WarzoneGuiManager.normalizePage(-1, 0));
+                  assertEquals(0, WarzoneGuiManager.normalizePage(1, 45));
+                  assertEquals(1, WarzoneGuiManager.normalizePage(1, 46));
+                  assertEquals(1, WarzoneGuiManager.normalizePage(9, 46));
+              }
+
+              @Test
+              void nullDetailOriginIsRejected() {
+                  assertThrows(IllegalArgumentException.class,
+                          () -> WarzoneGuiManager.scheduleDetailNavigation(null, 0, 1));
+              }
+          }
+          ''')
+
+          Path('.github/workflows/pr31-maintenance.yml').unlink()
+          PY
+
+      - name: Verify patch shape
+        shell: bash
+        run: |
+          git diff --check
+          ! grep -q 'ScheduleClickAction\|ScheduleDestination\|scheduleDetailOrigin\|scheduleDetailReturnPage' src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+          grep -q 'normalizePage(page, order.size())' src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+
+      - name: Run Maven verification
+        run: ./mvnw -B clean verify
+
+      - name: Commit verified cleanup
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java \
+                  src/test/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiScheduleNavigationTest.java \
+                  .github/workflows/pr31-maintenance.yml
+          git commit -m 'Harden Warzone schedule navigation'
+          git push origin HEAD:agent/fix-warzone-schedule-detail-navigation
