@@ -1,0 +1,61 @@
+name: PR 31 Codacy diagnostics
+
+on:
+  push:
+    branches:
+      - agent/fix-warzone-schedule-detail-navigation
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Wait for Codacy and persist PR findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/31/issues'
+          mkdir -p .agent
+          for attempt in $(seq 1 36); do
+            curl --fail-with-body --silent --show-error "$url" > /tmp/codacy.json
+            analyzed=$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          print(str(bool(json.loads(Path('/tmp/codacy.json').read_text()).get('analyzed'))).lower())
+          PY
+            )
+            echo "Codacy analyzed=$analyzed attempt=$attempt"
+            if [ "$analyzed" = true ]; then
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+          source = Path('/tmp/codacy.json')
+          target = Path('.agent/pr31-codacy-issues.json')
+          target.write_text(json.dumps(json.loads(source.read_text()), indent=2, sort_keys=True) + '\n')
+          PY
+              break
+            fi
+            if [ "$attempt" -eq 36 ]; then
+              echo 'Codacy did not report analyzed=true before timeout' >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          rm .github/workflows/pr31-codacy-diagnostics.yml
+
+      - name: Commit diagnostics snapshot
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .agent/pr31-codacy-issues.json .github/workflows/pr31-codacy-diagnostics.yml
+          git commit -m 'chore: capture analyzed PR 31 Codacy findings'
+          git push origin HEAD:agent/fix-warzone-schedule-detail-navigation
