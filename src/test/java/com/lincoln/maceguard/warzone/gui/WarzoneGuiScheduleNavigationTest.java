@@ -51,6 +51,16 @@ class WarzoneGuiScheduleNavigationTest {
     }
 
     @Test
+    void emptyScheduleReturnPageClampsToFirstPage() {
+        WarzoneGuiManager.ScheduleDetailNavigation navigation =
+                WarzoneGuiManager.scheduleDetailNavigation(
+                        WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, 4, 0);
+
+        assertEquals("0", navigation.backValue());
+        assertEquals(0, navigation.fullSchedulePage());
+    }
+
+    @Test
     void pageNormalizationHandlesEmptyAndBoundaryCases() {
         assertEquals(0, WarzoneGuiManager.normalizePage(-1, 0));
         assertEquals(0, WarzoneGuiManager.normalizePage(1, 45));
