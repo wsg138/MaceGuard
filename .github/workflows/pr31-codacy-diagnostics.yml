@@ -1,0 +1,33 @@
+name: PR 31 Codacy diagnostics
+
+on:
+  push:
+    branches:
+      - agent/fix-warzone-schedule-detail-navigation
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Codacy PR findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/31/issues'
+          curl --fail-with-body --silent --show-error "$url" | tee codacy-issues.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('codacy-issues.json').read_text())
+          print('\n=== Parsed issue summary ===')
+          print(json.dumps(data, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr31-codacy-issues
+          path: codacy-issues.json
