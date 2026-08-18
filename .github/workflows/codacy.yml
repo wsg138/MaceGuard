@@ -44,36 +44,43 @@ jobs:
           path = Path('results.sarif')
           if not path.exists():
               print('NO_SARIF_FILE')
-              raise SystemExit(0)
-          data = json.loads(path.read_text())
-          total = 0
-          for run_index, run in enumerate(data.get('runs', [])):
-              tool = run.get('tool', {}).get('driver', {}).get('name', 'unknown')
-              rules = {
-                  rule.get('id'): rule
-                  for rule in run.get('tool', {}).get('driver', {}).get('rules', [])
-                  if rule.get('id')
-              }
-              for result in run.get('results', []):
-                  total += 1
-                  rule_id = result.get('ruleId', 'unknown')
-                  rule = rules.get(rule_id, {})
-                  message = result.get('message', {}).get('text', '').replace('\n', ' ')
-                  location = (result.get('locations') or [{}])[0].get('physicalLocation', {})
-                  artifact = location.get('artifactLocation', {}).get('uri', '')
-                  region = location.get('region', {})
-                  start = region.get('startLine', '')
-                  end = region.get('endLine', start)
-                  props = result.get('properties', {})
-                  rule_props = rule.get('properties', {})
-                  print('CODACY_FINDING'
-                        f' tool={tool!r}'
-                        f' rule={rule_id!r}'
-                        f' level={result.get("level", "")!r}'
-                        f' file={artifact!r}'
-                        f' lines={start!r}-{end!r}'
-                        f' message={message!r}'
-                        f' result_properties={props!r}'
-                        f' rule_properties={rule_props!r}')
-          print(f'CODACY_FINDING_TOTAL={total}')
+          else:
+              data = json.loads(path.read_text())
+              total = 0
+              for run in data.get('runs', []):
+                  tool = run.get('tool', {}).get('driver', {}).get('name', 'unknown')
+                  rules = {
+                      rule.get('id'): rule
+                      for rule in run.get('tool', {}).get('driver', {}).get('rules', [])
+                      if rule.get('id')
+                  }
+                  for result in run.get('results', []):
+                      total += 1
+                      rule_id = result.get('ruleId', 'unknown')
+                      rule = rules.get(rule_id, {})
+                      message = result.get('message', {}).get('text', '').replace('\n', ' ')
+                      location = (result.get('locations') or [{}])[0].get('physicalLocation', {})
+                      artifact = location.get('artifactLocation', {}).get('uri', '')
+                      region = location.get('region', {})
+                      start = region.get('startLine', '')
+                      end = region.get('endLine', start)
+                      print('CODACY_FINDING'
+                            f' tool={tool!r}'
+                            f' rule={rule_id!r}'
+                            f' level={result.get("level", "")!r}'
+                            f' file={artifact!r}'
+                            f' lines={start!r}-{end!r}'
+                            f' message={message!r}'
+                            f' result_properties={result.get("properties", {})!r}'
+                            f' rule_properties={rule.get("properties", {})!r}')
+              print(f'CODACY_FINDING_TOTAL={total}')
           PY
+      - name: Print Codacy PR new-issue API response
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/${{ github.event.pull_request.number }}/issues?status=new&limit=100"
+          echo 'CODACY_PR_NEW_ISSUES_BEGIN'
+          curl --fail-with-body --silent --show-error -H 'Accept: application/json' "$url" | python3 -m json.tool
+          echo 'CODACY_PR_NEW_ISSUES_END'
