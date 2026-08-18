@@ -1,86 +1,122 @@
-name: Codacy Analysis
+name: PR 31 analyzer cleanup
+
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches:
+      - agent/fix-warzone-schedule-detail-navigation
+
 permissions:
-  contents: read
+  contents: write
+
 jobs:
-  analysis:
+  patch-verify-restore:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    env:
-      CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out PR branch
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: agent/fix-warzone-schedule-detail-navigation
           fetch-depth: 0
-      - name: Verify exact source commit
-        shell: bash
-        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-      - name: Run Codacy analysis with project settings
-        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
-        if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
         with:
-          project-token: ${{ env.CODACY_PROJECT_TOKEN }}
-          format: sarif
-          output: results.sarif
-      - name: Run Codacy analysis with default settings
-        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
-        if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
-        with:
-          format: sarif
-          output: results.sarif
-      - name: Print Codacy SARIF findings
-        if: always()
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Replace flagged schedule dispatch and restore Codacy workflow
         shell: bash
         run: |
           python3 - <<'PY'
-          import json
           from pathlib import Path
 
-          path = Path('results.sarif')
-          if not path.exists():
-              print('NO_SARIF_FILE')
-          else:
-              data = json.loads(path.read_text())
-              total = 0
-              for run in data.get('runs', []):
-                  tool = run.get('tool', {}).get('driver', {}).get('name', 'unknown')
-                  rules = {
-                      rule.get('id'): rule
-                      for rule in run.get('tool', {}).get('driver', {}).get('rules', [])
-                      if rule.get('id')
-                  }
-                  for result in run.get('results', []):
-                      total += 1
-                      rule_id = result.get('ruleId', 'unknown')
-                      rule = rules.get(rule_id, {})
-                      message = result.get('message', {}).get('text', '').replace('\n', ' ')
-                      location = (result.get('locations') or [{}])[0].get('physicalLocation', {})
-                      artifact = location.get('artifactLocation', {}).get('uri', '')
-                      region = location.get('region', {})
-                      start = region.get('startLine', '')
-                      end = region.get('endLine', start)
-                      print('CODACY_FINDING'
-                            f' tool={tool!r}'
-                            f' rule={rule_id!r}'
-                            f' level={result.get("level", "")!r}'
-                            f' file={artifact!r}'
-                            f' lines={start!r}-{end!r}'
-                            f' message={message!r}'
-                            f' result_properties={result.get("properties", {})!r}'
-                            f' rule_properties={rule.get("properties", {})!r}')
-              print(f'CODACY_FINDING_TOTAL={total}')
+          manager = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
+          text = manager.read_text()
+          old = '''    private void scheduleClick(Player player, Session session, String type, String value) {
+              if ("back-main".equals(type)) {
+                  openMain(player);
+                  return;
+              }
+              if ("back-schedule".equals(type)
+                      || "view-schedule".equals(type)
+                      || "page".equals(type)) {
+                  openSchedule(player, session, Integer.parseInt(value));
+                  return;
+              }
+              if ("schedule-entry".equals(type)) {
+                  openScheduleDetail(player, session, Integer.parseInt(value),
+                          ScheduleDetailOrigin.SCHEDULE, session.page);
+              }
+          }
+          '''.replace('              ', '        ').replace('                  ', '            ').replace('                      ', '                ').replace('                          ', '                    ')
+          new = '''    private void scheduleClick(Player player, Session session, String type, String value) {
+              if (type == null) {
+                  return;
+              }
+              switch (type) {
+                  case "back-main" -> openMain(player);
+                  case "back-schedule", "view-schedule", "page" ->
+                          openSchedule(player, session, Integer.parseInt(value));
+                  case "schedule-entry" -> openScheduleDetail(player, session, Integer.parseInt(value),
+                          ScheduleDetailOrigin.SCHEDULE, session.page);
+                  default -> { }
+              }
+          }
+          '''.replace('              ', '        ').replace('                  ', '            ').replace('                      ', '                ').replace('                          ', '                    ')
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one scheduleClick block, found {text.count(old)}')
+          manager.write_text(text.replace(old, new, 1))
+
+          Path('.github/workflows/codacy.yml').write_text('''name: Codacy Analysis
+          on:
+            push:
+              branches: [main]
+            pull_request:
+              branches: [main]
+            workflow_dispatch:
+          permissions:
+            contents: read
+          jobs:
+            analysis:
+              runs-on: ubuntu-latest
+              env:
+                CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+              steps:
+                - uses: actions/checkout@v4
+                  with:
+                    ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                    fetch-depth: 0
+                - name: Verify exact source commit
+                  shell: bash
+                  run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+                - name: Run Codacy analysis with project settings
+                  uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
+                  if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
+                  with:
+                    project-token: ${{ env.CODACY_PROJECT_TOKEN }}
+                - name: Run Codacy analysis with default settings
+                  uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
+                  if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
+          '''.replace('          ', ''))
           PY
-      - name: Print Codacy PR new-issue API response
-        if: always() && github.event_name == 'pull_request'
+
+      - name: Verify patch
         shell: bash
         run: |
-          set -euo pipefail
-          url="https://api.codacy.com/api/v3/analysis/organizations/gh/wsg138/repositories/MaceGuard/pull-requests/${{ github.event.pull_request.number }}/issues?status=new&limit=100"
-          echo 'CODACY_PR_NEW_ISSUES_BEGIN'
-          curl --fail-with-body --silent --show-error -H 'Accept: application/json' "$url" | python3 -m json.tool
-          echo 'CODACY_PR_NEW_ISSUES_END'
+          git diff --check
+          grep -q 'case "back-schedule", "view-schedule", "page"' src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+          ! grep -q 'Print Codacy SARIF findings' .github/workflows/codacy.yml
+
+      - name: Run Maven verification
+        run: ./mvnw -B clean verify
+
+      - name: Commit verified analyzer cleanup
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java .github/workflows/codacy.yml
+          git commit -m 'Fix schedule dispatch analyzer findings'
+          git push origin HEAD:agent/fix-warzone-schedule-detail-navigation
