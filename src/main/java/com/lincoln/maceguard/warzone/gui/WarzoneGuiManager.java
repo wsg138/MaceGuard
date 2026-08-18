@@ -477,13 +477,14 @@ public final class WarzoneGuiManager implements Listener {
 
     private void openSchedule(Player player, Session session, int page) {
         session.operation = Operation.SCHEDULE;
-        session.page = page;
-        Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
         List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
         int current = runtime.rotations().state().currentCycleIndex();
         int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
         List<Integer> order = scheduleOrder(cycle.size(), current);
-        int from = page * PAGE_SIZE;
+        int normalizedPage = normalizePage(page, order.size());
+        session.page = normalizedPage;
+        Inventory inventory = inventory(session, Screen.SCHEDULE, 54, "<gold><bold>Warzone Schedule");
+        int from = normalizedPage * PAGE_SIZE;
 
         for (int displayIndex = from; displayIndex < Math.min(order.size(), from + PAGE_SIZE); displayIndex++) {
             int index = order.get(displayIndex);
@@ -501,18 +502,20 @@ public final class WarzoneGuiManager implements Listener {
                     lore.toArray(String[]::new)));
         }
 
-        navigation(inventory, page, order.size());
+        navigation(inventory, normalizedPage, order.size());
         inventory.setItem(48, tagged(Material.ARROW, "back-main", "",
                 "<yellow>Back to Warzone"));
         inventory.setItem(49, scheduleOverview());
         open(player, session, inventory);
     }
 
-    private void openScheduleDetail(Player player, Session session, int index) {
+    private void openScheduleDetail(Player player, Session session, int index,
+                                    ScheduleDetailOrigin origin, int returnPage) {
         List<WarzoneControlConfig.Entry> cycle = runtime.controlConfig().schedule().cycle();
         if (index < 0 || index >= cycle.size()) {
             throw new IllegalArgumentException("That schedule entry no longer exists.");
         }
+
 
         int current = runtime.rotations().state().currentCycleIndex();
         int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
@@ -526,8 +529,18 @@ public final class WarzoneGuiManager implements Listener {
                 index == current ? Material.LIME_DYE : index == next ? Material.COMPASS : Material.CLOCK,
                 entryDisplayName(entry), lore.toArray(String[]::new)));
         inventory.setItem(15, currentSelectionItem());
-        inventory.setItem(22, tagged(Material.ARROW, "back-schedule", Integer.toString(session.page),
-                "<yellow>Back to Schedule"));
+
+        ScheduleDetailNavigation navigation = scheduleDetailNavigation(
+                origin, returnPage, cycle.size());
+        int backSlot = navigation.showFullSchedule() ? 21 : 22;
+        inventory.setItem(backSlot, tagged(Material.ARROW, navigation.backType(), navigation.backValue(),
+                "<yellow>" + navigation.backLabel()));
+        if (navigation.showFullSchedule()) {
+            inventory.setItem(23, tagged(Material.CLOCK, "view-schedule",
+                    Integer.toString(navigation.fullSchedulePage()),
+                    "<gold>View Full Schedule",
+                    "<gray>Browse every configured schedule entry."));
+        }
         open(player, session, inventory);
     }
 
@@ -855,7 +868,8 @@ public final class WarzoneGuiManager implements Listener {
             case "next" -> {
                 session.operation = Operation.SCHEDULE;
                 if (runtime.rotations().scheduleEnabled()) {
-                    openScheduleDetail(player, session, runtime.rotations().nextSlot().cycleIndex());
+                    openScheduleDetail(player, session, runtime.rotations().nextSlot().cycleIndex(),
+                            ScheduleDetailOrigin.MAIN, 0);
                 } else {
                     openSchedule(player, session, 0);
                 }
@@ -1008,20 +1022,16 @@ public final class WarzoneGuiManager implements Listener {
     }
 
     private void scheduleClick(Player player, Session session, String type, String value) {
-        if ("back-main".equals(type)) {
-            openMain(player);
+        if (type == null) {
             return;
         }
-        if ("back-schedule".equals(type)) {
-            openSchedule(player, session, Integer.parseInt(value));
-            return;
-        }
-        if ("page".equals(type)) {
-            openSchedule(player, session, Integer.parseInt(value));
-            return;
-        }
-        if ("schedule-entry".equals(type)) {
-            openScheduleDetail(player, session, Integer.parseInt(value));
+        switch (type) {
+            case "back-main" -> openMain(player);
+            case "back-schedule", "view-schedule", "page" ->
+                    openSchedule(player, session, Integer.parseInt(value));
+            case "schedule-entry" -> openScheduleDetail(player, session, Integer.parseInt(value),
+                    ScheduleDetailOrigin.SCHEDULE, session.page);
+            default -> { }
         }
     }
 
@@ -1403,6 +1413,29 @@ public final class WarzoneGuiManager implements Listener {
         return runtime.messages().plain(miniMessage);
     }
 
+    static ScheduleDetailNavigation scheduleDetailNavigation(
+            ScheduleDetailOrigin origin, int schedulePage, int totalItems) {
+        if (origin == null) {
+            throw new IllegalArgumentException("Schedule detail origin is required.");
+        }
+        return switch (origin) {
+            case MAIN -> new ScheduleDetailNavigation(
+                    "back-main", "", "Back to Warzone", true, 0);
+            case SCHEDULE -> {
+                int normalizedPage = normalizePage(schedulePage, totalItems);
+                yield new ScheduleDetailNavigation(
+                        "back-schedule", Integer.toString(normalizedPage),
+                        "Back to Schedule", false, normalizedPage);
+            }
+        };
+    }
+
+    static int normalizePage(int page, int totalItems) {
+        int safeTotal = Math.max(0, totalItems);
+        int lastPage = safeTotal == 0 ? 0 : (safeTotal - 1) / PAGE_SIZE;
+        return Math.max(0, Math.min(page, lastPage));
+    }
+
     static String humanizeIdentifier(String value) {
         if (value == null || value.isBlank()) return "None";
         String normalized = value.trim().replace('-', ' ').replace('_', ' ');
@@ -1449,6 +1482,16 @@ public final class WarzoneGuiManager implements Listener {
     enum Screen {
         MAIN, CURRENT, KITS, MODIFIERS, RULES, PREVIEW, DURATION, SCHEDULE
     }
+
+    enum ScheduleDetailOrigin {
+        MAIN, SCHEDULE
+    }
+
+
+    record ScheduleDetailNavigation(String backType, String backValue, String backLabel,
+                                    boolean showFullSchedule, int fullSchedulePage) {
+    }
+
 
     static final class Session {
         final UUID id;
