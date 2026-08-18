@@ -32,74 +32,78 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
+          def block(*lines: str) -> str:
+              return '\n'.join(lines) + '\n'
+
           manager = Path('src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java')
           text = manager.read_text()
-          old = '''    private void scheduleClick(Player player, Session session, String type, String value) {
-              if ("back-main".equals(type)) {
-                  openMain(player);
-                  return;
-              }
-              if ("back-schedule".equals(type)
-                      || "view-schedule".equals(type)
-                      || "page".equals(type)) {
-                  openSchedule(player, session, Integer.parseInt(value));
-                  return;
-              }
-              if ("schedule-entry".equals(type)) {
-                  openScheduleDetail(player, session, Integer.parseInt(value),
-                          ScheduleDetailOrigin.SCHEDULE, session.page);
-              }
-          }
-          '''.replace('              ', '        ').replace('                  ', '            ').replace('                      ', '                ').replace('                          ', '                    ')
-          new = '''    private void scheduleClick(Player player, Session session, String type, String value) {
-              if (type == null) {
-                  return;
-              }
-              switch (type) {
-                  case "back-main" -> openMain(player);
-                  case "back-schedule", "view-schedule", "page" ->
-                          openSchedule(player, session, Integer.parseInt(value));
-                  case "schedule-entry" -> openScheduleDetail(player, session, Integer.parseInt(value),
-                          ScheduleDetailOrigin.SCHEDULE, session.page);
-                  default -> { }
-              }
-          }
-          '''.replace('              ', '        ').replace('                  ', '            ').replace('                      ', '                ').replace('                          ', '                    ')
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one scheduleClick block, found {text.count(old)}')
+          old = block(
+              '    private void scheduleClick(Player player, Session session, String type, String value) {',
+              '        if ("back-main".equals(type)) {',
+              '            openMain(player);',
+              '            return;',
+              '        }',
+              '        if ("back-schedule".equals(type)',
+              '                || "view-schedule".equals(type)',
+              '                || "page".equals(type)) {',
+              '            openSchedule(player, session, Integer.parseInt(value));',
+              '            return;',
+              '        }',
+              '        if ("schedule-entry".equals(type)) {',
+              '            openScheduleDetail(player, session, Integer.parseInt(value),',
+              '                    ScheduleDetailOrigin.SCHEDULE, session.page);',
+              '        }',
+              '    }')
+          new = block(
+              '    private void scheduleClick(Player player, Session session, String type, String value) {',
+              '        if (type == null) {',
+              '            return;',
+              '        }',
+              '        switch (type) {',
+              '            case "back-main" -> openMain(player);',
+              '            case "back-schedule", "view-schedule", "page" ->',
+              '                    openSchedule(player, session, Integer.parseInt(value));',
+              '            case "schedule-entry" -> openScheduleDetail(player, session, Integer.parseInt(value),',
+              '                    ScheduleDetailOrigin.SCHEDULE, session.page);',
+              '            default -> { }',
+              '        }',
+              '    }')
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one scheduleClick block, found {count}')
           manager.write_text(text.replace(old, new, 1))
 
-          Path('.github/workflows/codacy.yml').write_text('''name: Codacy Analysis
-          on:
-            push:
-              branches: [main]
-            pull_request:
-              branches: [main]
-            workflow_dispatch:
-          permissions:
-            contents: read
-          jobs:
-            analysis:
-              runs-on: ubuntu-latest
-              env:
-                CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
-              steps:
-                - uses: actions/checkout@v4
-                  with:
-                    ref: ${{ github.event.pull_request.head.sha || github.sha }}
-                    fetch-depth: 0
-                - name: Verify exact source commit
-                  shell: bash
-                  run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
-                - name: Run Codacy analysis with project settings
-                  uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
-                  if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
-                  with:
-                    project-token: ${{ env.CODACY_PROJECT_TOKEN }}
-                - name: Run Codacy analysis with default settings
-                  uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
-                  if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
-          '''.replace('          ', ''))
+          Path('.github/workflows/codacy.yml').write_text("""name: Codacy Analysis
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    env:
+      CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify exact source commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Run Codacy analysis with project settings
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
+        if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
+        with:
+          project-token: ${{ env.CODACY_PROJECT_TOKEN }}
+      - name: Run Codacy analysis with default settings
+        uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
+        if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
+""")
           PY
 
       - name: Verify patch
@@ -107,6 +111,7 @@ jobs:
         run: |
           git diff --check
           grep -q 'case "back-schedule", "view-schedule", "page"' src/main/java/com/lincoln/maceguard/warzone/gui/WarzoneGuiManager.java
+          grep -q '^name: Codacy Analysis$' .github/workflows/codacy.yml
           ! grep -q 'Print Codacy SARIF findings' .github/workflows/codacy.yml
 
       - name: Run Maven verification
