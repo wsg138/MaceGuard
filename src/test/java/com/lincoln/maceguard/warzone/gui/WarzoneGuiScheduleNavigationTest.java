@@ -4,49 +4,63 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WarzoneGuiScheduleNavigationTest {
     @Test
-    void mainNextScheduledBackReturnsToMain() {
+    void mainNextScheduledRendersWarzoneBackAndFullScheduleActions() {
         WarzoneGuiManager.ScheduleDetailNavigation navigation =
                 WarzoneGuiManager.scheduleDetailNavigation(
-                        WarzoneGuiManager.ScheduleDetailOrigin.MAIN, 0);
-        WarzoneGuiManager.ScheduleClickAction action =
-                WarzoneGuiManager.scheduleClickAction(
-                        navigation.backType(), navigation.backValue());
+                        WarzoneGuiManager.ScheduleDetailOrigin.MAIN, 7, 200);
 
+        assertEquals("back-main", navigation.backType());
+        assertEquals("", navigation.backValue());
         assertEquals("Back to Warzone", navigation.backLabel());
-        assertEquals(WarzoneGuiManager.ScheduleDestination.MAIN, action.destination());
-    }
-
-    @Test
-    void mainNextScheduledViewFullScheduleOpensSchedule() {
-        WarzoneGuiManager.ScheduleDetailNavigation navigation =
-                WarzoneGuiManager.scheduleDetailNavigation(
-                        WarzoneGuiManager.ScheduleDetailOrigin.MAIN, 0);
-        WarzoneGuiManager.ScheduleClickAction action =
-                WarzoneGuiManager.scheduleClickAction(
-                        "view-schedule", Integer.toString(navigation.fullSchedulePage()));
-
         assertTrue(navigation.showFullSchedule());
-        assertEquals(WarzoneGuiManager.ScheduleDestination.SCHEDULE, action.destination());
-        assertEquals(0, action.value());
+        assertEquals(0, navigation.fullSchedulePage());
     }
 
     @Test
-    void scheduleEntryDetailBackReturnsToSameSchedulePage() {
+    void scheduleDetailReturnsToCapturedSchedulePage() {
         int sourcePage = 3;
         WarzoneGuiManager.ScheduleDetailNavigation navigation =
                 WarzoneGuiManager.scheduleDetailNavigation(
-                        WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, sourcePage);
-        WarzoneGuiManager.ScheduleClickAction action =
-                WarzoneGuiManager.scheduleClickAction(
-                        navigation.backType(), navigation.backValue());
+                        WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, sourcePage, 200);
 
+        assertEquals("back-schedule", navigation.backType());
+        assertEquals(Integer.toString(sourcePage), navigation.backValue());
         assertEquals("Back to Schedule", navigation.backLabel());
         assertFalse(navigation.showFullSchedule());
-        assertEquals(WarzoneGuiManager.ScheduleDestination.SCHEDULE, action.destination());
-        assertEquals(sourcePage, action.value());
+        assertEquals(sourcePage, navigation.fullSchedulePage());
+    }
+
+    @Test
+    void scheduleReturnPageIsClampedToAvailablePages() {
+        WarzoneGuiManager.ScheduleDetailNavigation negative =
+                WarzoneGuiManager.scheduleDetailNavigation(
+                        WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, -4, 46);
+        WarzoneGuiManager.ScheduleDetailNavigation oversized =
+                WarzoneGuiManager.scheduleDetailNavigation(
+                        WarzoneGuiManager.ScheduleDetailOrigin.SCHEDULE, 99, 46);
+
+        assertEquals("0", negative.backValue());
+        assertEquals(0, negative.fullSchedulePage());
+        assertEquals("1", oversized.backValue());
+        assertEquals(1, oversized.fullSchedulePage());
+    }
+
+    @Test
+    void pageNormalizationHandlesEmptyAndBoundaryCases() {
+        assertEquals(0, WarzoneGuiManager.normalizePage(-1, 0));
+        assertEquals(0, WarzoneGuiManager.normalizePage(1, 45));
+        assertEquals(1, WarzoneGuiManager.normalizePage(1, 46));
+        assertEquals(1, WarzoneGuiManager.normalizePage(9, 46));
+    }
+
+    @Test
+    void nullDetailOriginIsRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> WarzoneGuiManager.scheduleDetailNavigation(null, 0, 1));
     }
 }
