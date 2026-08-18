@@ -55,7 +55,8 @@ class WarzoneGuiScheduleNavigationTest {
         assertEquals(0, WarzoneGuiManager.normalizePage(-1, 0));
         assertEquals(0, WarzoneGuiManager.normalizePage(1, 45));
         assertEquals(1, WarzoneGuiManager.normalizePage(1, 46));
-        assertEquals(1, WarzoneGuiManager.normalizePage(9, 46));
+        assertEquals(1, WarzoneGuiManager.normalizePage(99, 90));
+        assertEquals(2, WarzoneGuiManager.normalizePage(99, 91));
     }
 
     @Test
