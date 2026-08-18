@@ -25,6 +25,55 @@ jobs:
         if: ${{ env.CODACY_PROJECT_TOKEN != '' }}
         with:
           project-token: ${{ env.CODACY_PROJECT_TOKEN }}
+          format: sarif
+          output: results.sarif
       - name: Run Codacy analysis with default settings
         uses: codacy/codacy-analysis-cli-action@562ee3e92b8e92df8b67e0a5ff8aa8e261919c08
         if: ${{ env.CODACY_PROJECT_TOKEN == '' }}
+        with:
+          format: sarif
+          output: results.sarif
+      - name: Print Codacy SARIF findings
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('results.sarif')
+          if not path.exists():
+              print('NO_SARIF_FILE')
+              raise SystemExit(0)
+          data = json.loads(path.read_text())
+          total = 0
+          for run_index, run in enumerate(data.get('runs', [])):
+              tool = run.get('tool', {}).get('driver', {}).get('name', 'unknown')
+              rules = {
+                  rule.get('id'): rule
+                  for rule in run.get('tool', {}).get('driver', {}).get('rules', [])
+                  if rule.get('id')
+              }
+              for result in run.get('results', []):
+                  total += 1
+                  rule_id = result.get('ruleId', 'unknown')
+                  rule = rules.get(rule_id, {})
+                  message = result.get('message', {}).get('text', '').replace('\n', ' ')
+                  location = (result.get('locations') or [{}])[0].get('physicalLocation', {})
+                  artifact = location.get('artifactLocation', {}).get('uri', '')
+                  region = location.get('region', {})
+                  start = region.get('startLine', '')
+                  end = region.get('endLine', start)
+                  props = result.get('properties', {})
+                  rule_props = rule.get('properties', {})
+                  print('CODACY_FINDING'
+                        f' tool={tool!r}'
+                        f' rule={rule_id!r}'
+                        f' level={result.get("level", "")!r}'
+                        f' file={artifact!r}'
+                        f' lines={start!r}-{end!r}'
+                        f' message={message!r}'
+                        f' result_properties={props!r}'
+                        f' rule_properties={rule_props!r}')
+          print(f'CODACY_FINDING_TOTAL={total}')
+          PY
