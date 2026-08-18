@@ -1022,19 +1022,16 @@ public final class WarzoneGuiManager implements Listener {
     }
 
     private void scheduleClick(Player player, Session session, String type, String value) {
-        if ("back-main".equals(type)) {
-            openMain(player);
+        if (type == null) {
             return;
         }
-        if ("back-schedule".equals(type)
-                || "view-schedule".equals(type)
-                || "page".equals(type)) {
-            openSchedule(player, session, Integer.parseInt(value));
-            return;
-        }
-        if ("schedule-entry".equals(type)) {
-            openScheduleDetail(player, session, Integer.parseInt(value),
+        switch (type) {
+            case "back-main" -> openMain(player);
+            case "back-schedule", "view-schedule", "page" ->
+                    openSchedule(player, session, Integer.parseInt(value));
+            case "schedule-entry" -> openScheduleDetail(player, session, Integer.parseInt(value),
                     ScheduleDetailOrigin.SCHEDULE, session.page);
+            default -> { }
         }
     }
 
