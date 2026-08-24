@@ -466,8 +466,9 @@ public final class ItemRestrictionListener implements Listener {
 
     private void reconcileVisualCooldowns(Player player) {
         UUID playerId = player.getUniqueId();
+        boolean excluded = region.exclusionAt(player.getLocation()) != null;
         boolean inside = region.contains(player.getLocation());
-        boolean visibleScope = inside || combatScopes.carryoverEligible(player);
+        boolean visibleScope = !excluded && (inside || combatScopes.carryoverEligible(player));
         Boolean previous = visualInsideState.put(playerId, visibleScope);
         if (visibleScope && !Boolean.TRUE.equals(previous)) {
             Map<Material, java.time.Duration> active = inside
@@ -558,7 +559,11 @@ public final class ItemRestrictionListener implements Listener {
                 region.contains(player.getLocation()), targetInside);
     }
 
-    private boolean bypass(Player player) { return player.hasPermission("warzonerotator.bypass"); }
+    /** Excluded WorldGuard regions override combat carryover and all player restriction checks. */
+    private boolean bypass(Player player) {
+        return player.hasPermission("warzonerotator.bypass")
+                || region.exclusionAt(player.getLocation()) != null;
+    }
 
     private boolean supports(Material material, CooldownCapability capability) {
         return RestrictionTarget.parse(material.name()).orElseThrow().supports(capability);
