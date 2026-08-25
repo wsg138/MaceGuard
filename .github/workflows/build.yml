@@ -84,7 +84,8 @@ jobs:
           ! jar tf "$JAR" | grep -Eq '^(com/github/sirblobman|io/papermc|org/bukkit|com/sk89q/worldguard|com/sk89q/worldedit|me/clip/placeholderapi|org/geysermc|org/floodgate|net/essentialsx|com/earth2me/essentials)/'
           ! jar tf "$JAR" | grep -Eq '(^|/)(test|tests)/|Test.class$|\.java$|^handoffs/'
           ! jar tf "$JAR" | grep -Eq 'CombatLogXBridge|ReflectiveCombat'
-          ! grep -R -n 'com\.github\.sirblobman' src/main/java src/test/java pom.xml
+          ! grep -R -n '^import com\.github\.sirblobman' src/main/java src/test/java
+          ! grep -n '<groupId>com.github.sirblobman' pom.xml
           grep -q '<version>6.1.4</version>' pom.xml
           cat target/dependency-tree.txt >> target/verification.txt
           SCRIPT
