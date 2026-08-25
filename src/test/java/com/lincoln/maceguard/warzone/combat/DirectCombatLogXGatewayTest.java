@@ -1,12 +1,10 @@
 package com.lincoln.maceguard.warzone.combat;
 
-import com.github.sirblobman.combatlogx.api.ICombatLogX;
-import com.github.sirblobman.combatlogx.api.event.PlayerTagEvent;
-import com.github.sirblobman.combatlogx.api.event.PlayerUntagEvent;
-import com.github.sirblobman.combatlogx.api.manager.ICombatManager;
 import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
+import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -31,34 +29,35 @@ import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.when;
 
 class DirectCombatLogXGatewayTest {
-    @Test void delegatesOnlyToPublicCombatManagerTypes() {
+    @Test void delegatesThroughRuntimeValidatedPublicMethods() {
         JavaPlugin owner = mock(JavaPlugin.class);
         Plugin candidate = combatLogXPlugin();
-        ICombatLogX api = (ICombatLogX) candidate;
-        ICombatManager manager = mock(ICombatManager.class);
+        FakeCombatLogXApi api = (FakeCombatLogXApi) candidate;
+        FakeCombatManager manager = mock(FakeCombatManager.class);
+        FakeTagInformation information = mock(FakeTagInformation.class);
         Player player = mock(Player.class);
         when(api.getCombatManager()).thenReturn(manager);
         when(manager.isInCombat(player)).thenReturn(true);
         when(manager.canBypass(player)).thenReturn(false);
         when(manager.getMaxTimerSeconds(player)).thenReturn(30);
-        when(manager.getTagInformation(player)).thenReturn(null);
+        when(manager.getTagInformation(player)).thenReturn(information);
+        when(information.getMillisLeftCombined()).thenReturn(1_250L);
 
-        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        DirectCombatLogXGateway gateway = connect(owner, candidate);
 
         assertTrue(gateway.available());
         assertTrue(gateway.inCombat(player));
         assertFalse(gateway.bypass(player));
         assertEquals(30, gateway.maximumSeconds(player));
-        assertEquals(Duration.ZERO, gateway.remaining(player));
+        assertEquals(Duration.ofMillis(1_250), gateway.remaining(player));
     }
 
     @Test void rejectsMissingCombatManager() {
         JavaPlugin owner = mock(JavaPlugin.class);
         Plugin candidate = combatLogXPlugin();
-        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(null);
+        when(((FakeCombatLogXApi) candidate).getCombatManager()).thenReturn(null);
 
-        assertThrows(IllegalStateException.class,
-                () -> DirectCombatLogXGateway.connect(owner, candidate));
+        assertThrows(IllegalStateException.class, () -> connect(owner, candidate));
     }
 
     @Test void defersTagCallbackWithCapturedEventLocation() {
@@ -71,8 +70,8 @@ class DirectCombatLogXGatewayTest {
         when(server.getScheduler()).thenReturn(scheduler);
 
         Plugin candidate = combatLogXPlugin();
-        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(mock(ICombatManager.class));
-        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        when(((FakeCombatLogXApi) candidate).getCombatManager()).thenReturn(mock(FakeCombatManager.class));
+        DirectCombatLogXGateway gateway = connect(owner, candidate);
         CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
         gateway.register(lifecycle);
 
@@ -80,8 +79,6 @@ class DirectCombatLogXGatewayTest {
         UUID playerId = UUID.randomUUID();
         Location source = mock(Location.class);
         Location captured = mock(Location.class);
-        PlayerTagEvent event = mock(PlayerTagEvent.class);
-        when(event.getPlayer()).thenReturn(player);
         when(player.getUniqueId()).thenReturn(playerId);
         when(player.isOnline()).thenReturn(true);
         when(server.getPlayer(playerId)).thenReturn(player);
@@ -93,7 +90,7 @@ class DirectCombatLogXGatewayTest {
             return mock(BukkitTask.class);
         });
 
-        gateway.onTag(event);
+        gateway.handleTag(new FakeTagEvent(player));
         deferred.get().run();
 
         verify(lifecycle).tagged(player, captured);
@@ -109,8 +106,8 @@ class DirectCombatLogXGatewayTest {
         when(server.getScheduler()).thenReturn(scheduler);
 
         Plugin candidate = combatLogXPlugin();
-        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(mock(ICombatManager.class));
-        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        when(((FakeCombatLogXApi) candidate).getCombatManager()).thenReturn(mock(FakeCombatManager.class));
+        DirectCombatLogXGateway gateway = connect(owner, candidate);
         CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
         gateway.register(lifecycle);
 
@@ -119,8 +116,6 @@ class DirectCombatLogXGatewayTest {
         UUID playerId = UUID.randomUUID();
         Location source = mock(Location.class);
         Location captured = mock(Location.class);
-        PlayerTagEvent event = mock(PlayerTagEvent.class);
-        when(event.getPlayer()).thenReturn(original);
         when(original.getUniqueId()).thenReturn(playerId);
         when(original.isOnline()).thenReturn(true);
         when(server.getPlayer(playerId)).thenReturn(replacement);
@@ -132,7 +127,7 @@ class DirectCombatLogXGatewayTest {
             return mock(BukkitTask.class);
         });
 
-        gateway.onTag(event);
+        gateway.handleTag(new FakeTagEvent(original));
         deferred.get().run();
 
         verifyNoInteractions(lifecycle);
@@ -147,10 +142,9 @@ class DirectCombatLogXGatewayTest {
         when(server.getPluginManager()).thenReturn(pluginManager);
         when(server.getScheduler()).thenReturn(scheduler);
 
-        ICombatManager manager = mock(ICombatManager.class);
         Plugin candidate = combatLogXPlugin();
-        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(manager);
-        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        when(((FakeCombatLogXApi) candidate).getCombatManager()).thenReturn(mock(FakeCombatManager.class));
+        DirectCombatLogXGateway gateway = connect(owner, candidate);
         CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
         gateway.register(lifecycle);
 
@@ -158,8 +152,6 @@ class DirectCombatLogXGatewayTest {
         UUID playerId = UUID.randomUUID();
         Location source = mock(Location.class);
         Location captured = mock(Location.class);
-        PlayerTagEvent event = mock(PlayerTagEvent.class);
-        when(event.getPlayer()).thenReturn(player);
         when(player.getUniqueId()).thenReturn(playerId);
         when(player.getLocation()).thenReturn(source);
         when(source.clone()).thenReturn(captured);
@@ -169,7 +161,7 @@ class DirectCombatLogXGatewayTest {
             return mock(BukkitTask.class);
         });
 
-        gateway.onTag(event);
+        gateway.handleTag(new FakeTagEvent(player));
         gateway.close();
         assertFalse(gateway.available());
         assertThrows(IllegalStateException.class, () -> gateway.inCombat(player));
@@ -185,20 +177,65 @@ class DirectCombatLogXGatewayTest {
         when(owner.getServer()).thenReturn(server);
         when(server.getPluginManager()).thenReturn(pluginManager);
         Plugin candidate = combatLogXPlugin();
-        when(((ICombatLogX) candidate).getCombatManager()).thenReturn(mock(ICombatManager.class));
-        DirectCombatLogXGateway gateway = DirectCombatLogXGateway.connect(owner, candidate);
+        when(((FakeCombatLogXApi) candidate).getCombatManager()).thenReturn(mock(FakeCombatManager.class));
+        DirectCombatLogXGateway gateway = connect(owner, candidate);
         CombatLogXGateway.Lifecycle lifecycle = mock(CombatLogXGateway.Lifecycle.class);
         gateway.register(lifecycle);
         Player player = mock(Player.class);
-        PlayerUntagEvent event = mock(PlayerUntagEvent.class);
-        when(event.getPlayer()).thenReturn(player);
 
-        gateway.onUntag(event);
+        gateway.handleUntag(new FakeUntagEvent(player));
 
         verify(lifecycle).untagged(player);
     }
 
+    private DirectCombatLogXGateway connect(JavaPlugin owner, Plugin candidate) {
+        return DirectCombatLogXGateway.connect(owner, candidate,
+                FakeTagEvent.class.getName(), FakeReTagEvent.class.getName(), FakeUntagEvent.class.getName());
+    }
+
     private Plugin combatLogXPlugin() {
-        return mock(Plugin.class, withSettings().extraInterfaces(ICombatLogX.class));
+        return mock(Plugin.class, withSettings().extraInterfaces(FakeCombatLogXApi.class));
+    }
+
+    public interface FakeCombatLogXApi {
+        FakeCombatManager getCombatManager();
+    }
+
+    public interface FakeCombatManager {
+        boolean isInCombat(Player player);
+        boolean canBypass(Player player);
+        int getMaxTimerSeconds(Player player);
+        FakeTagInformation getTagInformation(Player player);
+    }
+
+    public interface FakeTagInformation {
+        long getMillisLeftCombined();
+    }
+
+    public static final class FakeTagEvent extends Event {
+        private static final HandlerList HANDLERS = new HandlerList();
+        private final Player player;
+        FakeTagEvent(Player player) { this.player = player; }
+        public Player getPlayer() { return player; }
+        @Override public HandlerList getHandlers() { return HANDLERS; }
+        public static HandlerList getHandlerList() { return HANDLERS; }
+    }
+
+    public static final class FakeReTagEvent extends Event {
+        private static final HandlerList HANDLERS = new HandlerList();
+        private final Player player;
+        FakeReTagEvent(Player player) { this.player = player; }
+        public Player getPlayer() { return player; }
+        @Override public HandlerList getHandlers() { return HANDLERS; }
+        public static HandlerList getHandlerList() { return HANDLERS; }
+    }
+
+    public static final class FakeUntagEvent extends Event {
+        private static final HandlerList HANDLERS = new HandlerList();
+        private final Player player;
+        FakeUntagEvent(Player player) { this.player = player; }
+        public Player getPlayer() { return player; }
+        @Override public HandlerList getHandlers() { return HANDLERS; }
+        public static HandlerList getHandlerList() { return HANDLERS; }
     }
 }
