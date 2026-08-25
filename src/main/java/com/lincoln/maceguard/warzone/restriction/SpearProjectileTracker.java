@@ -12,9 +12,11 @@ public final class SpearProjectileTracker {
     private final Map<UUID, Attempt> attempts = new HashMap<>();
 
     public void record(UUID projectileId, UUID playerId, Material material,
-                       boolean sourceInside, boolean bypass, long expiresAtNanos) {
+                       boolean sourceInside, boolean sourceExcluded, boolean bypass,
+                       long expiresAtNanos) {
         if (!RestrictionTarget.isSpear(material)) return;
-        attempts.put(projectileId, new Attempt(playerId, material, sourceInside, bypass, expiresAtNanos));
+        attempts.put(projectileId, new Attempt(playerId, material, sourceInside,
+                sourceExcluded, bypass, expiresAtNanos));
     }
 
     public Optional<Attempt> find(UUID projectileId, long nowNanos) {
@@ -43,5 +45,6 @@ public final class SpearProjectileTracker {
     public int size() { return attempts.size(); }
 
     public record Attempt(UUID playerId, Material material,
-                          boolean sourceInside, boolean bypass, long expiresAtNanos) { }
+                          boolean sourceInside, boolean sourceExcluded,
+                          boolean bypass, long expiresAtNanos) { }
 }
