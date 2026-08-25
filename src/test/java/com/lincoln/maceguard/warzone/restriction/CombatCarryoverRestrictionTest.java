@@ -36,6 +36,18 @@ class CombatCarryoverRestrictionTest {
                         .material(playerId, Material.MACE, false, false, false).result());
     }
 
+    @Test void excludedActorSuppressesCarryoverOutsideEffectiveScope() {
+        assertEquals(RestrictionDecision.Result.UNRESTRICTED,
+                service(true, Map.of(mace, disabled))
+                        .material(playerId, Material.MACE, false, false, false, true).result());
+    }
+
+    @Test void excludedActorCannotBypassRestrictionsAgainstActiveTarget() {
+        assertEquals(RestrictionDecision.Result.DISABLED,
+                service(true, Map.of(mace, disabled))
+                        .material(playerId, Material.MACE, false, false, true, true).result());
+    }
+
     @Test void bypassAlwaysWins() {
         assertEquals(RestrictionDecision.Result.UNRESTRICTED,
                 service(true, Map.of(mace, disabled))

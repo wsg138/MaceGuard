@@ -28,9 +28,15 @@ public final class RestrictionService {
 
     public RestrictionDecision material(UUID playerId, Material material, boolean bypass,
                                         boolean actorInside, boolean targetInside) {
+        return material(playerId, material, bypass, actorInside, targetInside, false);
+    }
+
+    public RestrictionDecision material(UUID playerId, Material material, boolean bypass,
+                                        boolean actorInside, boolean targetInside,
+                                        boolean actorExcluded) {
         if (bypass) return RestrictionDecision.unrestricted();
         Map<RestrictionTarget, WarzoneConfig.Restriction> active = restrictionsFor(
-                playerId, actorInside, targetInside);
+                playerId, actorInside, targetInside, actorExcluded);
         WarzoneConfig.Restriction restriction = active.values().stream()
                 .filter(value -> !value.target().effectOnly() && value.target().matches(material))
                 .sorted(Comparator.comparingInt(value ->
@@ -41,7 +47,14 @@ public final class RestrictionService {
 
     public RestrictionDecision materialDisableOnly(UUID playerId, Material material, boolean bypass,
                                                    boolean actorInside, boolean targetInside) {
-        RestrictionDecision decision = material(playerId, material, bypass, actorInside, targetInside);
+        return materialDisableOnly(playerId, material, bypass, actorInside, targetInside, false);
+    }
+
+    public RestrictionDecision materialDisableOnly(UUID playerId, Material material, boolean bypass,
+                                                   boolean actorInside, boolean targetInside,
+                                                   boolean actorExcluded) {
+        RestrictionDecision decision = material(playerId, material, bypass, actorInside,
+                targetInside, actorExcluded);
         return decision.result() == RestrictionDecision.Result.DISABLED
                 ? decision : RestrictionDecision.unrestricted();
     }
@@ -53,21 +66,40 @@ public final class RestrictionService {
      */
     public RestrictionDecision spear(UUID playerId, boolean bypass,
                                      boolean actorInside, boolean targetInside) {
+        return spear(playerId, bypass, actorInside, targetInside, false);
+    }
+
+    public RestrictionDecision spear(UUID playerId, boolean bypass,
+                                     boolean actorInside, boolean targetInside,
+                                     boolean actorExcluded) {
         if (bypass) return RestrictionDecision.unrestricted();
-        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside)
+        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside, actorExcluded)
                 .get(RestrictionTarget.SPEAR));
     }
 
     public RestrictionDecision spearDamage(UUID playerId, boolean bypass,
                                            boolean actorInside, boolean targetInside) {
+        return spearDamage(playerId, bypass, actorInside, targetInside, false);
+    }
+
+    public RestrictionDecision spearDamage(UUID playerId, boolean bypass,
+                                           boolean actorInside, boolean targetInside,
+                                           boolean actorExcluded) {
         if (bypass) return RestrictionDecision.unrestricted();
-        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside)
+        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside, actorExcluded)
                 .get(RestrictionTarget.SPEAR_DAMAGE));
     }
 
-    public RestrictionDecision lunge(UUID playerId, boolean bypass, boolean actorInside, boolean targetInside) {
+    public RestrictionDecision lunge(UUID playerId, boolean bypass,
+                                     boolean actorInside, boolean targetInside) {
+        return lunge(playerId, bypass, actorInside, targetInside, false);
+    }
+
+    public RestrictionDecision lunge(UUID playerId, boolean bypass,
+                                     boolean actorInside, boolean targetInside,
+                                     boolean actorExcluded) {
         if (bypass) return RestrictionDecision.unrestricted();
-        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside)
+        return decide(playerId, restrictionsFor(playerId, actorInside, targetInside, actorExcluded)
                 .get(RestrictionTarget.SPEAR_LUNGE));
     }
 
@@ -82,9 +114,10 @@ public final class RestrictionService {
     }
 
     private Map<RestrictionTarget, WarzoneConfig.Restriction> restrictionsFor(
-            UUID playerId, boolean actorInside, boolean targetInside) {
+            UUID playerId, boolean actorInside, boolean targetInside, boolean actorExcluded) {
         WarzoneConfig.ActiveSet current = activeSet.get();
         if (actorInside || targetInside) return current.restrictions();
+        if (actorExcluded) return Map.of();
         return carryoverEligible.test(playerId) ? current.carriedRestrictions() : Map.of();
     }
 

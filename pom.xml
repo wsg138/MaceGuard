@@ -16,8 +16,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-06T00:00:00Z</project.build.outputTimestamp>
         <paper.api.version>1.21.11-R0.1-20251209.165129-1</paper.api.version>
-        <blueslimecore.api.version>2.9-20260720.221205-67</blueslimecore.api.version>
-        <combatlogx.api.version>11.6-20251210.005328-47</combatlogx.api.version>
     </properties>
 
     <repositories>
@@ -28,10 +26,6 @@
         <repository>
             <id>enginehub-repo</id>
             <url>https://maven.enginehub.org/repo/</url>
-        </repository>
-        <repository>
-            <id>sirblobman-public</id>
-            <url>https://nexus.sirblobman.xyz/public/</url>
         </repository>
         <repository>
             <id>placeholderapi-repo</id>
@@ -50,18 +44,6 @@
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
             <version>${paper.api.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.github.sirblobman.api</groupId>
-            <artifactId>core</artifactId>
-            <version>${blueslimecore.api.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.github.sirblobman.combatlogx</groupId>
-            <artifactId>api</artifactId>
-            <version>${combatlogx.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>

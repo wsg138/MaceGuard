@@ -60,7 +60,7 @@ jobs:
             while IFS='|' read -r expected dependency; do
               if [[ ! -f "$dependency" ]]; then
                 echo "Expected immutable artifact not found at $dependency"
-                find "$HOME/.m2/repository" -type f \( -name 'paper-api-*.jar' -o -name 'core-*.jar' -o -name 'api-*.jar' \) -print | sort
+                find "$HOME/.m2/repository" -type f -name 'paper-api-*.jar' -print | sort
                 exit 1
               fi
               actual=$(sha256sum "$dependency" | awk '{print $1}')
@@ -71,8 +71,6 @@ jobs:
               printf '%s  %s\n' "$actual" "$dependency"
             done <<DEPENDENCIES
           7ec623c368f72a6a7326a2d903397a537b0c4cad86d6f63f65dc77606a29809b|$HOME/.m2/repository/io/papermc/paper/paper-api/1.21.11-R0.1-SNAPSHOT/paper-api-1.21.11-R0.1-20251209.165129-1.jar
-          c98c8fbeecca618c3021ea7d116ef21f5e17632cf8ea235b0905ac6fafa0c33e|$HOME/.m2/repository/com/github/sirblobman/api/core/2.9-SNAPSHOT/core-2.9-20260720.221205-67.jar
-          cf57523967ec8778a2164a3fbd2f468efe6797da78c9c0dc125cf3606f35015c|$HOME/.m2/repository/com/github/sirblobman/combatlogx/api/11.6-SNAPSHOT/api-11.6-20251210.005328-47.jar
           DEPENDENCIES
 
             echo "plugin_yml_count=$(jar tf "$JAR" | grep -c '^plugin.yml$')"
@@ -86,6 +84,8 @@ jobs:
           ! jar tf "$JAR" | grep -Eq '^(com/github/sirblobman|io/papermc|org/bukkit|com/sk89q/worldguard|com/sk89q/worldedit|me/clip/placeholderapi|org/geysermc|org/floodgate|net/essentialsx|com/earth2me/essentials)/'
           ! jar tf "$JAR" | grep -Eq '(^|/)(test|tests)/|Test.class$|\.java$|^handoffs/'
           ! jar tf "$JAR" | grep -Eq 'CombatLogXBridge|ReflectiveCombat'
+          ! grep -R -n '^import com\.github\.sirblobman' src/main/java src/test/java
+          ! grep -n '<groupId>com.github.sirblobman' pom.xml
           grep -q '<version>6.1.4</version>' pom.xml
           cat target/dependency-tree.txt >> target/verification.txt
           SCRIPT

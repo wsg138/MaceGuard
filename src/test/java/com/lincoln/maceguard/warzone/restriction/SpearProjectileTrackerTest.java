@@ -11,16 +11,16 @@ class SpearProjectileTrackerTest {
     @Test void recordsOnlySpearProjectiles() {
         SpearProjectileTracker tracker = new SpearProjectileTracker();
         UUID projectile = UUID.randomUUID();
-        tracker.record(projectile, UUID.randomUUID(), Material.ENDER_PEARL, true, false, 100);
+        tracker.record(projectile, UUID.randomUUID(), Material.ENDER_PEARL, true, false, false, 100);
         assertEquals(0, tracker.size());
-        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, 100);
+        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, false, 100);
         assertEquals(1, tracker.size());
     }
 
     @Test void findDoesNotConsumeButRemoveDoes() {
         SpearProjectileTracker tracker = new SpearProjectileTracker();
         UUID projectile = UUID.randomUUID();
-        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, 100);
+        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, false, 100);
         assertTrue(tracker.find(projectile, 50).isPresent());
         assertTrue(tracker.find(projectile, 50).isPresent());
         assertTrue(tracker.remove(projectile, 50).isPresent());
@@ -30,29 +30,29 @@ class SpearProjectileTrackerTest {
     @Test void expiredAttemptIsNeverReturned() {
         SpearProjectileTracker tracker = new SpearProjectileTracker();
         UUID projectile = UUID.randomUUID();
-        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, false, false, 100);
+        tracker.record(projectile, UUID.randomUUID(), Material.WOODEN_SPEAR, false, false, false, 100);
         assertTrue(tracker.find(projectile, 100).isEmpty());
         assertEquals(0, tracker.size());
     }
 
-
-    @Test void attemptPreservesLaunchScopeAndBypassSnapshot() {
+    @Test void attemptPreservesLaunchScopeExclusionAndBypassSnapshot() {
         SpearProjectileTracker tracker = new SpearProjectileTracker();
         UUID projectile = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
-        tracker.record(projectile, owner, Material.WOODEN_SPEAR, true, true, 100);
+        tracker.record(projectile, owner, Material.WOODEN_SPEAR, false, true, true, 100);
 
         SpearProjectileTracker.Attempt attempt = tracker.find(projectile, 50).orElseThrow();
         assertEquals(owner, attempt.playerId());
         assertEquals(Material.WOODEN_SPEAR, attempt.material());
-        assertTrue(attempt.sourceInside());
+        assertFalse(attempt.sourceInside());
+        assertTrue(attempt.sourceExcluded());
         assertTrue(attempt.bypass());
     }
 
     @Test void cleanupRemovesOnlyExpiredAttempts() {
         SpearProjectileTracker tracker = new SpearProjectileTracker();
-        tracker.record(UUID.randomUUID(), UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, 10);
-        tracker.record(UUID.randomUUID(), UUID.randomUUID(), Material.WOODEN_SPEAR, true, true, 20);
+        tracker.record(UUID.randomUUID(), UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, false, 10);
+        tracker.record(UUID.randomUUID(), UUID.randomUUID(), Material.WOODEN_SPEAR, true, false, true, 20);
         assertEquals(1, tracker.cleanup(15));
         assertEquals(1, tracker.size());
     }
