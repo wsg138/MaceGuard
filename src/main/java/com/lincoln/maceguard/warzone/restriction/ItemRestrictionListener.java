@@ -57,6 +57,7 @@ public final class ItemRestrictionListener implements Listener {
     private final NamespacedKey spearOwnerKey;
     private final NamespacedKey spearMaterialKey;
     private final NamespacedKey spearSourceInsideKey;
+    private final NamespacedKey spearSourceExcludedKey;
     private final NamespacedKey spearBypassKey;
     private final ProjectileLaunchTracker projectileLaunches =
             new ProjectileLaunchTracker();
@@ -84,6 +85,7 @@ public final class ItemRestrictionListener implements Listener {
         this.spearOwnerKey = new NamespacedKey(plugin, "spear-owner");
         this.spearMaterialKey = new NamespacedKey(plugin, "spear-material");
         this.spearSourceInsideKey = new NamespacedKey(plugin, "spear-source-inside");
+        this.spearSourceExcludedKey = new NamespacedKey(plugin, "spear-source-excluded");
         this.spearBypassKey = new NamespacedKey(plugin, "spear-bypass");
     }
 
@@ -135,12 +137,13 @@ public final class ItemRestrictionListener implements Listener {
                     event.getPlayer().getUniqueId(), decision, material, now + 5_000_000_000L);
         if (RestrictionTarget.isSpear(material)) {
             boolean sourceInside = region.contains(event.getPlayer().getLocation());
+            boolean sourceExcluded = excluded(event.getPlayer());
             boolean bypass = bypass(event.getPlayer());
             spearProjectiles.record(event.getProjectile().getUniqueId(),
-                    event.getPlayer().getUniqueId(), material, sourceInside, bypass,
+                    event.getPlayer().getUniqueId(), material, sourceInside, sourceExcluded, bypass,
                     now + 120_000_000_000L);
             persistSpearAttempt(event.getProjectile(), event.getPlayer().getUniqueId(),
-                    material, sourceInside, bypass);
+                    material, sourceInside, sourceExcluded, bypass);
         }
     }
 
@@ -236,7 +239,7 @@ public final class ItemRestrictionListener implements Listener {
         }
         if (!RestrictionTarget.isSpear(material)) return;
         RestrictionDecision damageDecision = restrictions.spearDamage(player.getUniqueId(), bypass(player),
-                region.contains(player.getLocation()), targetInside);
+                region.contains(player.getLocation()), targetInside, excluded(player));
         if (!damageDecision.denied()) return;
         event.setCancelled(true);
         messages.denial(player, damageDecision, material);
@@ -251,9 +254,10 @@ public final class ItemRestrictionListener implements Listener {
         // cancel the damage from the already-authorized projectile, but a newly active DISABLED
         // restriction must still stop an in-flight spear from dealing damage.
         RestrictionDecision itemDecision = restrictions.materialDisableOnly(
-                attempt.playerId(), attempt.material(), bypass, attempt.sourceInside(), targetInside);
+                attempt.playerId(), attempt.material(), bypass, attempt.sourceInside(), targetInside,
+                attempt.sourceExcluded());
         RestrictionDecision damageDecision = restrictions.spearDamage(attempt.playerId(), bypass,
-                attempt.sourceInside(), targetInside);
+                attempt.sourceInside(), targetInside, attempt.sourceExcluded());
         RestrictionDecision denial = itemDecision.denied() ? itemDecision
                 : damageDecision.denied() ? damageDecision : null;
         if (denial == null) return;
@@ -288,7 +292,7 @@ public final class ItemRestrictionListener implements Listener {
             completeSuccess(player.getUniqueId(), player, itemDecision, material);
         if (!RestrictionTarget.isSpear(material)) return;
         RestrictionDecision damageDecision = restrictions.spearDamage(player.getUniqueId(), bypass(player),
-                region.contains(player.getLocation()), targetInside);
+                region.contains(player.getLocation()), targetInside, excluded(player));
         if (damageDecision.startsCooldownAfterSuccess())
             completeSuccess(player.getUniqueId(), player, damageDecision, null);
     }
@@ -298,7 +302,8 @@ public final class ItemRestrictionListener implements Listener {
         Player player = projectile.getServer().getPlayer(attempt.playerId());
         boolean bypass = attempt.bypass() || player != null && bypass(player);
         RestrictionDecision damageDecision = restrictions.spearDamage(attempt.playerId(), bypass,
-                attempt.sourceInside(), region.contains(event.getEntity().getLocation()));
+                attempt.sourceInside(), region.contains(event.getEntity().getLocation()),
+                attempt.sourceExcluded());
         if (damageDecision.startsCooldownAfterSuccess())
             completeSuccess(attempt.playerId(), player, damageDecision, null);
     }
@@ -340,7 +345,8 @@ public final class ItemRestrictionListener implements Listener {
         if (event.getBlockPlaced().getType() == Material.COBWEB) return;
         RestrictionDecision decision = restrictions.material(event.getPlayer().getUniqueId(),
                 event.getBlockPlaced().getType(), bypass(event.getPlayer()),
-                region.contains(event.getBlockPlaced().getLocation()), false);
+                region.contains(event.getBlockPlaced().getLocation()), false,
+                excluded(event.getPlayer()));
         if (!decision.denied()) return;
         event.setCancelled(true);
         messages.denial(event.getPlayer(), decision, event.getBlockPlaced().getType());
@@ -351,7 +357,8 @@ public final class ItemRestrictionListener implements Listener {
         if (event.getBlockPlaced().getType() == Material.COBWEB) return;
         RestrictionDecision decision = restrictions.material(event.getPlayer().getUniqueId(),
                 event.getBlockPlaced().getType(), bypass(event.getPlayer()),
-                region.contains(event.getBlockPlaced().getLocation()), false);
+                region.contains(event.getBlockPlaced().getLocation()), false,
+                excluded(event.getPlayer()));
         if (decision.startsCooldownAfterSuccess() && supports(decision.target(), CooldownCapability.BLOCK_PLACE))
             completeSuccess(event.getPlayer().getUniqueId(), event.getPlayer(), decision,
                     event.getBlockPlaced().getType());
@@ -360,7 +367,7 @@ public final class ItemRestrictionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onGlideStart(EntityToggleGlideEvent event) {
         if (!(event.getEntity() instanceof Player player) || !event.isGliding()) return;
-        boolean maceGuardBypass = bypass(player);
+        boolean maceGuardBypass = bypass(player) || excluded(player);
         boolean combatBound = combatScopes.combatBound(player);
         WarzoneConfig.ActiveSet active = activeSet.get();
         boolean allowed = CombatElytraPolicy.canStart(combatBound, false, maceGuardBypass,
@@ -375,7 +382,7 @@ public final class ItemRestrictionListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onElytraBoost(PlayerElytraBoostEvent event) {
         Player player = event.getPlayer();
-        boolean maceGuardBypass = bypass(player);
+        boolean maceGuardBypass = bypass(player) || excluded(player);
         boolean combatBound = combatScopes.combatBound(player);
         if (!CombatElytraPolicy.blockBoost(combatBound, false, maceGuardBypass)) return;
         event.setCancelled(true);
@@ -392,7 +399,7 @@ public final class ItemRestrictionListener implements Listener {
         boolean actorInside = region.contains(player.getLocation());
         boolean targetInside = region.contains(event.getAttacked().getLocation());
         RestrictionDecision itemDecision = restrictions.material(player.getUniqueId(), item.getType(),
-                bypass(player), actorInside, targetInside);
+                bypass(player), actorInside, targetInside, excluded(player));
         Vector look = player.getLocation().getDirection();
         Vector velocity = player.getVelocity();
         lungeGate.record(player.getUniqueId(), item.getType().name(), vec(look), vec(velocity),
@@ -406,11 +413,12 @@ public final class ItemRestrictionListener implements Listener {
         if (attempt.isEmpty()) return;
 
         boolean actorInside = attempt.get().actorInside() || region.contains(player.getLocation());
+        boolean actorExcluded = excluded(player);
         boolean bypass = bypass(player);
         Material lungeMaterial = Material.valueOf(attempt.get().materialName());
         RestrictionDecision currentDisable = restrictions.materialDisableOnly(
                 player.getUniqueId(), lungeMaterial, bypass,
-                actorInside, attempt.get().targetInside());
+                actorInside, attempt.get().targetInside(), actorExcluded);
         RestrictionDecision itemDecision = currentDisable.denied()
                 ? currentDisable : bypass ? RestrictionDecision.unrestricted()
                 : attempt.get().itemDecision();
@@ -422,7 +430,7 @@ public final class ItemRestrictionListener implements Listener {
         }
 
         RestrictionDecision decision = restrictions.lunge(player.getUniqueId(), bypass,
-                actorInside, attempt.get().targetInside());
+                actorInside, attempt.get().targetInside(), actorExcluded);
         if (decision.denied()) {
             event.setCancelled(true);
             acceptedLunges.remove(player.getUniqueId());
@@ -466,9 +474,9 @@ public final class ItemRestrictionListener implements Listener {
 
     private void reconcileVisualCooldowns(Player player) {
         UUID playerId = player.getUniqueId();
-        boolean excluded = region.exclusionAt(player.getLocation()) != null;
+        boolean actorExcluded = excluded(player);
         boolean inside = region.contains(player.getLocation());
-        boolean visibleScope = !excluded && (inside || combatScopes.carryoverEligible(player));
+        boolean visibleScope = !actorExcluded && (inside || combatScopes.carryoverEligible(player));
         Boolean previous = visualInsideState.put(playerId, visibleScope);
         if (visibleScope && !Boolean.TRUE.equals(previous)) {
             Map<Material, java.time.Duration> active = inside
@@ -502,7 +510,7 @@ public final class ItemRestrictionListener implements Listener {
     }
 
     private Optional<SpearProjectileTracker.Attempt> spearAttempt(Projectile projectile,
-                                                                    long nowNanos) {
+                                                                   long nowNanos) {
         Optional<SpearProjectileTracker.Attempt> tracked =
                 spearProjectiles.find(projectile.getUniqueId(), nowNanos);
         if (tracked.isPresent()) return tracked;
@@ -510,6 +518,7 @@ public final class ItemRestrictionListener implements Listener {
         String owner = data.get(spearOwnerKey, PersistentDataType.STRING);
         String materialName = data.get(spearMaterialKey, PersistentDataType.STRING);
         Byte sourceInside = data.get(spearSourceInsideKey, PersistentDataType.BYTE);
+        Byte sourceExcluded = data.get(spearSourceExcludedKey, PersistentDataType.BYTE);
         Byte bypass = data.get(spearBypassKey, PersistentDataType.BYTE);
         if (owner == null || materialName == null || sourceInside == null || bypass == null)
             return Optional.empty();
@@ -518,7 +527,8 @@ public final class ItemRestrictionListener implements Listener {
             Material material = Material.valueOf(materialName);
             if (!RestrictionTarget.isSpear(material)) return Optional.empty();
             return Optional.of(new SpearProjectileTracker.Attempt(playerId, material,
-                    sourceInside != 0, bypass != 0, Long.MAX_VALUE));
+                    sourceInside != 0, sourceExcluded != null && sourceExcluded != 0,
+                    bypass != 0, Long.MAX_VALUE));
         } catch (IllegalArgumentException ex) {
             clearSpearAttempt(projectile);
             return Optional.empty();
@@ -526,11 +536,12 @@ public final class ItemRestrictionListener implements Listener {
     }
 
     private void persistSpearAttempt(Projectile projectile, UUID playerId, Material material,
-                                     boolean sourceInside, boolean bypass) {
+                                     boolean sourceInside, boolean sourceExcluded, boolean bypass) {
         PersistentDataContainer data = projectile.getPersistentDataContainer();
         data.set(spearOwnerKey, PersistentDataType.STRING, playerId.toString());
         data.set(spearMaterialKey, PersistentDataType.STRING, material.name());
         data.set(spearSourceInsideKey, PersistentDataType.BYTE, sourceInside ? (byte) 1 : (byte) 0);
+        data.set(spearSourceExcludedKey, PersistentDataType.BYTE, sourceExcluded ? (byte) 1 : (byte) 0);
         data.set(spearBypassKey, PersistentDataType.BYTE, bypass ? (byte) 1 : (byte) 0);
     }
 
@@ -539,6 +550,7 @@ public final class ItemRestrictionListener implements Listener {
         data.remove(spearOwnerKey);
         data.remove(spearMaterialKey);
         data.remove(spearSourceInsideKey);
+        data.remove(spearSourceExcludedKey);
         data.remove(spearBypassKey);
     }
 
@@ -547,22 +559,26 @@ public final class ItemRestrictionListener implements Listener {
         restrictions.success(playerId, decision, concreteMaterial);
         if (player == null) return;
         messages.cooldownStarted(player, decision, concreteMaterial);
+        boolean actorExcluded = excluded(player);
         boolean inside = region.contains(player.getLocation());
         boolean carried = combatScopes.carryoverEligible(player)
                 && decision.target() != null
                 && activeSet.get().carriedRestrictions().containsKey(decision.target());
-        if (inside || carried) visualCooldowns.apply(player, decision, concreteMaterial);
+        if (!actorExcluded && (inside || carried))
+            visualCooldowns.apply(player, decision, concreteMaterial);
     }
 
     private RestrictionDecision materialDecision(Player player, Material material, boolean targetInside) {
         return restrictions.material(player.getUniqueId(), material, bypass(player),
-                region.contains(player.getLocation()), targetInside);
+                region.contains(player.getLocation()), targetInside, excluded(player));
     }
 
-    /** Excluded WorldGuard regions override combat carryover and all player restriction checks. */
     private boolean bypass(Player player) {
-        return player.hasPermission("warzonerotator.bypass")
-                || region.exclusionAt(player.getLocation()) != null;
+        return player.hasPermission("warzonerotator.bypass");
+    }
+
+    private boolean excluded(Player player) {
+        return region.exclusionAt(player.getLocation()) != null;
     }
 
     private boolean supports(Material material, CooldownCapability capability) {
