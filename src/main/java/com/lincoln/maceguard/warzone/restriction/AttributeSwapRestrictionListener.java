@@ -172,11 +172,13 @@ public final class AttributeSwapRestrictionListener implements Listener {
                                        org.bukkit.Location targetLocation) {
         if (player.hasPermission("warzonerotator.bypass")) return RestrictionDecision.unrestricted();
         boolean actorInside = runtime.region().contains(player.getLocation());
+        boolean actorExcluded = runtime.region().exclusionAt(player.getLocation()) != null;
         boolean targetInside = runtime.region().contains(targetLocation);
         WarzoneConfig.ActiveSet active = runtime.rotations().active();
         Map<RestrictionTarget, WarzoneConfig.Restriction> effective;
         if (actorInside || targetInside) effective = active.restrictions();
-        else if (runtime.combatScopes().carryoverEligible(player)) effective = active.carriedRestrictions();
+        else if (!actorExcluded && runtime.combatScopes().carryoverEligible(player))
+            effective = active.carriedRestrictions();
         else effective = Map.of();
 
         WarzoneConfig.Restriction restriction = effective.get(target);
