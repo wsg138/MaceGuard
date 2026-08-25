@@ -398,12 +398,13 @@ public final class ItemRestrictionListener implements Listener {
 
         boolean actorInside = region.contains(player.getLocation());
         boolean targetInside = region.contains(event.getAttacked().getLocation());
+        boolean actorExcluded = excluded(player);
         RestrictionDecision itemDecision = restrictions.material(player.getUniqueId(), item.getType(),
-                bypass(player), actorInside, targetInside, excluded(player));
+                bypass(player), actorInside, targetInside, actorExcluded);
         Vector look = player.getLocation().getDirection();
         Vector velocity = player.getVelocity();
         lungeGate.record(player.getUniqueId(), item.getType().name(), vec(look), vec(velocity),
-                actorInside, targetInside, itemDecision);
+                actorInside, targetInside, actorExcluded, itemDecision);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -419,9 +420,19 @@ public final class ItemRestrictionListener implements Listener {
         RestrictionDecision currentDisable = restrictions.materialDisableOnly(
                 player.getUniqueId(), lungeMaterial, bypass,
                 actorInside, attempt.get().targetInside(), actorExcluded);
-        RestrictionDecision itemDecision = currentDisable.denied()
-                ? currentDisable : bypass ? RestrictionDecision.unrestricted()
-                : attempt.get().itemDecision();
+        RestrictionDecision itemDecision;
+        if (currentDisable.denied()) {
+            itemDecision = currentDisable;
+        } else if (bypass) {
+            itemDecision = RestrictionDecision.unrestricted();
+        } else if (!attempt.get().actorInside() && !attempt.get().targetInside()
+                && attempt.get().actorExcluded() != actorExcluded) {
+            itemDecision = actorExcluded ? RestrictionDecision.unrestricted()
+                    : restrictions.material(player.getUniqueId(), lungeMaterial, false,
+                    actorInside, false, false);
+        } else {
+            itemDecision = attempt.get().itemDecision();
+        }
         if (itemDecision.denied()) {
             event.setCancelled(true);
             acceptedLunges.remove(player.getUniqueId());
