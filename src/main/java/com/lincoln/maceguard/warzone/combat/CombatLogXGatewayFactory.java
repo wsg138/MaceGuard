@@ -19,12 +19,10 @@ public final class CombatLogXGatewayFactory {
             return unavailable("CombatLogX is not installed or enabled");
         try {
             return DirectCombatLogXGateway.connect(owner, candidate);
-        } catch (ClassCastException incompatible) {
-            return unavailable("CombatLogX does not expose the expected 11.6 public API");
         } catch (IllegalStateException incompatible) {
             return unavailable(incompatible.getMessage());
         } catch (LinkageError incompatible) {
-            return unavailable("CombatLogX 11.6 public API linkage failed: "
+            return unavailable("CombatLogX public API linkage failed: "
                     + incompatible.getClass().getSimpleName());
         }
     }
