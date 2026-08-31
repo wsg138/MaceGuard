@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -98,6 +99,44 @@ class AttributeSwapRestrictionListenerTest {
         assertFalse(harness.cooldowns.active(harness.playerId,
                 RestrictionTarget.parse("MACE").orElseThrow()));
         verify(harness.messages, never()).cooldownStarted(any(), any(), any());
+    }
+
+    @Test
+    void lungeReconcileWaitsForSameModuleRecoveryButCancelsAfterReplacement() {
+        MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
+        PluginRuntime pluginRuntime = mock(PluginRuntime.class);
+        WarzoneModule module = mock(WarzoneModule.class);
+        WarzoneModule replacement = mock(WarzoneModule.class);
+        WarzoneRuntime recoveredRuntime = mock(WarzoneRuntime.class);
+        Server server = mock(Server.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        BukkitTask task = mock(BukkitTask.class);
+        AtomicReference<Runnable> scheduled = new AtomicReference<>();
+
+        when(plugin.getServer()).thenReturn(server);
+        when(server.getScheduler()).thenReturn(scheduler);
+        when(server.getOnlinePlayers()).thenReturn(List.of());
+        when(plugin.runtime()).thenReturn(pluginRuntime);
+        when(pluginRuntime.warzone()).thenReturn(module);
+        when(module.runtime()).thenReturn(null);
+        when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), eq(1L), eq(1L)))
+                .thenAnswer(invocation -> {
+                    scheduled.set(invocation.getArgument(1));
+                    return task;
+                });
+
+        new AttributeSwapRestrictionListener(plugin, module);
+        Runnable reconcile = scheduled.get();
+        reconcile.run();
+        verify(task, never()).cancel();
+
+        when(module.runtime()).thenReturn(recoveredRuntime);
+        reconcile.run();
+        verify(task, never()).cancel();
+
+        when(pluginRuntime.warzone()).thenReturn(replacement);
+        reconcile.run();
+        verify(task).cancel();
     }
 
     private Harness harness(WarzoneConfig.Restriction restriction) {
