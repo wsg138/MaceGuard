@@ -55,8 +55,6 @@ public final class ExplosiveControlListener implements Listener {
     public void onCartRailPlace(BlockPlaceEvent event) {
         if (isCartRail(event.getBlockPlaced().getType())
                 && cartModifierActive(event.getBlockPlaced().getLocation())) {
-            // Carts is an explicit material-scoped positive grant. This intentionally opens only
-            // the four rail blocks even when ordinary WorldGuard/MaceGuard building is denied.
             event.setCancelled(false);
         }
     }
@@ -174,8 +172,6 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPrime(ExplosionPrimeEvent event) {
         if (isCartExplosion(event.getEntity(), event.getEntity().getLocation())) {
-            // Carts deliberately bypasses WorldGuard/MaceGuard TNT-explosion denial for TNT
-            // minecarts only. The later EntityExplodeEvent removes every block from destruction.
             event.setCancelled(false);
             return;
         }
@@ -206,9 +202,7 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
         Entity direct = event.getDamageSource().getDirectEntity();
-        Entity causing = event.getDamageSource().getCausingEntity();
-        if (isWindCharge(direct) || isWindBurstSource(direct) || isWindBurstSource(causing)
-                || cartExplosionSource(direct) || cartExplosionSource(causing)) return;
+        if (isWindCharge(direct) || isWindBurstSource(direct) || cartExplosionSource(direct)) return;
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
@@ -222,12 +216,6 @@ public final class ExplosiveControlListener implements Listener {
         return entity != null && isWindCharge(entity.getType());
     }
 
-    /**
-     * Wind Burst is implemented by vanilla as a post-attack explosion sourced from the attacker.
-     * It is movement/enchantment behavior, not one of the destructive explosive mechanics governed
-     * by maceguard-explosives, so do not cancel that player-sourced explosion merely because the
-     * region denies TNT/crystals/anchors.
-     */
     static boolean isWindBurstSource(Entity entity) {
         if (!(entity instanceof Player player)) return false;
         var held = player.getInventory().getItemInMainHand();
