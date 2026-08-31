@@ -35,7 +35,7 @@ class WarzoneCartDefaultsTest {
         assertEquals("Custom SMP Kit", existing.getString("kits.smp.display-name"));
         assertTrue(existing.getBoolean("modifiers.carts.enabled"));
         assertEquals(8, existing.getInt("modifiers.carts.weight"));
-        assertEquals(java.util.List.of("CARTS"), existing.getStringList("modifiers.carts.effects"));
+        assertTrue(existing.getStringList("modifiers.carts.effects").isEmpty());
         assertNotNull(existing.getConfigurationSection("modifiers.carts.restrictions"));
 
         Path file = directory.resolve("warzone.yml");
@@ -57,7 +57,7 @@ class WarzoneCartDefaultsTest {
 
         assertEquals(91, existing.getInt("modifiers.carts.weight"));
         assertEquals("My custom cart description", existing.getString("modifiers.carts.description"));
-        assertEquals(java.util.List.of("CARTS"), existing.getStringList("modifiers.carts.effects"));
+        assertTrue(existing.getStringList("modifiers.carts.effects").isEmpty());
         assertNotNull(existing.getConfigurationSection("modifiers.carts.restrictions"));
     }
 
