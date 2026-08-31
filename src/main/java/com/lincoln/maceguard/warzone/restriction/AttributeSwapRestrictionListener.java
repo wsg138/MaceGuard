@@ -4,6 +4,7 @@ import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
+import io.papermc.paper.event.player.PlayerArmSwingEvent;
 import io.papermc.paper.event.player.PlayerInventorySlotChangeEvent;
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Material;
@@ -13,12 +14,14 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.event.player.PlayerItemCooldownEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -35,6 +38,7 @@ import java.util.UUID;
  */
 public final class AttributeSwapRestrictionListener implements Listener {
     private static final Duration SWAP_WINDOW = Duration.ofMillis(250);
+    private static final Duration LUNGE_WINDOW = Duration.ofMillis(250);
     private static final String MACE_SMASH = "mace_smash";
     private static final String SPEAR_DAMAGE = "spear";
     private static final int MIN_LUNGE_FOOD = 6;
@@ -42,6 +46,8 @@ public final class AttributeSwapRestrictionListener implements Listener {
     private final MaceGuardPlugin plugin;
     private final WarzoneModule module;
     private final AttributeSwapTracker swaps = new AttributeSwapTracker(System::nanoTime, SWAP_WINDOW);
+    private final LungeVelocityGate openAirLungeGate =
+            new LungeVelocityGate(System::nanoTime, LUNGE_WINDOW);
     private final LungeEnchantmentSuppressor lungeSuppressor;
     private final Set<UUID> pendingLungeCooldowns = new HashSet<>();
     private BukkitTask lungeReconcileTask;
@@ -84,24 +90,65 @@ public final class AttributeSwapRestrictionListener implements Listener {
     }
 
     /**
-     * A successful 1.21.11 Spear Jab applies its material cooldown. For an eligible held Spear
-     * with live Lunge, that event is the fallback success signal for open-air Lunges, which never
-     * reach PrePlayerAttackEntityEvent. The one-tick delay lets the older entity-hit velocity gate
-     * win first when it did observe the same Lunge, preventing duplicate cooldown starts/messages.
+     * The older 1.21.11 Paper snapshot used by MaceGuard has no dedicated cancellable Lunge event
+     * and the existing compatibility gate was armed only by PrePlayerAttackEntityEvent. Arm a
+     * second gate from a real main-hand swing so open-air Lunges are observable too. Entity-targeted
+     * Lunges are still handled by the original gate; the delayed cooldown finalizer below simply
+     * sees that cooldown as already active and does not start it twice.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onSpearItemCooldown(PlayerItemCooldownEvent event) {
-        if (event.getCooldown() <= 0 || !RestrictionTarget.isSpear(event.getType())) return;
+    public void onArmSwing(PlayerArmSwingEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
-        if (held.getType() != event.getType() || !lungeSuppressor.hasLiveLunge(held)
+        if (!RestrictionTarget.isSpear(held.getType()) || !lungeSuppressor.hasLiveLunge(held)
                 || !vanillaLungeEligible(player)) return;
 
         WarzoneRuntime runtime = authoritativeRuntime();
         if (runtime == null) return;
-        RestrictionDecision decision = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE,
+        boolean actorInside = runtime.region().contains(player.getLocation());
+        boolean actorExcluded = runtime.region().exclusionAt(player.getLocation()) != null;
+        RestrictionDecision spearDecision = decide(runtime, player, RestrictionTarget.SPEAR,
                 player.getLocation());
-        if (!decision.startsCooldownAfterSuccess()
+        Vector look = player.getLocation().getDirection();
+        Vector velocity = player.getVelocity();
+        openAirLungeGate.record(player.getUniqueId(), held.getType().name(), vec(look), vec(velocity),
+                actorInside, false, actorExcluded, spearDecision);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onObservedLungeVelocity(PlayerVelocityEvent event) {
+        Player player = event.getPlayer();
+        var attempt = openAirLungeGate.consumeIfLunge(player.getUniqueId(), vec(event.getVelocity()));
+        if (attempt.isEmpty()) return;
+
+        WarzoneRuntime runtime = authoritativeRuntime();
+        if (runtime == null) return;
+        Material material;
+        try {
+            material = Material.valueOf(attempt.orElseThrow().materialName());
+        } catch (IllegalArgumentException ex) {
+            return;
+        }
+
+        RestrictionDecision spearDecision = decide(runtime, player, RestrictionTarget.SPEAR,
+                player.getLocation());
+        if (spearDecision.denied()) {
+            event.setCancelled(true);
+            pendingLungeCooldowns.remove(player.getUniqueId());
+            runtime.messages().denial(player, spearDecision, material);
+            return;
+        }
+
+        RestrictionDecision lungeDecision = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE,
+                player.getLocation());
+        if (lungeDecision.denied()) {
+            event.setCancelled(true);
+            pendingLungeCooldowns.remove(player.getUniqueId());
+            runtime.messages().denial(player, lungeDecision, null);
+            return;
+        }
+        if (!lungeDecision.startsCooldownAfterSuccess()
                 || !pendingLungeCooldowns.add(player.getUniqueId())) return;
 
         plugin.getServer().getScheduler().runTask(plugin, () -> finalizeObservedLunge(player));
@@ -190,6 +237,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         UUID playerId = event.getPlayer().getUniqueId();
         swaps.clearPlayer(playerId);
+        openAirLungeGate.remove(playerId);
         pendingLungeCooldowns.remove(playerId);
         restoreAllLunges(event.getPlayer());
     }
@@ -198,6 +246,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
         WarzoneRuntime runtime = authoritativeRuntime();
         if (runtime == null) {
             for (Player player : plugin.getServer().getOnlinePlayers()) restoreAllLunges(player);
+            openAirLungeGate.clear();
             pendingLungeCooldowns.clear();
             BukkitTask task = lungeReconcileTask;
             if (task != null) {
@@ -207,6 +256,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
             return;
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) reconcileLunge(runtime, player);
+        openAirLungeGate.cleanup();
     }
 
     private void reconcileLunge(WarzoneRuntime runtime, Player player) {
@@ -334,6 +384,10 @@ public final class AttributeSwapRestrictionListener implements Listener {
 
     private Material type(ItemStack item) {
         return item == null ? Material.AIR : item.getType();
+    }
+
+    private LungeVelocityGate.Vec3 vec(Vector vector) {
+        return new LungeVelocityGate.Vec3(vector.getX(), vector.getY(), vector.getZ());
     }
 
     private record AttackSource(Material material, boolean spear) { }
