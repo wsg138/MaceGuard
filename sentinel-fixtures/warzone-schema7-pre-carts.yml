@@ -1,0 +1,327 @@
+# Sentinel restart-config fixture: valid schema-7 Warzone config from before the TNT Carts modifier existed.
+# Operator customizations below must survive additive migration and the second Paper boot.
+config-version: 7
+enabled: false
+
+region:
+  world: world
+  id: warzone
+  excluded-region-ids:
+    - spawn
+    - market
+
+rotation:
+  schedule:
+    enabled: true
+    timezone: America/Indiana/Indianapolis
+    anchor-date: "2026-08-09"
+    time: "06:25"
+    cadence:
+      every: 1
+      unit: WEEKS
+    cycle:
+      - type: KIT
+        kit: smp
+      - type: RANDOM
+      - type: KIT
+        kit: mace
+      - type: MODIFIERS
+        modifiers:
+          - cobwebs
+          - no-lunge
+  selection:
+    mode: WEIGHTED_RANDOM_MODIFIERS
+    minimum: 1
+    maximum: 3
+    prevent-identical-repeat: true
+    count-weights:
+      1: 35
+      2: 45
+      3: 20
+  special-rules:
+    elytra-no-rockets:
+      weekly-inclusion-chance-percent: 8
+      unrestricted-mace-chance-percent: 90
+  warning-times:
+    - 1h
+    - 30m
+    - 10m
+    - 5m
+    - 1m
+
+messages:
+  blocked-message-cooldown: 1s
+  warning-audience: global
+  transition-audience: global
+
+combat:
+  stasis:
+    minimum-age: 60s
+
+cobwebs:
+  clear-after: 60s
+  clear-on-meta-change: true
+  clear-on-disable: true
+
+restriction-targets:
+  MACE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  ENDER_PEARL:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  WIND_CHARGE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  SPEAR:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+  SPEAR_DAMAGE:
+    can-disable: false
+    can-cooldown: true
+    maximum-cooldown: 60s
+  SPEAR_LUNGE:
+    can-disable: true
+    can-cooldown: true
+    maximum-cooldown: 60s
+
+conflict-groups:
+  mace-mode:
+    - mace-disabled
+    - mace-cooldown
+  ender-pearl-mode:
+    - ender-pearl-disabled
+    - ender-pearl-cooldown-5
+    - ender-pearl-cooldown-10
+  wind-charge-mode:
+    - wind-charge-disabled
+    - wind-charge-cooldown-5
+    - wind-charge-cooldown-10
+  spear-damage-mode:
+    - spear-disabled
+    - spear-damage-cooldown-10
+  spear-lunge-mode:
+    - spear-disabled
+    - no-lunge
+    - lunge-cooldown-10
+
+modifiers:
+  cobwebs:
+    combat-carryover: false
+    enabled: true
+    weight: 37
+    display-name: "<white>Cobwebs"
+    description: "<gray>Temporary cobweb placement is available in the effective warzone."
+    effects: [COBWEBS]
+    restrictions: {}
+    start-message: "<white>Cobwebs are active in the warzone."
+    end-message: "<gray>The Warzone cobweb modifier has ended."
+
+  no-lunge:
+    combat-carryover: true
+    enabled: true
+    weight: 8
+    display-name: "<red>No Lunge"
+    description: "<gray>The Spear Lunge effect is disabled without blocking normal spear use."
+    effects: []
+    restrictions:
+      SPEAR_LUNGE:
+        mode: DISABLED
+    start-message: "<red>Spear Lunge is disabled in the warzone."
+    end-message: "<gray>Spear Lunge is allowed in the warzone again."
+
+  lunge-cooldown-10:
+    combat-carryover: true
+    enabled: true
+    weight: 6
+    display-name: "<gold>10s Lunge Cooldown"
+    description: "<gray>Accepted Spear Lunges receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      SPEAR_LUNGE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<gold>Spear Lunge now has a ten-second warzone cooldown."
+    end-message: "<gray>The Spear Lunge cooldown has ended."
+
+  spear-disabled:
+    combat-carryover: true
+    enabled: true
+    weight: 4
+    display-name: "<dark_red>No Spears"
+    description: "<gray>Spear launches and spear damage are disabled in the effective warzone."
+    effects: []
+    restrictions:
+      SPEAR:
+        mode: DISABLED
+    start-message: "<dark_red>Spears are disabled in the warzone."
+    end-message: "<gray>Spears are allowed in the warzone again."
+
+  spear-damage-cooldown-10:
+    combat-carryover: true
+    enabled: true
+    weight: 6
+    display-name: "<gold>10s Spear Damage Cooldown"
+    description: "<gray>Successful spear damage receives a ten-second cooldown."
+    effects: []
+    restrictions:
+      SPEAR_DAMAGE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<gold>Successful spear damage now has a ten-second warzone cooldown."
+    end-message: "<gray>The Spear damage cooldown has ended."
+
+  mace-disabled:
+    combat-carryover: true
+    enabled: true
+    weight: 4
+    display-name: "<dark_red>No Maces"
+    description: "<gray>Mace use is disabled in the effective warzone."
+    effects: []
+    restrictions:
+      MACE:
+        mode: DISABLED
+    start-message: "<dark_red>Maces are disabled in the warzone."
+    end-message: "<gray>The No Maces modifier has ended."
+
+  mace-cooldown:
+    combat-carryover: true
+    enabled: true
+    weight: 8
+    display-name: "<gold>Mace Cooldown"
+    description: "<gray>Successful mace attacks receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      MACE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<gold>Successful mace attacks now have a ten-second warzone cooldown."
+    end-message: "<gray>The Mace cooldown has ended."
+
+  ender-pearl-disabled:
+    combat-carryover: true
+    enabled: true
+    weight: 3
+    display-name: "<dark_purple>No Ender Pearls"
+    description: "<gray>Ender Pearls are disabled in the effective warzone."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: DISABLED
+    start-message: "<dark_purple>Ender Pearls are disabled in the warzone."
+    end-message: "<gray>Ender Pearls are allowed in the warzone again."
+
+  ender-pearl-cooldown-5:
+    combat-carryover: true
+    enabled: true
+    weight: 9
+    display-name: "<light_purple>5s Pearl Cooldown"
+    description: "<gray>Successful Ender Pearls receive a five-second cooldown."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: COOLDOWN
+        cooldown: 5s
+    start-message: "<light_purple>Successful Ender Pearls now have a five-second warzone cooldown."
+    end-message: "<gray>The five-second Ender Pearl cooldown has ended."
+
+  ender-pearl-cooldown-10:
+    combat-carryover: false
+    enabled: true
+    weight: 6
+    display-name: "<light_purple>10s Pearl Cooldown"
+    description: "<gray>Successful Ender Pearls receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      ENDER_PEARL:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<light_purple>Successful Ender Pearls now have a ten-second warzone cooldown."
+    end-message: "<gray>The ten-second Ender Pearl cooldown has ended."
+
+  wind-charge-disabled:
+    combat-carryover: true
+    enabled: true
+    weight: 3
+    display-name: "<blue>No Wind Charges"
+    description: "<gray>Wind Charges are disabled in the effective warzone."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: DISABLED
+    start-message: "<blue>Wind Charges are disabled in the warzone."
+    end-message: "<gray>Wind Charges are allowed in the warzone again."
+
+  wind-charge-cooldown-5:
+    combat-carryover: true
+    enabled: true
+    weight: 9
+    display-name: "<aqua>5s Wind Charge Cooldown"
+    description: "<gray>Successful Wind Charges receive a five-second cooldown."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: COOLDOWN
+        cooldown: 5s
+    start-message: "<aqua>Successful Wind Charges now have a five-second warzone cooldown."
+    end-message: "<gray>The five-second Wind Charge cooldown has ended."
+
+  wind-charge-cooldown-10:
+    combat-carryover: false
+    enabled: true
+    weight: 6
+    display-name: "<aqua>10s Wind Charge Cooldown"
+    description: "<gray>Successful Wind Charges receive a ten-second cooldown."
+    effects: []
+    restrictions:
+      WIND_CHARGE:
+        mode: COOLDOWN
+        cooldown: 10s
+    start-message: "<aqua>Successful Wind Charges now have a ten-second warzone cooldown."
+    end-message: "<gray>The ten-second Wind Charge cooldown has ended."
+
+  elytra-no-rockets:
+    combat-carryover: true
+    enabled: true
+    weight: 1
+    display-name: "<aqua>Elytra, No Rockets"
+    description: "<gray>Elytra gliding is allowed, but actual firework boosting is blocked."
+    effects: [ELYTRA_NO_ROCKETS]
+    restrictions: {}
+    start-message: "<aqua>Elytra gliding is active in the warzone; firework boosting is disabled."
+    end-message: "<gray>The Elytra modifier has ended."
+
+kits:
+  smp:
+    enabled: true
+    display-name: "Custom SMP Kit"
+    description: "<gray>General-purpose mobility and utility rules."
+    icon: GRASS_BLOCK
+    modifiers:
+      - cobwebs
+      - ender-pearl-cooldown-5
+      - wind-charge-cooldown-5
+  mace:
+    enabled: true
+    display-name: "<gold>Mace"
+    description: "<gray>Mace-focused combat with Spear Lunge disabled."
+    icon: MACE
+    modifiers:
+      - mace-cooldown
+      - no-lunge
+  spear:
+    enabled: true
+    display-name: "<gold>Spear"
+    description: "<gray>Spear damage and Lunge cooldowns."
+    icon: WOODEN_SPEAR
+    modifiers:
+      - spear-damage-cooldown-10
+      - lunge-cooldown-10
+
+gui:
+  show-disabled-kits: false
+  session-timeout-seconds: 60
