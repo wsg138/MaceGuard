@@ -55,6 +55,23 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
+    void warzoneModifierGrantsTemporaryCobwebsThroughNormalBuildDeny() {
+        Harness harness = harness(true, true);
+        when(harness.worldGuard.buildAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.cobwebsAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 7, Material.AIR);
+
+        harness.listener.onRestriction(event);
+        harness.listener.onPlace(event);
+
+        verify(event, never()).setCancelled(true);
+        verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
+    }
+
+    @Test
     void rejectedTrackingCancelsAndRestoresTheOriginalBlock() {
         Harness harness = harness(false, true);
         BlockPlaceEvent event = event(GameMode.SURVIVAL, 3, Material.AIR);
@@ -141,7 +158,7 @@ class CobwebListenerPlacementTest {
         when(worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
         when(temporary.track(any(Block.class), anyString(), anyLong(), eq(true)))
                 .thenReturn(trackResult);
-        return new Harness(listener, warzone, temporary, config, policies);
+        return new Harness(listener, warzone, temporary, config, policies, worldGuard);
     }
 
     private BlockPlaceEvent event(GameMode mode, int x, Material originalMaterial) {
@@ -183,5 +200,5 @@ class CobwebListenerPlacementTest {
 
     private record Harness(CobwebListener listener, WarzoneModule warzone,
                            TemporaryBlockService temporary, MaceGuardConfig config,
-                           BlockPolicyResolver policies) { }
+                           BlockPolicyResolver policies, WorldGuardQueryService worldGuard) { }
 }
