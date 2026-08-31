@@ -47,7 +47,7 @@ public final class CobwebListener implements Listener {
         this.admissions = admissions;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
@@ -59,6 +59,9 @@ public final class CobwebListener implements Listener {
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
         if (policy.referenced()) {
+            // Dedicated block-policy areas keep their stricter semantics. Never resurrect an event
+            // that another protection layer already cancelled in a policy-referenced scope.
+            if (event.isCancelled()) return;
             boolean worldGuardAllowed = worldGuard.buildAllowed(location, event.getPlayer())
                     && worldGuard.cobwebsAllowed(location, event.getPlayer());
             boolean allowed = worldGuardAllowed && (policyBypass
@@ -73,14 +76,21 @@ public final class CobwebListener implements Listener {
         if (!warzone.appliesAt(location)) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
         boolean effectiveCobwebDenied = !temporaryBypass && !decision.allowed();
-        // The active Warzone COBWEBS modifier is the narrow placement grant. Requiring normal
-        // WorldGuard BUILD or the generic maceguard-cobwebs flag here makes the modifier unusable
-        // in a combat region that intentionally denies ordinary building. The dedicated
-        // maceguard-warzone-cobwebs flag remains the explicit administrative kill switch.
+        // The active Warzone COBWEBS modifier is the narrow placement grant. Normal WorldGuard
+        // BUILD/block-place may remain denied. The dedicated maceguard-warzone-cobwebs flag remains
+        // the explicit administrative kill switch, and replacement safety still applies.
         boolean blockPlacementDenied =
                 !worldGuard.warzoneCobwebsAllowed(location)
                 || !replacementAllowed(config, event.getBlockReplacedState().getType());
-        if (!effectiveCobwebDenied && !blockPlacementDenied) return;
+
+        if (!effectiveCobwebDenied && !blockPlacementDenied) {
+            // WorldGuard may have cancelled BlockPlaceEvent before this HIGHEST handler. Re-open it
+            // only when WorldGuard itself says ordinary building is denied; if ordinary building is
+            // allowed but some unrelated plugin cancelled the event, preserve that cancellation.
+            if (event.isCancelled() && !worldGuard.buildAllowed(location, event.getPlayer()))
+                event.setCancelled(false);
+            return;
+        }
         event.setCancelled(true);
         if (effectiveCobwebDenied) warzone.sendCobwebDenial(event.getPlayer(), decision);
         else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
