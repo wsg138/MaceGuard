@@ -41,6 +41,13 @@ class ExplosiveControlListenerTest {
         assertFalse(ExplosiveControlListener.isCartRail(Material.REDSTONE_WIRE));
     }
 
+    @Test void cartGrantOnlyReopensWorldGuardDeniedCancellation() {
+        assertTrue(ExplosiveControlListener.shouldReopenCartGrant(true, false));
+        assertFalse(ExplosiveControlListener.shouldReopenCartGrant(true, true));
+        assertFalse(ExplosiveControlListener.shouldReopenCartGrant(false, false));
+        assertFalse(ExplosiveControlListener.shouldReopenCartGrant(false, true));
+    }
+
     @Test void windBurstClassificationRequiresMaceAndEnchant() {
         assertTrue(ExplosiveControlListener.isWindBurstMace(Material.MACE, true));
         assertFalse(ExplosiveControlListener.isWindBurstMace(Material.MACE, false));
