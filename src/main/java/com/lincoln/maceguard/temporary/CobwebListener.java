@@ -73,10 +73,12 @@ public final class CobwebListener implements Listener {
         if (!warzone.appliesAt(location)) return;
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
         boolean effectiveCobwebDenied = !temporaryBypass && !decision.allowed();
+        // The active Warzone COBWEBS modifier is the narrow placement grant. Requiring normal
+        // WorldGuard BUILD or the generic maceguard-cobwebs flag here makes the modifier unusable
+        // in a combat region that intentionally denies ordinary building. The dedicated
+        // maceguard-warzone-cobwebs flag remains the explicit administrative kill switch.
         boolean blockPlacementDenied =
-                !worldGuard.buildAllowed(location, event.getPlayer())
-                || !worldGuard.cobwebsAllowed(location, event.getPlayer())
-                || !worldGuard.warzoneCobwebsAllowed(location)
+                !worldGuard.warzoneCobwebsAllowed(location)
                 || !replacementAllowed(config, event.getBlockReplacedState().getType());
         if (!effectiveCobwebDenied && !blockPlacementDenied) return;
         event.setCancelled(true);
@@ -107,7 +109,7 @@ public final class CobwebListener implements Listener {
         } else {
             if (!warzoneApplies) return;
             decision = warzone.cobwebDecision(event.getPlayer(), location);
-            if (!worldGuardAllowed || !worldGuard.warzoneCobwebsAllowed(location)
+            if (!worldGuard.warzoneCobwebsAllowed(location)
                     || !temporaryBypass && !decision.allowed()) return;
         }
         if (!replacementAllowed(config, event.getBlockReplacedState().getType())) {
