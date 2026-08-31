@@ -34,6 +34,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /** Enforces explosive controls and the narrowly-scoped Warzone carts grant. */
 public final class ExplosiveControlListener implements Listener {
@@ -45,10 +46,17 @@ public final class ExplosiveControlListener implements Listener {
 
     private final MaceGuardPlugin plugin;
     private final WorldGuardQueryService worldGuard;
+    private final Predicate<Entity> windBurstSource;
 
     public ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard) {
+        this(plugin, worldGuard, ExplosiveControlListener::isWindBurstSource);
+    }
+
+    ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard,
+                             Predicate<Entity> windBurstSource) {
         this.plugin = plugin;
         this.worldGuard = worldGuard;
+        this.windBurstSource = windBurstSource;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -176,7 +184,7 @@ public final class ExplosiveControlListener implements Listener {
             return;
         }
         if (event.isCancelled()) return;
-        if (isWindCharge(event.getEntityType()) || isWindBurstSource(event.getEntity())) return;
+        if (isWindCharge(event.getEntityType()) || windBurstSource.test(event.getEntity())) return;
         if (denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
     }
 
@@ -188,7 +196,7 @@ public final class ExplosiveControlListener implements Listener {
             return;
         }
         if (event.isCancelled()) return;
-        if (isWindCharge(event.getEntityType()) || isWindBurstSource(event.getEntity())) return;
+        if (isWindCharge(event.getEntityType()) || windBurstSource.test(event.getEntity())) return;
         if (denied(event.getLocation(), null)) event.setCancelled(true);
         else event.blockList().removeIf(block -> denied(block.getLocation(), null));
     }
@@ -202,7 +210,7 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
         Entity direct = event.getDamageSource().getDirectEntity();
-        if (isWindCharge(direct) || isWindBurstSource(direct) || cartExplosionSource(direct)) return;
+        if (isWindCharge(direct) || windBurstSource.test(direct) || cartExplosionSource(direct)) return;
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
@@ -219,8 +227,11 @@ public final class ExplosiveControlListener implements Listener {
     static boolean isWindBurstSource(Entity entity) {
         if (!(entity instanceof Player player)) return false;
         var held = player.getInventory().getItemInMainHand();
-        return held.getType() == Material.MACE
-                && held.containsEnchantment(Enchantment.WIND_BURST);
+        return isWindBurstMace(held.getType(), held.containsEnchantment(Enchantment.WIND_BURST));
+    }
+
+    static boolean isWindBurstMace(Material material, boolean hasWindBurst) {
+        return material == Material.MACE && hasWindBurst;
     }
 
     static boolean isCartRail(Material material) {
