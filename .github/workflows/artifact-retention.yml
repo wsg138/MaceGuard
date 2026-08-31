@@ -3,6 +3,7 @@ name: Artifact Retention
 on:
   push:
     branches:
+      - main
       - maintenance/artifact-cleanup-20260831
   schedule:
     - cron: '17 4 * * *'
@@ -60,13 +61,11 @@ jobs:
             [[ -n "$id" ]] || continue
             rank=$((rank + 1))
 
-            # Always retain a small newest set so current debugging/release work stays available.
             if (( rank <= KEEP_NEWEST )); then
               printf 'keep newest id=%s name=%s created=%s\n' "$id" "$name" "$created_at"
               continue
             fi
 
-            # Retain artifacts produced from any currently open PR head, including release candidates.
             if [[ -n "$head_sha" ]] && grep -Fxq "$head_sha" "$open_pr_shas"; then
               printf 'keep open-pr id=%s name=%s sha=%s\n' "$id" "$name" "$head_sha"
               continue
