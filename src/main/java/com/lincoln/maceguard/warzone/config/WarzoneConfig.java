@@ -129,7 +129,7 @@ public record WarzoneConfig(
 
         public String id() { return String.join("+", modifierIds); }
         public boolean cobwebsAllowed() { return effects.contains(Effect.COBWEBS); }
-        public boolean cartsAllowed() { return effects.contains(Effect.CARTS); }
+        public boolean cartsAllowed() { return modifierIds.contains("carts"); }
         public boolean elytraGlidingAllowed() { return effects.contains(Effect.ELYTRA_NO_ROCKETS); }
         public boolean fireworkBoostBlocked() { return effects.contains(Effect.ELYTRA_NO_ROCKETS); }
         public boolean carriedElytraGlidingAllowed() { return carriedEffects.contains(Effect.ELYTRA_NO_ROCKETS); }
@@ -137,7 +137,6 @@ public record WarzoneConfig(
 
     public enum Effect {
         COBWEBS,
-        CARTS,
         ELYTRA_NO_ROCKETS
     }
 
