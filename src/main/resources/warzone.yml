@@ -127,7 +127,7 @@ modifiers:
     weight: 8
     display-name: "<red>TNT Carts"
     description: "<gray>Rails, flint and steel, and TNT minecarts are enabled; cart explosions deal normal damage but never break blocks."
-    effects: []
+    effects: [CARTS]
     restrictions: {}
     start-message: "<red>TNT Cart PvP is active in the warzone."
     end-message: "<gray>The TNT Cart modifier has ended."
