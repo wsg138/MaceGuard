@@ -1,0 +1,37 @@
+name: Codacy annotation diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  annotations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Codacy check annotations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            checks="$(gh api -H 'Accept: application/vnd.github+json' \
+              "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100")"
+            check_id="$(jq -r '[.check_runs[] | select(.name == "Codacy Static Code Analysis")][0].id // empty' <<<"$checks")"
+            status="$(jq -r '[.check_runs[] | select(.name == "Codacy Static Code Analysis")][0].status // empty' <<<"$checks")"
+            if [[ -n "$check_id" && "$status" == "completed" ]]; then
+              echo "Codacy check id: $check_id"
+              gh api --paginate -H 'Accept: application/vnd.github+json' \
+                "repos/$GITHUB_REPOSITORY/check-runs/$check_id/annotations?per_page=100" \
+                | jq -c '.[] | {path,start_line,end_line,annotation_level,title,message,raw_details}'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Codacy check did not complete before diagnostics timed out." >&2
+          exit 1
