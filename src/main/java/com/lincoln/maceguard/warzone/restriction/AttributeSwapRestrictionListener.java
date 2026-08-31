@@ -243,16 +243,29 @@ public final class AttributeSwapRestrictionListener implements Listener {
     }
 
     private void reconcileLungeRestrictions() {
-        WarzoneRuntime runtime = authoritativeRuntime();
-        if (runtime == null) {
-            for (Player player : plugin.getServer().getOnlinePlayers()) restoreAllLunges(player);
-            openAirLungeGate.clear();
-            pendingLungeCooldowns.clear();
+        var current = plugin.runtime();
+        if (current == null || current.warzone() != module) {
+            clearLungeProjection();
             lungeReconcileTask.cancel();
+            return;
+        }
+
+        WarzoneRuntime runtime = module.runtime();
+        if (runtime == null) {
+            // The same authoritative module may become valid later through /warzone reload.
+            // Restore any projected item edits while inactive, but keep this task alive so a
+            // repaired runtime immediately resumes Lunge enforcement without a full restart.
+            clearLungeProjection();
             return;
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) reconcileLunge(runtime, player);
         openAirLungeGate.cleanup();
+    }
+
+    private void clearLungeProjection() {
+        for (Player player : plugin.getServer().getOnlinePlayers()) restoreAllLunges(player);
+        openAirLungeGate.clear();
+        pendingLungeCooldowns.clear();
     }
 
     private void reconcileLunge(WarzoneRuntime runtime, Player player) {
