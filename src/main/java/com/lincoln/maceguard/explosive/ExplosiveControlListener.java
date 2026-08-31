@@ -3,6 +3,7 @@ package com.lincoln.maceguard.explosive;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Material;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -56,13 +57,13 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPrime(ExplosionPrimeEvent event) {
-        if (isWindCharge(event.getEntityType())) return;
+        if (isWindCharge(event.getEntityType()) || isWindBurstSource(event.getEntity())) return;
         if (denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityExplosion(EntityExplodeEvent event) {
-        if (isWindCharge(event.getEntityType())) return;
+        if (isWindCharge(event.getEntityType()) || isWindBurstSource(event.getEntity())) return;
         if (denied(event.getLocation(), null)) event.setCancelled(true);
         else event.blockList().removeIf(block -> denied(block.getLocation(), null));
     }
@@ -75,7 +76,8 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
-        if (isWindCharge(event.getDamageSource().getDirectEntity())) return;
+        Entity direct = event.getDamageSource().getDirectEntity();
+        if (isWindCharge(direct) || isWindBurstSource(direct)) return;
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
@@ -87,6 +89,19 @@ public final class ExplosiveControlListener implements Listener {
 
     private static boolean isWindCharge(Entity entity) {
         return entity != null && isWindCharge(entity.getType());
+    }
+
+    /**
+     * Wind Burst is implemented by vanilla as a post-attack explosion sourced from the attacker.
+     * It is movement/enchantment behavior, not one of the destructive explosive mechanics governed
+     * by maceguard-explosives, so do not cancel that player-sourced explosion merely because the
+     * region denies TNT/crystals/anchors.
+     */
+    static boolean isWindBurstSource(Entity entity) {
+        if (!(entity instanceof Player player)) return false;
+        var held = player.getInventory().getItemInMainHand();
+        return held.getType() == Material.MACE
+                && held.containsEnchantment(Enchantment.WIND_BURST);
     }
 
     private boolean denied(org.bukkit.Location location, Player player) { return plugin.isFeatureEnabled() && worldGuard.explosivesDenied(location, player); }
