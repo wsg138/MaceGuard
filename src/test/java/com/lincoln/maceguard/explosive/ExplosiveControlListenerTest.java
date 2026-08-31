@@ -34,6 +34,16 @@ class ExplosiveControlListenerTest {
         assertFalse(ExplosiveControlListener.isWindCharge(EntityType.CREEPER));
     }
 
+    @Test void cartModifierAllowsOnlyTheFourVanillaRailBlocks() {
+        assertTrue(ExplosiveControlListener.isCartRail(Material.RAIL));
+        assertTrue(ExplosiveControlListener.isCartRail(Material.POWERED_RAIL));
+        assertTrue(ExplosiveControlListener.isCartRail(Material.DETECTOR_RAIL));
+        assertTrue(ExplosiveControlListener.isCartRail(Material.ACTIVATOR_RAIL));
+        assertFalse(ExplosiveControlListener.isCartRail(Material.MINECART));
+        assertFalse(ExplosiveControlListener.isCartRail(Material.TNT));
+        assertFalse(ExplosiveControlListener.isCartRail(Material.REDSTONE_WIRE));
+    }
+
     @Test
     void windBurstMacePlayerIsRecognizedAsEnchantmentExplosionSource() {
         assertTrue(ExplosiveControlListener.isWindBurstSource(windBurstPlayer(true)));
