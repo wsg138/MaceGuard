@@ -61,8 +61,10 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCartRailPlace(BlockPlaceEvent event) {
-        if (isCartRail(event.getBlockPlaced().getType())
-                && cartModifierActive(event.getBlockPlaced().getLocation())) {
+        Location location = event.getBlockPlaced().getLocation();
+        if (isCartRail(event.getBlockPlaced().getType()) && cartModifierActive(location)
+                && shouldReopenCartGrant(event.isCancelled(),
+                worldGuard.blockPlaceAllowed(location, event.getPlayer()))) {
             event.setCancelled(false);
         }
     }
@@ -80,7 +82,10 @@ public final class ExplosiveControlListener implements Listener {
         EntityType type = event.getEntityType();
         if (type == EntityType.TNT_MINECART && event.getPlayer() != null
                 && cartModifierActive(event.getEntity().getLocation())) {
-            event.setCancelled(false);
+            if (shouldReopenCartGrant(event.isCancelled(), worldGuard.vehiclePlaceAllowed(
+                    event.getEntity().getLocation(), event.getPlayer()))) {
+                event.setCancelled(false);
+            }
             return;
         }
         if (event.isCancelled()) return;
@@ -91,10 +96,9 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onTntMinecartCreate(VehicleCreateEvent event) {
         if (event.getVehicle().getType() != EntityType.TNT_MINECART) return;
-        if (cartModifierActive(event.getVehicle().getLocation())) {
-            event.setCancelled(false);
-            return;
-        }
+        // Player-facing placement handlers reopen only WorldGuard-denied cart placement. The
+        // cause-less create event must preserve cancellations from every other protection layer.
+        if (cartModifierActive(event.getVehicle().getLocation())) return;
         if (!event.isCancelled() && denied(event.getVehicle().getLocation(), null)) event.setCancelled(true);
     }
 
@@ -105,45 +109,66 @@ public final class ExplosiveControlListener implements Listener {
         if (item == null || clicked == null) return;
 
         if (cartMinecartItemUseAllowed(item, clicked)) {
-            allowItemUse(event);
+            if (!worldGuard.vehiclePlaceAllowed(clicked.getLocation(), event.getPlayer())) {
+                allowItemUse(event);
+            }
             return;
         }
 
-        if (cartFlintAndSteelUseAllowed(item, clicked, event)) {
+        Location fire = clicked.getRelative(event.getBlockFace()).getLocation();
+        if (cartFlintAndSteelUseAllowed(item, fire)
+                && !worldGuard.lighterAllowed(fire, event.getPlayer())) {
             allowItemUse(event);
         }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCartEntityUse(PlayerInteractEntityEvent event) {
+        Location location = event.getRightClicked().getLocation();
         if (event.getRightClicked().getType() != EntityType.TNT_MINECART
-                || !cartModifierActive(event.getRightClicked().getLocation())) return;
+                || !cartModifierActive(location)) return;
         EquipmentSlot hand = event.getHand();
         ItemStack item = hand == EquipmentSlot.HAND
                 ? event.getPlayer().getInventory().getItemInMainHand()
                 : event.getPlayer().getInventory().getItemInOffHand();
-        if (item.getType() == Material.FLINT_AND_STEEL) event.setCancelled(false);
+        if (item.getType() == Material.FLINT_AND_STEEL
+                && shouldReopenCartGrant(event.isCancelled(),
+                worldGuard.lighterAllowed(location, event.getPlayer()))) {
+            event.setCancelled(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCartDamage(VehicleDamageEvent event) {
-        if (event.getVehicle().getType() == EntityType.TNT_MINECART
-                && event.getAttacker() instanceof Player
-                && cartModifierActive(event.getVehicle().getLocation())) event.setCancelled(false);
+        if (event.getVehicle().getType() != EntityType.TNT_MINECART
+                || !(event.getAttacker() instanceof Player player)
+                || !cartModifierActive(event.getVehicle().getLocation())) return;
+        if (shouldReopenCartGrant(event.isCancelled(), worldGuard.vehicleDestroyAllowed(
+                event.getVehicle().getLocation(), player))) {
+            event.setCancelled(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCartDestroy(VehicleDestroyEvent event) {
-        if (event.getVehicle().getType() == EntityType.TNT_MINECART
-                && event.getAttacker() instanceof Player
-                && cartModifierActive(event.getVehicle().getLocation())) event.setCancelled(false);
+        if (event.getVehicle().getType() != EntityType.TNT_MINECART
+                || !(event.getAttacker() instanceof Player player)
+                || !cartModifierActive(event.getVehicle().getLocation())) return;
+        if (shouldReopenCartGrant(event.isCancelled(), worldGuard.vehicleDestroyAllowed(
+                event.getVehicle().getLocation(), player))) {
+            event.setCancelled(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onCartIgnite(BlockIgniteEvent event) {
-        if (event.getCause() == BlockIgniteEvent.IgniteCause.FLINT_AND_STEEL
-                && event.getPlayer() != null
-                && cartModifierActive(event.getBlock().getLocation())) event.setCancelled(false);
+        if (event.getCause() != BlockIgniteEvent.IgniteCause.FLINT_AND_STEEL
+                || event.getPlayer() == null
+                || !cartModifierActive(event.getBlock().getLocation())) return;
+        if (shouldReopenCartGrant(event.isCancelled(), worldGuard.lighterAllowed(
+                event.getBlock().getLocation(), event.getPlayer()))) {
+            event.setCancelled(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -234,6 +259,10 @@ public final class ExplosiveControlListener implements Listener {
         return CART_RAILS.contains(material);
     }
 
+    static boolean shouldReopenCartGrant(boolean eventCancelled, boolean worldGuardAllowed) {
+        return eventCancelled && !worldGuardAllowed;
+    }
+
     private static void allowItemUse(PlayerInteractEvent event) {
         event.setCancelled(false);
         event.setUseItemInHand(Event.Result.ALLOW);
@@ -244,10 +273,8 @@ public final class ExplosiveControlListener implements Listener {
                 && cartModifierActive(clicked.getLocation());
     }
 
-    private boolean cartFlintAndSteelUseAllowed(ItemStack item, Block clicked, PlayerInteractEvent event) {
-        if (item.getType() != Material.FLINT_AND_STEEL) return false;
-        Location fire = clicked.getRelative(event.getBlockFace()).getLocation();
-        return cartModifierActive(clicked.getLocation()) || cartModifierActive(fire);
+    private boolean cartFlintAndSteelUseAllowed(ItemStack item, Location fire) {
+        return item.getType() == Material.FLINT_AND_STEEL && cartModifierActive(fire);
     }
 
     private boolean cartExplosionSource(Entity entity) {
