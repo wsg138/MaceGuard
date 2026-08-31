@@ -50,7 +50,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
             new LungeVelocityGate(System::nanoTime, LUNGE_WINDOW);
     private final LungeEnchantmentSuppressor lungeSuppressor;
     private final Set<UUID> pendingLungeCooldowns = new HashSet<>();
-    private BukkitTask lungeReconcileTask;
+    private final BukkitTask lungeReconcileTask;
 
     public AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module) {
         this.plugin = plugin;
@@ -248,11 +248,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
             for (Player player : plugin.getServer().getOnlinePlayers()) restoreAllLunges(player);
             openAirLungeGate.clear();
             pendingLungeCooldowns.clear();
-            BukkitTask task = lungeReconcileTask;
-            if (task != null) {
-                task.cancel();
-                lungeReconcileTask = null;
-            }
+            lungeReconcileTask.cancel();
             return;
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) reconcileLunge(runtime, player);
