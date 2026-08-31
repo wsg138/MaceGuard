@@ -4,12 +4,9 @@ import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.ExplosionPrimeEvent;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.PlayerInventory;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -44,22 +41,18 @@ class ExplosiveControlListenerTest {
         assertFalse(ExplosiveControlListener.isCartRail(Material.REDSTONE_WIRE));
     }
 
-    @Test
-    void windBurstMacePlayerIsRecognizedAsEnchantmentExplosionSource() {
-        assertTrue(ExplosiveControlListener.isWindBurstSource(windBurstPlayer(true)));
-    }
-
-    @Test
-    void ordinaryPlayerExplosionIsNotMisclassifiedAsWindBurst() {
-        assertFalse(ExplosiveControlListener.isWindBurstSource(windBurstPlayer(false)));
+    @Test void windBurstClassificationRequiresMaceAndEnchant() {
+        assertTrue(ExplosiveControlListener.isWindBurstMace(Material.MACE, true));
+        assertFalse(ExplosiveControlListener.isWindBurstMace(Material.MACE, false));
+        assertFalse(ExplosiveControlListener.isWindBurstMace(Material.DIAMOND_SWORD, true));
     }
 
     @Test
     void windBurstPrimeIsNotCancelledByExplosivesDeny() {
         MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
-        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard);
-        Player player = windBurstPlayer(true);
+        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard, entity -> true);
+        Player player = mock(Player.class);
         ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
         when(event.getEntity()).thenReturn(player);
         when(event.getEntityType()).thenReturn(EntityType.PLAYER);
@@ -74,8 +67,8 @@ class ExplosiveControlListenerTest {
     void nonWindBurstPlayerExplosionStillRespectsExplosivesDeny() {
         MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
-        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard);
-        Player player = windBurstPlayer(false);
+        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard, entity -> false);
+        Player player = mock(Player.class);
         Location location = mock(Location.class);
         ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
         when(event.getEntity()).thenReturn(player);
@@ -87,16 +80,5 @@ class ExplosiveControlListenerTest {
         listener.onPrime(event);
 
         verify(event).setCancelled(true);
-    }
-
-    private Player windBurstPlayer(boolean enchanted) {
-        Player player = mock(Player.class);
-        PlayerInventory inventory = mock(PlayerInventory.class);
-        ItemStack held = mock(ItemStack.class);
-        when(player.getInventory()).thenReturn(inventory);
-        when(inventory.getItemInMainHand()).thenReturn(held);
-        when(held.getType()).thenReturn(Material.MACE);
-        when(held.containsEnchantment(Enchantment.WIND_BURST)).thenReturn(enchanted);
-        return player;
     }
 }
