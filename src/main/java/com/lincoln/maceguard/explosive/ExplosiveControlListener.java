@@ -35,7 +35,7 @@ import org.bukkit.inventory.ItemStack;
 import java.util.EnumSet;
 import java.util.Set;
 
-/** Enforces explosive controls and the narrowly-scoped Warzone CARTS grant. */
+/** Enforces explosive controls and the narrowly-scoped Warzone carts grant. */
 public final class ExplosiveControlListener implements Listener {
     private static final Set<Material> CART_RAILS = EnumSet.of(
             Material.RAIL,
@@ -55,7 +55,7 @@ public final class ExplosiveControlListener implements Listener {
     public void onCartRailPlace(BlockPlaceEvent event) {
         if (isCartRail(event.getBlockPlaced().getType())
                 && cartModifierActive(event.getBlockPlaced().getLocation())) {
-            // CARTS is an explicit material-scoped positive grant. This intentionally opens only
+            // Carts is an explicit material-scoped positive grant. This intentionally opens only
             // the four rail blocks even when ordinary WorldGuard/MaceGuard building is denied.
             event.setCancelled(false);
         }
@@ -174,7 +174,7 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPrime(ExplosionPrimeEvent event) {
         if (isCartExplosion(event.getEntity(), event.getEntity().getLocation())) {
-            // CARTS deliberately bypasses WorldGuard/MaceGuard TNT-explosion denial for TNT
+            // Carts deliberately bypasses WorldGuard/MaceGuard TNT-explosion denial for TNT
             // minecarts only. The later EntityExplodeEvent removes every block from destruction.
             event.setCancelled(false);
             return;
@@ -206,9 +206,9 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
         Entity direct = event.getDamageSource().getDirectEntity();
-        if (isWindCharge(direct) || isWindBurstSource(direct)
-                || isCartExplosion(direct, direct == null ? event.getEntity().getLocation()
-                : direct.getLocation())) return;
+        Entity causing = event.getDamageSource().getCausingEntity();
+        if (isWindCharge(direct) || isWindBurstSource(direct) || isWindBurstSource(causing)
+                || cartExplosionSource(direct) || cartExplosionSource(causing)) return;
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
@@ -244,12 +244,17 @@ public final class ExplosiveControlListener implements Listener {
         event.setUseItemInHand(Event.Result.ALLOW);
     }
 
+    private boolean cartExplosionSource(Entity entity) {
+        return entity != null && isCartExplosion(entity, entity.getLocation());
+    }
+
     private boolean isCartExplosion(Entity entity, Location location) {
         return entity != null && entity.getType() == EntityType.TNT_MINECART
                 && cartModifierActive(location);
     }
 
     private boolean cartModifierActive(Location location) {
+        if (!plugin.isFeatureEnabled()) return false;
         var pluginRuntime = plugin.runtime();
         if (pluginRuntime == null || pluginRuntime.warzone() == null) return false;
         WarzoneRuntime warzoneRuntime = pluginRuntime.warzone().runtime();
