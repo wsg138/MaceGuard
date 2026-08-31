@@ -104,17 +104,13 @@ public final class ExplosiveControlListener implements Listener {
         Block clicked = event.getClickedBlock();
         if (item == null || clicked == null) return;
 
-        if (item.getType() == Material.TNT_MINECART && isCartRail(clicked.getType())
-                && cartModifierActive(clicked.getLocation())) {
+        if (cartMinecartItemUseAllowed(item, clicked)) {
             allowItemUse(event);
             return;
         }
 
-        if (item.getType() == Material.FLINT_AND_STEEL) {
-            Location fire = clicked.getRelative(event.getBlockFace()).getLocation();
-            if (cartModifierActive(clicked.getLocation()) || cartModifierActive(fire)) {
-                allowItemUse(event);
-            }
+        if (cartFlintAndSteelUseAllowed(item, clicked, event)) {
+            allowItemUse(event);
         }
     }
 
@@ -241,6 +237,17 @@ public final class ExplosiveControlListener implements Listener {
     private static void allowItemUse(PlayerInteractEvent event) {
         event.setCancelled(false);
         event.setUseItemInHand(Event.Result.ALLOW);
+    }
+
+    private boolean cartMinecartItemUseAllowed(ItemStack item, Block clicked) {
+        return item.getType() == Material.TNT_MINECART && isCartRail(clicked.getType())
+                && cartModifierActive(clicked.getLocation());
+    }
+
+    private boolean cartFlintAndSteelUseAllowed(ItemStack item, Block clicked, PlayerInteractEvent event) {
+        if (item.getType() != Material.FLINT_AND_STEEL) return false;
+        Location fire = clicked.getRelative(event.getBlockFace()).getLocation();
+        return cartModifierActive(clicked.getLocation()) || cartModifierActive(fire);
     }
 
     private boolean cartExplosionSource(Entity entity) {
