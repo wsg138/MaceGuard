@@ -226,9 +226,11 @@ public final class AttributeSwapRestrictionListener implements Listener {
             return;
         }
 
-        RestrictionDecision decision = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE,
+        RestrictionDecision lungeDecision = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE,
                 player.getLocation());
-        boolean changed = decision.denied()
+        RestrictionDecision spearDecision = decide(runtime, player, RestrictionTarget.SPEAR,
+                player.getLocation());
+        boolean changed = lungeDecision.denied() || spearDecision.denied()
                 ? lungeSuppressor.suppress(item)
                 : lungeSuppressor.restore(item);
         if (changed) inventory.setItem(slot, item);
