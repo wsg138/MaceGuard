@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.restriction;
 
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
@@ -20,17 +21,23 @@ import java.util.Objects;
  */
 final class LungeEnchantmentSuppressor {
     private final NamespacedKey levelKey;
+    private final LungeAccess lunge;
 
-    LungeEnchantmentSuppressor(Plugin plugin) {
-        this(new NamespacedKey(plugin, "suppressed-lunge-level"));
+    LungeEnchantmentSuppressor(Plugin ignoredPlugin) {
+        this(new NamespacedKey("maceguard", "suppressed-lunge-level"), new BukkitLungeAccess());
     }
 
     LungeEnchantmentSuppressor(NamespacedKey levelKey) {
+        this(levelKey, new BukkitLungeAccess());
+    }
+
+    LungeEnchantmentSuppressor(NamespacedKey levelKey, LungeAccess lunge) {
         this.levelKey = Objects.requireNonNull(levelKey, "levelKey");
+        this.lunge = Objects.requireNonNull(lunge, "lunge");
     }
 
     boolean hasLiveLunge(ItemStack item) {
-        return item != null && item.getEnchantmentLevel(Enchantment.LUNGE) > 0;
+        return item != null && lunge.itemLevel(item) > 0;
     }
 
     boolean isSuppressed(ItemStack item) {
@@ -43,14 +50,14 @@ final class LungeEnchantmentSuppressor {
     boolean suppress(ItemStack item) {
         ItemMeta meta = meta(item);
         if (meta == null) return false;
-        int liveLevel = meta.getEnchantLevel(Enchantment.LUNGE);
+        int liveLevel = lunge.metaLevel(meta);
         if (liveLevel <= 0) return false;
 
         PersistentDataContainer data = data(meta);
         Integer stored = data.get(levelKey, PersistentDataType.INTEGER);
         data.set(levelKey, PersistentDataType.INTEGER,
                 Math.max(liveLevel, stored == null ? 0 : stored));
-        meta.removeEnchant(Enchantment.LUNGE);
+        lunge.remove(meta);
         return item.setItemMeta(meta);
     }
 
@@ -62,16 +69,45 @@ final class LungeEnchantmentSuppressor {
         if (stored == null) return false;
 
         data.remove(levelKey);
-        if (stored > 0 && meta.getEnchantLevel(Enchantment.LUNGE) < stored)
-            meta.addEnchant(Enchantment.LUNGE, stored, true);
+        if (stored > 0 && lunge.metaLevel(meta) < stored)
+            lunge.add(meta, stored);
         return item.setItemMeta(meta);
     }
 
     private ItemMeta meta(ItemStack item) {
-        return item == null || item.getType().isAir() ? null : item.getItemMeta();
+        return item == null || item.getType() == Material.AIR ? null : item.getItemMeta();
     }
 
     private PersistentDataContainer data(ItemMeta meta) {
         return meta.getPersistentDataContainer();
+    }
+
+    interface LungeAccess {
+        int itemLevel(ItemStack item);
+        int metaLevel(ItemMeta meta);
+        void remove(ItemMeta meta);
+        void add(ItemMeta meta, int level);
+    }
+
+    private static final class BukkitLungeAccess implements LungeAccess {
+        @Override
+        public int itemLevel(ItemStack item) {
+            return item.getEnchantmentLevel(Enchantment.LUNGE);
+        }
+
+        @Override
+        public int metaLevel(ItemMeta meta) {
+            return meta.getEnchantLevel(Enchantment.LUNGE);
+        }
+
+        @Override
+        public void remove(ItemMeta meta) {
+            meta.removeEnchant(Enchantment.LUNGE);
+        }
+
+        @Override
+        public void add(ItemMeta meta, int level) {
+            meta.addEnchant(Enchantment.LUNGE, level, true);
+        }
     }
 }
