@@ -63,10 +63,13 @@ class CobwebListenerPlacementTest {
                 .thenReturn(false);
         when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
         BlockPlaceEvent event = event(GameMode.SURVIVAL, 7, Material.AIR);
+        // Simulate WorldGuard having already cancelled the placement because normal building is denied.
+        when(event.isCancelled()).thenReturn(true);
 
         harness.listener.onRestriction(event);
         harness.listener.onPlace(event);
 
+        verify(event).setCancelled(false);
         verify(event, never()).setCancelled(true);
         verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
     }
