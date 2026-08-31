@@ -1,0 +1,97 @@
+name: Artifact Retention
+
+on:
+  push:
+    branches:
+      - main
+      - maintenance/artifact-cleanup-20260831
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: artifact-retention-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP_NEWEST: '20'
+      KEEP_DAYS: '3'
+      MAX_DELETE: '250'
+    steps:
+      - name: Delete old superseded Actions artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+          now_epoch="$(date -u +%s)"
+          cutoff_epoch="$((now_epoch - KEEP_DAYS * 86400))"
+
+          open_pr_shas="$(mktemp)"
+          artifacts="$(mktemp)"
+          trap 'rm -f "$open_pr_shas" "$artifacts"' EXIT
+
+          gh api --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${repo}/pulls?state=open&per_page=100" \
+            --jq '.[].head.sha' | sort -u > "$open_pr_shas"
+
+          gh api --paginate \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${repo}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .name, .size_in_bytes, .created_at, (.workflow_run.head_sha // "")] | @tsv' \
+            > "$artifacts"
+
+          total="$(wc -l < "$artifacts" | tr -d ' ')"
+          deleted=0
+          deleted_bytes=0
+          rank=0
+
+          while IFS=$'\t' read -r id name size created_at head_sha; do
+            [[ -n "$id" ]] || continue
+            rank=$((rank + 1))
+
+            if (( rank <= KEEP_NEWEST )); then
+              printf 'keep newest id=%s name=%s created=%s\n' "$id" "$name" "$created_at"
+              continue
+            fi
+
+            if [[ -n "$head_sha" ]] && grep -Fxq "$head_sha" "$open_pr_shas"; then
+              printf 'keep open-pr id=%s name=%s sha=%s\n' "$id" "$name" "$head_sha"
+              continue
+            fi
+
+            created_epoch="$(date -u -d "$created_at" +%s)"
+            if (( created_epoch >= cutoff_epoch )); then
+              printf 'keep recent id=%s name=%s created=%s\n' "$id" "$name" "$created_at"
+              continue
+            fi
+
+            if (( deleted >= MAX_DELETE )); then
+              printf 'delete cap reached (%s); remaining artifacts left untouched\n' "$MAX_DELETE"
+              break
+            fi
+
+            gh api --method DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${repo}/actions/artifacts/${id}"
+            deleted=$((deleted + 1))
+            deleted_bytes=$((deleted_bytes + size))
+            printf 'deleted id=%s name=%s bytes=%s created=%s\n' "$id" "$name" "$size" "$created_at"
+          done < "$artifacts"
+
+          printf 'artifact_cleanup_total_seen=%s\n' "$total"
+          printf 'artifact_cleanup_deleted=%s\n' "$deleted"
+          printf 'artifact_cleanup_deleted_bytes=%s\n' "$deleted_bytes"
+          printf 'artifact_cleanup_keep_newest=%s\n' "$KEEP_NEWEST"
+          printf 'artifact_cleanup_keep_days=%s\n' "$KEEP_DAYS"
