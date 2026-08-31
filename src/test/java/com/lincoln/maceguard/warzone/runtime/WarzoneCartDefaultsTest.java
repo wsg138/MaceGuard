@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,7 +36,7 @@ class WarzoneCartDefaultsTest {
         assertEquals("Custom SMP Kit", existing.getString("kits.smp.display-name"));
         assertTrue(existing.getBoolean("modifiers.carts.enabled"));
         assertEquals(8, existing.getInt("modifiers.carts.weight"));
-        assertTrue(existing.getStringList("modifiers.carts.effects").isEmpty());
+        assertEquals(List.of("CARTS"), existing.getStringList("modifiers.carts.effects"));
         assertNotNull(existing.getConfigurationSection("modifiers.carts.restrictions"));
 
         Path file = directory.resolve("warzone.yml");
@@ -57,7 +58,7 @@ class WarzoneCartDefaultsTest {
 
         assertEquals(91, existing.getInt("modifiers.carts.weight"));
         assertEquals("My custom cart description", existing.getString("modifiers.carts.description"));
-        assertTrue(existing.getStringList("modifiers.carts.effects").isEmpty());
+        assertEquals(List.of("CARTS"), existing.getStringList("modifiers.carts.effects"));
         assertNotNull(existing.getConfigurationSection("modifiers.carts.restrictions"));
     }
 
