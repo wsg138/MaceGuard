@@ -3,6 +3,7 @@ package com.lincoln.maceguard.worldguard;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
+import com.sk89q.worldguard.protection.flags.Flags;
 import com.sk89q.worldguard.protection.flags.StateFlag;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
@@ -56,9 +57,23 @@ public final class WorldGuardQueryService {
     }
 
     public boolean buildAllowed(Location location, Player player) {
-        if (location.getWorld() == null) return false;
-        return query().testBuild(BukkitAdapter.adapt(location),
-                player == null ? null : WorldGuardPlugin.inst().wrapPlayer(player));
+        return testBuild(location, player);
+    }
+
+    public boolean blockPlaceAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.BLOCK_PLACE);
+    }
+
+    public boolean vehiclePlaceAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.PLACE_VEHICLE);
+    }
+
+    public boolean vehicleDestroyAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.DESTROY_VEHICLE);
+    }
+
+    public boolean lighterAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.LIGHTER);
     }
 
     public String effectiveResetProfile(Location location) {
@@ -124,6 +139,14 @@ public final class WorldGuardQueryService {
         StateFlag.State value = query().queryState(BukkitAdapter.adapt(location),
                 player == null ? null : WorldGuardPlugin.inst().wrapPlayer(player), flag);
         return value == StateFlag.State.ALLOW;
+    }
+
+    private boolean testBuild(Location location, Player player, StateFlag... additionalFlags) {
+        if (location.getWorld() == null) return false;
+        var localPlayer = player == null ? null : WorldGuardPlugin.inst().wrapPlayer(player);
+        if (localPlayer != null && WorldGuard.getInstance().getPlatform().getSessionManager()
+                .hasBypass(localPlayer, localPlayer.getWorld())) return true;
+        return query().testBuild(BukkitAdapter.adapt(location), localPlayer, additionalFlags);
     }
 
     private RegionQuery query() {
