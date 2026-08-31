@@ -29,6 +29,7 @@ public final class WarzoneMigrationService {
     private static final int SCHEMA_FOUR = 4;
     private static final int SCHEMA_FIVE = 5;
     private static final int SCHEMA_SIX = 6;
+    private static final String CART_MODIFIER_PATH = "modifiers.carts";
     private static final Set<String> SAFE_MODIFIER_FIELDS = Set.of(
             "enabled", "weight", "combat-carryover", "display-name", "description", "effects", "restrictions",
             "start-message", "end-message", "warning-message");
@@ -76,13 +77,22 @@ public final class WarzoneMigrationService {
         YamlConfiguration old = new YamlConfiguration();
         old.load(config.toFile());
         int version = old.getInt("config-version", -1);
+        YamlConfiguration defaults = bundledDefaults();
         if (version == WarzoneControlConfig.VERSION) {
-            report.add("Existing warzone.yml already uses schema " + version + "; no rewrite.");
+            if (!mergeMissingPath(defaults, old, CART_MODIFIER_PATH)) {
+                report.add("Existing warzone.yml already uses schema " + version
+                        + " and contains the TNT Cart modifier defaults; no rewrite.");
+                return;
+            }
+            Path backup = timestampedBackup(config, "warzone-v" + version + "-before-cart-defaults");
+            saveValidatedAtomically(old, config);
+            report.add("Backed up schema-" + version + " warzone.yml to " + backup.getFileName() + ".");
+            report.add("Added only missing " + CART_MODIFIER_PATH
+                    + " fields. Existing config values, schedules, kits, modifiers, weights, and flags were not overwritten.");
             return;
         }
 
         Path backup = timestampedBackup(config, "warzone-v" + version);
-        YamlConfiguration defaults = bundledDefaults();
         if (version == SCHEMA_SIX) {
             saveValidatedAtomically(migrateSchema6(old, defaults), config);
             report.add("Backed up schema-6 warzone.yml to " + backup.getFileName() + ".");
@@ -259,7 +269,6 @@ public final class WarzoneMigrationService {
         }
     }
 
-
     private static void preserveModifierField(YamlConfiguration old, YamlConfiguration migrated,
                                               String base, boolean bundled, String field) {
         String path = base + "." + field;
@@ -279,6 +288,43 @@ public final class WarzoneMigrationService {
             String path = "modifiers." + id + ".combat-carryover";
             if (!source.contains(path)) migrated.set(path, false);
         }
+    }
+
+    /**
+     * Adds only missing leaves/sections from one bundled path. Existing values are never changed.
+     * This is intentionally narrower than a schema migration so a current schema-7 file can gain a
+     * newly bundled modifier without rewriting schedules, kits, weights, or operator customizations.
+     */
+    static boolean mergeMissingPath(YamlConfiguration source, YamlConfiguration target, String path) {
+        ConfigurationSection sourceSection = source.getConfigurationSection(path);
+        if (sourceSection == null) return false;
+        if (!target.contains(path)) {
+            ConfigurationSection targetSection = target.createSection(path);
+            copyMissingSection(sourceSection, targetSection);
+            return true;
+        }
+        ConfigurationSection targetSection = target.getConfigurationSection(path);
+        return targetSection != null && copyMissingSection(sourceSection, targetSection);
+    }
+
+    private static boolean copyMissingSection(ConfigurationSection source, ConfigurationSection target) {
+        boolean changed = false;
+        for (String key : source.getKeys(false)) {
+            ConfigurationSection sourceChild = source.getConfigurationSection(key);
+            if (sourceChild != null) {
+                ConfigurationSection targetChild = target.getConfigurationSection(key);
+                if (targetChild == null) {
+                    if (target.contains(key)) continue;
+                    targetChild = target.createSection(key);
+                    changed = true;
+                }
+                if (copyMissingSection(sourceChild, targetChild)) changed = true;
+            } else if (!target.contains(key)) {
+                target.set(key, source.get(key));
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     private static void mergeSections(YamlConfiguration source, YamlConfiguration target, String path) {
