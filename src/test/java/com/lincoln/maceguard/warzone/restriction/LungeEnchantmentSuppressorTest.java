@@ -2,7 +2,6 @@ package com.lincoln.maceguard.warzone.restriction;
 
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -17,7 +16,10 @@ import static org.mockito.Mockito.when;
 
 class LungeEnchantmentSuppressorTest {
     private final NamespacedKey key = new NamespacedKey("maceguard", "suppressed-lunge-level");
-    private final LungeEnchantmentSuppressor suppressor = new LungeEnchantmentSuppressor(key);
+    private final LungeEnchantmentSuppressor.LungeAccess lunge =
+            mock(LungeEnchantmentSuppressor.LungeAccess.class);
+    private final LungeEnchantmentSuppressor suppressor =
+            new LungeEnchantmentSuppressor(key, lunge);
 
     @Test
     void suppressionStoresLevelAndRemovesOnlyLunge() {
@@ -27,13 +29,13 @@ class LungeEnchantmentSuppressorTest {
         when(item.getType()).thenReturn(Material.IRON_SPEAR);
         when(item.getItemMeta()).thenReturn(meta);
         when(meta.getPersistentDataContainer()).thenReturn(data);
-        when(meta.getEnchantLevel(Enchantment.LUNGE)).thenReturn(3);
+        when(lunge.metaLevel(meta)).thenReturn(3);
         when(item.setItemMeta(meta)).thenReturn(true);
 
         assertTrue(suppressor.suppress(item));
 
         verify(data).set(key, PersistentDataType.INTEGER, 3);
-        verify(meta).removeEnchant(Enchantment.LUNGE);
+        verify(lunge).remove(meta);
         verify(item).setItemMeta(meta);
     }
 
@@ -46,13 +48,13 @@ class LungeEnchantmentSuppressorTest {
         when(item.getItemMeta()).thenReturn(meta);
         when(meta.getPersistentDataContainer()).thenReturn(data);
         when(data.get(key, PersistentDataType.INTEGER)).thenReturn(2);
-        when(meta.getEnchantLevel(Enchantment.LUNGE)).thenReturn(0);
+        when(lunge.metaLevel(meta)).thenReturn(0);
         when(item.setItemMeta(meta)).thenReturn(true);
 
         assertTrue(suppressor.restore(item));
 
         verify(data).remove(key);
-        verify(meta).addEnchant(Enchantment.LUNGE, 2, true);
+        verify(lunge).add(meta, 2);
         verify(item).setItemMeta(meta);
     }
 
