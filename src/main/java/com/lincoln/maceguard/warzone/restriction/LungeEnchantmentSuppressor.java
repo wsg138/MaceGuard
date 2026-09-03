@@ -62,6 +62,9 @@ final class LungeEnchantmentSuppressor {
     }
 
     boolean restore(ItemStack item) {
+        // Lunge is spear-exclusive. Reconciliation scans every inventory slot every tick, so
+        // reject non-spears before getItemMeta() creates a metadata copy on the main thread.
+        if (item == null || !RestrictionTarget.isSpear(item.getType())) return false;
         ItemMeta meta = meta(item);
         if (meta == null) return false;
         PersistentDataContainer data = data(meta);
