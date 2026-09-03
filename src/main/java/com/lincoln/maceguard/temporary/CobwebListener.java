@@ -47,6 +47,32 @@ public final class CobwebListener implements Listener {
         this.admissions = admissions;
     }
 
+    /**
+     * Pre-allows only WorldGuard's region-protection decision for the active Warzone COBWEBS
+     * modifier. Other WorldGuard safety listeners and every unrelated Bukkit protection plugin
+     * still retain their own cancellation authority.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardWarzoneCobweb(
+            com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
+        if (!(event.getOriginalEvent() instanceof BlockPlaceEvent original)) return;
+        if (original.getBlockPlaced().getType() != Material.COBWEB) return;
+        if (!handlersEnabled(config.enabled(), config.validSchema())) return;
+
+        var location = original.getBlockPlaced().getLocation();
+        if (policies.resolve(location).referenced() || !warzone.appliesAt(location)) return;
+        boolean temporaryBypass = original.getPlayer().hasPermission(
+                TEMPORARY_COBWEB_BYPASS_PERMISSION);
+        var decision = warzone.cobwebDecision(original.getPlayer(), location);
+        if (!temporaryBypass && !decision.allowed()) return;
+        if (!worldGuard.warzoneCobwebsAllowed(location)
+                || !replacementAllowed(config, original.getBlockReplacedState().getType())) return;
+
+        // No exception is needed when normal WorldGuard building is already permitted. When it is
+        // denied, ALLOW makes RegionProtectionListener stand down for this delegate event only.
+        if (!worldGuard.buildAllowed(location, original.getPlayer())) event.setAllowed(true);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onRestriction(BlockPlaceEvent event) {
         if (event.getBlockPlaced().getType() != Material.COBWEB) return;
@@ -74,23 +100,18 @@ public final class CobwebListener implements Listener {
         }
 
         if (!warzone.appliesAt(location)) return;
+        // The WorldGuard-specific delegate hook above is the only place where the Warzone grant
+        // overrides WorldGuard region protection. Any cancellation still present here belongs to
+        // another protection boundary and must remain intact.
+        if (event.isCancelled()) return;
+
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
         boolean effectiveCobwebDenied = !temporaryBypass && !decision.allowed();
-        // The active Warzone COBWEBS modifier is the narrow placement grant. Normal WorldGuard
-        // BUILD/block-place may remain denied. The dedicated maceguard-warzone-cobwebs flag remains
-        // the explicit administrative kill switch, and replacement safety still applies.
         boolean blockPlacementDenied =
                 !worldGuard.warzoneCobwebsAllowed(location)
                 || !replacementAllowed(config, event.getBlockReplacedState().getType());
 
-        if (!effectiveCobwebDenied && !blockPlacementDenied) {
-            // WorldGuard may have cancelled BlockPlaceEvent before this HIGHEST handler. Re-open it
-            // only when WorldGuard itself says ordinary building is denied; if ordinary building is
-            // allowed but some unrelated plugin cancelled the event, preserve that cancellation.
-            if (event.isCancelled() && !worldGuard.buildAllowed(location, event.getPlayer()))
-                event.setCancelled(false);
-            return;
-        }
+        if (!effectiveCobwebDenied && !blockPlacementDenied) return;
         event.setCancelled(true);
         if (effectiveCobwebDenied) warzone.sendCobwebDenial(event.getPlayer(), decision);
         else warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
