@@ -37,7 +37,7 @@ class WarzoneCartDefaultsTest {
         assertEquals("06:25", existing.getString("rotation.schedule.time"));
         assertEquals("Custom SMP Kit", existing.getString("kits.smp.display-name"));
         assertTrue(existing.getBoolean("modifiers.carts.enabled"));
-        assertEquals(8, existing.getInt("modifiers.carts.weight"));
+        assertEquals(10, existing.getInt("modifiers.carts.weight"));
         assertEquals(List.of("CARTS"), existing.getStringList("modifiers.carts.effects"));
         assertNotNull(existing.getConfigurationSection("modifiers.carts.restrictions"));
 
