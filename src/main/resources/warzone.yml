@@ -124,7 +124,7 @@ modifiers:
   carts:
     combat-carryover: false
     enabled: true
-    weight: 8
+    weight: 10
     display-name: "<red>TNT Carts"
     description: "<gray>Rails, flint and steel, and TNT minecarts are enabled; cart explosions deal normal damage but never break blocks."
     effects: [CARTS]
