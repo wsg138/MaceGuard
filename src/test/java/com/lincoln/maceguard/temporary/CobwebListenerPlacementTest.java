@@ -55,23 +55,43 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void warzoneModifierGrantsTemporaryCobwebsThroughNormalBuildDeny() {
+    void warzoneModifierPreAllowsOnlyWorldGuardRegionDeny() {
         Harness harness = harness(true, true);
         when(harness.worldGuard.buildAllowed(any(Location.class), any(Player.class)))
                 .thenReturn(false);
         when(harness.worldGuard.cobwebsAllowed(any(Location.class), any(Player.class)))
                 .thenReturn(false);
         when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
-        BlockPlaceEvent event = event(GameMode.SURVIVAL, 7, Material.AIR);
-        // Simulate WorldGuard having already cancelled the placement because normal building is denied.
+        BlockPlaceEvent original = event(GameMode.SURVIVAL, 7, Material.AIR);
+        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent delegate =
+                mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
+        when(delegate.getOriginalEvent()).thenReturn(original);
+
+        harness.listener.onWorldGuardWarzoneCobweb(delegate);
+        harness.listener.onRestriction(original);
+        harness.listener.onPlace(original);
+
+        verify(delegate).setAllowed(true);
+        verify(original, never()).setCancelled(false);
+        verify(original, never()).setCancelled(true);
+        verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
+    }
+
+    @Test
+    void unrelatedPreCancelledWarzoneCobwebIsNeverReopened() {
+        Harness harness = harness(true, true);
+        when(harness.worldGuard.buildAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 8, Material.AIR);
         when(event.isCancelled()).thenReturn(true);
 
         harness.listener.onRestriction(event);
-        harness.listener.onPlace(event);
 
-        verify(event).setCancelled(false);
+        verify(event, never()).setCancelled(false);
         verify(event, never()).setCancelled(true);
-        verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
+        verify(harness.temporary, never())
+                .track(any(Block.class), anyString(), anyLong(), anyBoolean());
     }
 
     @Test
