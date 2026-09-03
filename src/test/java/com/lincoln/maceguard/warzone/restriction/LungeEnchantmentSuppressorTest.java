@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,5 +67,15 @@ class LungeEnchantmentSuppressorTest {
 
         assertFalse(suppressor.suppress(item));
         assertFalse(suppressor.restore(item));
+    }
+
+    @Test
+    void restoreRejectsNonSpearsBeforeCopyingMetadata() {
+        ItemStack item = mock(ItemStack.class);
+        when(item.getType()).thenReturn(Material.DIAMOND_SWORD);
+
+        assertFalse(suppressor.restore(item));
+
+        verify(item, never()).getItemMeta();
     }
 }
