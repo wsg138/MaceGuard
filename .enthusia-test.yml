@@ -41,7 +41,7 @@ actions:
     type: assert-config
     path: plugins/MaceGuard/warzone.yml
     key: modifiers.carts.weight
-    equals: 8
+    equals: 10
   - profile: restart-config
     stage: after-restart
     type: assert-config
