@@ -80,7 +80,7 @@ jobs:
             unzip -p "$JAR" plugin.yml | sed -n '1,20p'
           } | tee target/verification.txt
           test "$(jar tf "$JAR" | grep -c '^plugin.yml$')" -eq 1
-          unzip -p "$JAR" plugin.yml | grep -q '^version: 6.1.4$'
+          unzip -p "$JAR" plugin.yml | grep -q '^version: 6.1.5$'
           unzip -p "$JAR" plugin.yml | grep -q '^main: com.lincoln.maceguard.MaceGuardPlugin$'
           unzip -p "$JAR" plugin.yml | grep -q "^api-version: '1.21'$"
           unzip -p "$JAR" warzone.yml | grep -q '^config-version: 7$'
@@ -94,7 +94,7 @@ jobs:
           ! jar tf "$JAR" | grep -Eq 'CombatLogXBridge|ReflectiveCombat'
           ! grep -R -n '^import com\.github\.sirblobman' src/main/java src/test/java
           ! grep -n '<groupId>com.github.sirblobman' pom.xml
-          grep -q '<version>6.1.4</version>' pom.xml
+          grep -q '<version>6.1.5</version>' pom.xml
           cat target/dependency-tree.txt >> target/verification.txt
           SCRIPT
       - name: Upload failed JAR inspection transcript
