@@ -1,28 +1,24 @@
 package com.lincoln.maceguard.warzone.combat;
 
 import com.lincoln.maceguard.warzone.message.WarzoneMessageService;
-import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
 import org.bukkit.entity.EnderPearl;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataContainer;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
 
+import static com.lincoln.maceguard.warzone.combat.PersistentDataTestSupport.container;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,93 +29,83 @@ class StasisPearlRelogRecoveryTest {
         if (plugin != null) PearlEventDiagnostics.forPlugin(plugin).clear();
     }
 
-    @Test void reconstructedPearlGetsOriginalLaunchTimeAndNewIdentityIsPersisted() {
-        UUID ownerId = UUID.randomUUID();
-        UUID originalPearlId = UUID.randomUUID();
-        UUID replacementPearlId = UUID.randomUUID();
+    @Test void exactRecreatedIdentityRecoversDuringOwnedPearlReconciliation() {
+        RecoveryFixture fixture = fixture();
         long originalLaunch = 5_000L;
+        fixture.ledger.record(fixture.player, fixture.replacementId, originalLaunch);
 
-        Player player = mock(Player.class);
-        PersistentDataContainer playerData = container();
-        when(player.getUniqueId()).thenReturn(ownerId);
-        when(player.getPersistentDataContainer()).thenReturn(playerData);
+        fixture.listener.reconcileOwnedPearls(fixture.player);
 
-        EnderPearl replacement = mock(EnderPearl.class);
-        PersistentDataContainer pearlData = container();
-        when(replacement.getUniqueId()).thenReturn(replacementPearlId);
-        when(replacement.getOwnerUniqueId()).thenReturn(ownerId);
-        when(replacement.getPersistentDataContainer()).thenReturn(pearlData);
-        when(player.getEnderPearls()).thenReturn(List.of(replacement));
-
-        StasisPearlLedger ledger = new StasisPearlLedger();
-        ledger.record(player, originalPearlId, originalLaunch);
-
-        StasisPearlListener listener = listener();
-        listener.reconcileOwnedPearls(player);
-
-        StasisPearlMetadata.ReadResult restored =
-                new StasisPearlMetadata().read(replacement, ownerId, 70_000L);
+        StasisPearlMetadata.ReadResult restored = fixture.metadata.read(
+                fixture.replacement, fixture.ownerId, 70_000L);
         assertTrue(restored.marked());
         assertFalse(restored.failClosed());
         assertEquals(originalLaunch, restored.launchedAtMillis());
-
-        Map<UUID, Long> persisted = ledger.read(playerData);
-        assertFalse(persisted.containsKey(originalPearlId));
-        assertEquals(originalLaunch, persisted.get(replacementPearlId));
     }
 
-    @Test void ambiguousReconstructionDoesNotGuessWhichPearlWasTracked() {
-        UUID ownerId = UUID.randomUUID();
-        Player player = mock(Player.class);
-        PersistentDataContainer playerData = container();
-        when(player.getUniqueId()).thenReturn(ownerId);
-        when(player.getPersistentDataContainer()).thenReturn(playerData);
+    @Test void replacementIdentityAtImpactConsumesOldestDurableLaunch() {
+        RecoveryFixture fixture = fixture();
+        UUID oldestId = UUID.randomUUID();
+        UUID newerId = UUID.randomUUID();
+        fixture.ledger.record(fixture.player, oldestId, 5_000L);
+        fixture.ledger.record(fixture.player, newerId, 6_000L);
 
-        EnderPearl replacement = mock(EnderPearl.class);
-        PersistentDataContainer pearlData = container();
-        when(replacement.getUniqueId()).thenReturn(UUID.randomUUID());
-        when(replacement.getOwnerUniqueId()).thenReturn(ownerId);
-        when(replacement.getPersistentDataContainer()).thenReturn(pearlData);
-        when(player.getEnderPearls()).thenReturn(List.of(replacement));
+        StasisPearlMetadata.ReadResult restored = fixture.listener.recoverMetadata(
+                fixture.replacement, fixture.ownerId, 70_000L);
 
-        StasisPearlLedger ledger = new StasisPearlLedger();
-        ledger.record(player, UUID.randomUUID(), 5_000L);
-        ledger.record(player, UUID.randomUUID(), 6_000L);
-
-        listener().reconcileOwnedPearls(player);
-
-        assertFalse(new StasisPearlMetadata().read(replacement, ownerId, 70_000L).marked());
-        assertEquals(2, ledger.read(playerData).size());
+        assertTrue(restored.marked());
+        assertFalse(restored.failClosed());
+        assertEquals(5_000L, restored.launchedAtMillis());
+        Map<UUID, Long> persisted = fixture.ledger.read(fixture.playerData);
+        assertFalse(persisted.containsKey(oldestId));
+        assertEquals(5_000L, persisted.get(fixture.replacementId));
+        assertEquals(6_000L, persisted.get(newerId));
     }
 
-    private StasisPearlListener listener() {
+    @Test void unmarkedPearlWithoutDurableOwnerRecordStaysUnmarked() {
+        RecoveryFixture fixture = fixture();
+
+        StasisPearlMetadata.ReadResult restored = fixture.listener.recoverMetadata(
+                fixture.replacement, fixture.ownerId, 70_000L);
+
+        assertFalse(restored.marked());
+    }
+
+    private RecoveryFixture fixture() {
         plugin = mock(JavaPlugin.class);
         Server server = mock(Server.class);
+        Player player = mock(Player.class);
+        EnderPearl replacement = mock(EnderPearl.class);
+        PersistentDataContainer playerData = container();
+        PersistentDataContainer pearlData = container();
+        UUID ownerId = UUID.randomUUID();
+        UUID replacementId = UUID.randomUUID();
+
         when(plugin.getName()).thenReturn("MaceGuard");
         when(plugin.getServer()).thenReturn(server);
         when(plugin.getLogger()).thenReturn(Logger.getLogger("StasisPearlRelogRecoveryTest"));
+        when(server.getPlayer(ownerId)).thenReturn(player);
+        when(player.getUniqueId()).thenReturn(ownerId);
+        when(player.getPersistentDataContainer()).thenReturn(playerData);
+        when(player.getEnderPearls()).thenReturn(List.of(replacement));
+        when(replacement.getUniqueId()).thenReturn(replacementId);
+        when(replacement.getOwnerUniqueId()).thenReturn(ownerId);
+        when(replacement.getPersistentDataContainer()).thenReturn(pearlData);
+        when(replacement.getServer()).thenReturn(server);
+
         StasisPearlListener.TimeSource time = new StasisPearlListener.TimeSource() {
             @Override public long wallMillis() { return 70_000L; }
             @Override public long nanoTime() { return 70_000_000_000L; }
         };
-        return new StasisPearlListener(mock(CombatScopeService.class),
-                mock(StasisPearlTracker.class), mock(WarzoneMessageService.class),
-                Duration.ofSeconds(60), plugin, time);
+        StasisPearlListener listener = new StasisPearlListener(
+                mock(CombatScopeService.class), mock(StasisPearlTracker.class),
+                mock(WarzoneMessageService.class), Duration.ofSeconds(60), plugin, time);
+        return new RecoveryFixture(listener, new StasisPearlLedger(), new StasisPearlMetadata(),
+                player, replacement, playerData, ownerId, replacementId);
     }
 
-    private PersistentDataContainer container() {
-        PersistentDataContainer data = mock(PersistentDataContainer.class);
-        Map<NamespacedKey, Object> values = new HashMap<>();
-        doAnswer(invocation -> {
-            values.put(invocation.getArgument(0), invocation.getArgument(2));
-            return null;
-        }).when(data).set(any(NamespacedKey.class), any(PersistentDataType.class), any());
-        when(data.get(any(NamespacedKey.class), any(PersistentDataType.class)))
-                .thenAnswer(invocation -> values.get(invocation.getArgument(0)));
-        doAnswer(invocation -> {
-            values.remove(invocation.getArgument(0));
-            return null;
-        }).when(data).remove(any(NamespacedKey.class));
-        return data;
-    }
+    private record RecoveryFixture(StasisPearlListener listener, StasisPearlLedger ledger,
+                                   StasisPearlMetadata metadata, Player player,
+                                   EnderPearl replacement, PersistentDataContainer playerData,
+                                   UUID ownerId, UUID replacementId) { }
 }
