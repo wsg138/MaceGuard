@@ -30,8 +30,7 @@ final class StasisPearlLedger {
             int index = HEADER_VALUES + entry * VALUES_PER_ENTRY;
             long launchedAt = stored[index + 2];
             if (launchedAt <= 0L) continue;
-            UUID pearlId = new UUID(stored[index], stored[index + 1]);
-            entries.put(pearlId, launchedAt);
+            entries.put(new UUID(stored[index], stored[index + 1]), launchedAt);
         }
         return entries;
     }
@@ -40,8 +39,18 @@ final class StasisPearlLedger {
         if (launchedAtMillis <= 0L) return;
         Map<UUID, Long> entries = read(player.getPersistentDataContainer());
         entries.put(pearlId, launchedAtMillis);
-        if (entries.size() > MAX_ENTRIES) entries.remove(newest(entries));
+        if (entries.size() > MAX_ENTRIES) entries.remove(extreme(entries, false));
         write(player, entries);
+    }
+
+    Long rebindOldest(Player player, UUID replacementId) {
+        Map<UUID, Long> entries = read(player.getPersistentDataContainer());
+        UUID originalId = extreme(entries, true);
+        if (originalId == null) return null;
+        Long launchedAt = entries.remove(originalId);
+        entries.put(replacementId, launchedAt);
+        write(player, entries);
+        return launchedAt;
     }
 
     void remove(Player player, UUID pearlId) {
@@ -59,28 +68,24 @@ final class StasisPearlLedger {
             data.remove(key);
             return;
         }
-        int count = Math.min(source.size(), MAX_ENTRIES);
-        long[] stored = new long[HEADER_VALUES + count * VALUES_PER_ENTRY];
+        long[] stored = new long[HEADER_VALUES + source.size() * VALUES_PER_ENTRY];
         stored[0] = FORMAT_VERSION;
         int entry = 0;
         for (Map.Entry<UUID, Long> value : source.entrySet()) {
-            if (entry >= count) break;
-            if (value.getValue() == null || value.getValue() <= 0L) continue;
+            Long launchedAt = value.getValue();
+            if (launchedAt == null || launchedAt <= 0L) continue;
             int index = HEADER_VALUES + entry * VALUES_PER_ENTRY;
             stored[index] = value.getKey().getMostSignificantBits();
             stored[index + 1] = value.getKey().getLeastSignificantBits();
-            stored[index + 2] = value.getValue();
+            stored[index + 2] = launchedAt;
             entry++;
         }
         if (entry == 0) {
             data.remove(key);
             return;
         }
-        if (entry < count) {
-            long[] compact = new long[HEADER_VALUES + entry * VALUES_PER_ENTRY];
-            System.arraycopy(stored, 0, compact, 0, compact.length);
-            stored = compact;
-        }
+        if (entry * VALUES_PER_ENTRY + HEADER_VALUES != stored.length)
+            stored = compact(stored, entry);
         data.set(key, PersistentDataType.LONG_ARRAY, stored);
     }
 
@@ -90,16 +95,24 @@ final class StasisPearlLedger {
                 && (stored.length - HEADER_VALUES) % VALUES_PER_ENTRY == 0;
     }
 
-    private UUID newest(Map<UUID, Long> entries) {
-        UUID newestId = null;
-        long newestLaunch = Long.MIN_VALUE;
+    private long[] compact(long[] stored, int entries) {
+        long[] compact = new long[HEADER_VALUES + entries * VALUES_PER_ENTRY];
+        System.arraycopy(stored, 0, compact, 0, compact.length);
+        return compact;
+    }
+
+    private UUID extreme(Map<UUID, Long> entries, boolean oldest) {
+        UUID selected = null;
+        long selectedTime = oldest ? Long.MAX_VALUE : Long.MIN_VALUE;
         for (Map.Entry<UUID, Long> entry : entries.entrySet()) {
             Long launch = entry.getValue();
-            if (launch != null && launch > newestLaunch) {
-                newestLaunch = launch;
-                newestId = entry.getKey();
+            if (launch == null) continue;
+            boolean better = oldest ? launch < selectedTime : launch > selectedTime;
+            if (better) {
+                selectedTime = launch;
+                selected = entry.getKey();
             }
         }
-        return newestId;
+        return selected;
     }
 }
