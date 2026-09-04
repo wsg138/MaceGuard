@@ -150,6 +150,7 @@ public final class StasisPearlListener implements Listener {
         if (!shouldBlock(player, correlation.effectiveAged())) return;
         event.setCancelled(true);
         messages.stasisBlocked(player);
+        messages.send(player, "<red>Your stasis pearl was blocked. <gray>Use <white>/stasis<gray> for more info.");
         diagnostics.record(player.getUniqueId(), "teleport-final", () -> "selected="
                 + correlation.selectedPearlId() + " maceGuardCancelled=true");
     }
