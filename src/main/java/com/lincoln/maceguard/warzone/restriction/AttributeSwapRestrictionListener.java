@@ -49,9 +49,14 @@ public final class AttributeSwapRestrictionListener implements Listener {
     private final BukkitTask lungeReconcileTask;
 
     public AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module) {
+        this(plugin, module, new LungeEnchantmentSuppressor(plugin));
+    }
+
+    AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
+                                     LungeEnchantmentSuppressor lungeSuppressor) {
         this.plugin = plugin;
         this.module = module;
-        this.lungeSuppressor = new LungeEnchantmentSuppressor(plugin);
+        this.lungeSuppressor = lungeSuppressor;
         this.lungeReconcileTask = plugin.getServer().getScheduler().runTaskTimer(plugin,
                 this::reconcileLungeRestrictions, 1L, 1L);
     }
