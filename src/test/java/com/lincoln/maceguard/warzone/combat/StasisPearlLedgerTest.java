@@ -54,25 +54,24 @@ class StasisPearlLedgerTest {
         assertFalse(values.containsKey(StasisPearlMetadata.key(StasisPearlLedger.LEDGER_KEY)));
     }
 
-    @Test void malformedEntriesAndUnsupportedFormatAreIgnored() {
+    @Test void malformedShapeAndUnsupportedFormatAreIgnored() {
         NamespacedKey key = StasisPearlMetadata.key(StasisPearlLedger.LEDGER_KEY);
-        values.put(key, "1\nnot-a-uuid=1000\n" + UUID.randomUUID() + "=not-a-time");
+        values.put(key, new long[]{StasisPearlLedger.FORMAT_VERSION, 1L, 2L});
         assertTrue(ledger.read(data).isEmpty());
 
-        values.put(key, "99\n" + UUID.randomUUID() + "=1000");
+        values.put(key, new long[]{99L, 1L, 2L, 3L});
         assertTrue(ledger.read(data).isEmpty());
     }
 
-    @Test void ledgerIsBoundedToThirtyTwoEntries() {
-        Map<UUID, Long> entries = new HashMap<>();
+    @Test void ledgerKeepsOldestThirtyTwoLaunches() {
         for (int index = 0; index < 40; index++)
-            entries.put(UUID.randomUUID(), 1_000L + index);
-
-        ledger.write(player, entries);
+            ledger.record(player, UUID.randomUUID(), 1_000L + index);
 
         Map<UUID, Long> restored = ledger.read(data);
         assertEquals(StasisPearlLedger.MAX_ENTRIES, restored.size());
         assertTrue(restored.containsValue(1_000L));
+        assertTrue(restored.containsValue(1_031L));
+        assertFalse(restored.containsValue(1_032L));
         assertFalse(restored.containsValue(1_039L));
     }
 }
