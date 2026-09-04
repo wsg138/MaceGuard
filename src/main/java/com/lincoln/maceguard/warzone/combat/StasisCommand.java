@@ -39,15 +39,13 @@ public final class StasisCommand implements CommandExecutor {
         boolean blocked = blocked(runtime, player);
 
         send(module, player, "<dark_gray>──────── <gold><bold>Stasis Chambers</bold> <dark_gray>────────");
-        if (blocked) {
-            send(module, player, "<red><bold>BLOCKED</bold> <gray>• Your stasis chamber cannot pull you right now.");
-        } else {
-            send(module, player, "<green><bold>AVAILABLE</bold> <gray>• Your stasis chamber is not currently blocked.");
-        }
-        send(module, player, "<gray>If your combat starts in the Warzone while stasis blocking is active, your stasis chamber stays blocked until that combat ends.");
+        send(module, player, blocked
+                ? "<red><bold>BLOCKED</bold> <gray>• Your stasis chamber cannot pull you right now."
+                : "<green><bold>AVAILABLE</bold> <gray>• Your stasis chamber is not currently blocked.");
+        send(module, player, "<gray>If combat starts while you are in the Warzone and stasis blocking is active, your chamber stays blocked until that combat ends.");
         send(module, player, "<gray>Leaving the Warzone does <white>not<gray> remove the block.");
-        send(module, player, "<gray>When that combat ends, the Warzone stasis block ends too.");
-        send(module, player, "<gray>Fresh Ender Pearls are not treated as stasis chambers.");
+        send(module, player, "<gray>Relogging does <white>not<gray> reset an existing stasis chamber.");
+        send(module, player, "<gray>Once that combat ends, the Warzone stasis block ends too.");
         return true;
     }
 
