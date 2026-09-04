@@ -187,7 +187,7 @@ public final class StasisPearlListener implements Listener {
         StasisPearlMetadata.ReadResult read = metadata.read(pearl, ownerId, wall);
         if (read.marked()) {
             if (!read.failClosed() && ownerId.equals(read.ownerId()))
-                ledger.record(owner, pearl.getUniqueId(), read.launchedAtMillis());
+                ledger.recordObserved(owner, pearl.getUniqueId(), read.launchedAtMillis());
             return;
         }
         Long launchedAt = ledger.read(owner.getPersistentDataContainer()).get(pearl.getUniqueId());
