@@ -43,6 +43,21 @@ class StasisPearlRelogRecoveryTest {
         assertEquals(originalLaunch, restored.launchedAtMillis());
     }
 
+    @Test void validMarkedReplacementMigratesUniqueObsoleteLedgerUuid() {
+        RecoveryFixture fixture = fixture();
+        UUID obsoleteId = UUID.randomUUID();
+        long originalLaunch = 5_000L;
+        fixture.ledger.record(fixture.player, obsoleteId, originalLaunch);
+        fixture.metadata.mark(fixture.replacement, fixture.ownerId, originalLaunch);
+
+        fixture.listener.reconcileOwnedPearls(fixture.player);
+
+        Map<UUID, Long> persisted = fixture.ledger.read(fixture.playerData);
+        assertFalse(persisted.containsKey(obsoleteId));
+        assertEquals(originalLaunch, persisted.get(fixture.replacementId));
+        assertEquals(1, persisted.size());
+    }
+
     @Test void replacementIdentityAtImpactConsumesOldestDurableLaunch() {
         RecoveryFixture fixture = fixture();
         UUID oldestId = UUID.randomUUID();
