@@ -111,36 +111,54 @@ public final class AttributeSwapRestrictionListener implements Listener {
         if (event.getHand() != EquipmentSlot.HAND) return;
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
-        if (!RestrictionTarget.isSpear(held.getType()) || !vanillaLungeEligible(player)
-                || !jabReadiness.ready(player, held)) return;
-
-        boolean liveLunge = lungeSuppressor.hasLiveLunge(held);
-        boolean trackedLunge = liveLunge || lungeSuppressor.isSuppressed(held);
-        if (!trackedLunge) return;
+        if (!eligibleLungeJab(player, held)) return;
 
         WarzoneRuntime runtime = authoritativeRuntime();
-        if (runtime == null) return;
+        if (runtime != null) handleLungeJab(runtime, player, held);
+    }
+
+    private boolean eligibleLungeJab(Player player, ItemStack held) {
+        if (!RestrictionTarget.isSpear(held.getType())) return false;
+        if (!vanillaLungeEligible(player) || !jabReadiness.ready(player, held)) return false;
+        return lungeSuppressor.hasLiveLunge(held) || lungeSuppressor.isSuppressed(held);
+    }
+
+    private void handleLungeJab(WarzoneRuntime runtime, Player player, ItemStack held) {
+        boolean liveLunge = lungeSuppressor.hasLiveLunge(held);
         RestrictionDecision spearDecision = decide(runtime, player, RestrictionTarget.SPEAR,
                 player.getLocation());
         RestrictionDecision lungeDecision = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE,
                 player.getLocation());
 
         if (spearDecision.denied() || lungeDecision.denied()) {
-            if (liveLunge && lungeSuppressor.suppress(held))
-                player.getInventory().setItem(player.getInventory().getHeldItemSlot(), held);
-            if (!spearDecision.denied() && lungeDecision.denied())
-                runtime.messages().denial(player, lungeDecision, null);
+            handleDeniedLunge(runtime, player, held, liveLunge, spearDecision, lungeDecision);
             return;
         }
-
         if (!liveLunge) {
-            if (lungeSuppressor.restore(held))
-                player.getInventory().setItem(player.getInventory().getHeldItemSlot(), held);
+            restoreHeldLunge(player, held);
             return;
         }
+        scheduleLungeCooldown(runtime, player, lungeDecision);
+    }
+
+    private void handleDeniedLunge(WarzoneRuntime runtime, Player player, ItemStack held,
+                                   boolean liveLunge, RestrictionDecision spearDecision,
+                                   RestrictionDecision lungeDecision) {
+        if (liveLunge && lungeSuppressor.suppress(held))
+            player.getInventory().setItem(player.getInventory().getHeldItemSlot(), held);
+        if (!spearDecision.denied() && lungeDecision.denied())
+            runtime.messages().denial(player, lungeDecision, null);
+    }
+
+    private void restoreHeldLunge(Player player, ItemStack held) {
+        if (lungeSuppressor.restore(held))
+            player.getInventory().setItem(player.getInventory().getHeldItemSlot(), held);
+    }
+
+    private void scheduleLungeCooldown(WarzoneRuntime runtime, Player player,
+                                       RestrictionDecision lungeDecision) {
         if (!lungeDecision.startsCooldownAfterSuccess()
                 || !pendingLungeCooldowns.add(player.getUniqueId())) return;
-
         plugin.getServer().getScheduler().runTask(plugin,
                 () -> finalizeObservedLunge(player, lungeDecision));
     }
