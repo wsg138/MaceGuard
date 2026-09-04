@@ -1,5 +1,5 @@
-# Schema-7 Warzone kits, anchored repeating schedule, and manual override controls.
-# Fresh installs remain inactive until the configured WorldGuard scope passes /warzone validate.
+# Sentinel restart-config fixture: valid schema-7 Warzone config from before the TNT Carts modifier existed.
+# Operator customizations below must survive additive migration and the second Paper boot.
 config-version: 7
 enabled: false
 
@@ -15,7 +15,7 @@ rotation:
     enabled: true
     timezone: America/Indiana/Indianapolis
     anchor-date: "2026-08-09"
-    time: "04:00"
+    time: "06:25"
     cadence:
       every: 1
       unit: WEEKS
@@ -113,24 +113,13 @@ modifiers:
   cobwebs:
     combat-carryover: false
     enabled: true
-    weight: 10
+    weight: 37
     display-name: "<white>Cobwebs"
     description: "<gray>Temporary cobweb placement is available in the effective warzone."
     effects: [COBWEBS]
     restrictions: {}
     start-message: "<white>Cobwebs are active in the warzone."
     end-message: "<gray>The Warzone cobweb modifier has ended."
-
-  carts:
-    combat-carryover: false
-    enabled: true
-    weight: 10
-    display-name: "<red>TNT Carts"
-    description: "<gray>Rails, flint and steel, and TNT minecarts are enabled; cart explosions deal normal damage but never break blocks."
-    effects: [CARTS]
-    restrictions: {}
-    start-message: "<red>TNT Cart PvP is active in the warzone."
-    end-message: "<gray>The TNT Cart modifier has ended."
 
   no-lunge:
     combat-carryover: true
@@ -309,7 +298,7 @@ modifiers:
 kits:
   smp:
     enabled: true
-    display-name: "<green>SMP"
+    display-name: "Custom SMP Kit"
     description: "<gray>General-purpose mobility and utility rules."
     icon: GRASS_BLOCK
     modifiers:

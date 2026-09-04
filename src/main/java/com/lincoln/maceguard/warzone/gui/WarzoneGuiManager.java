@@ -516,7 +516,6 @@ public final class WarzoneGuiManager implements Listener {
             throw new IllegalArgumentException("That schedule entry no longer exists.");
         }
 
-
         int current = runtime.rotations().state().currentCycleIndex();
         int next = runtime.rotations().scheduleEnabled() ? runtime.rotations().nextSlot().cycleIndex() : -1;
         WarzoneControlConfig.Entry entry = cycle.get(index);
@@ -1292,6 +1291,7 @@ public final class WarzoneGuiManager implements Listener {
     private String effectDisplay(WarzoneConfig.Effect effect) {
         return switch (effect) {
             case COBWEBS -> "<green>Cobweb placement enabled";
+            case CARTS -> "<green>TNT carts, rails, and safe fire enabled";
             case ELYTRA_NO_ROCKETS -> "<green>Elytra gliding <dark_gray>• <red>No rocket boosting";
         };
     }
@@ -1487,11 +1487,9 @@ public final class WarzoneGuiManager implements Listener {
         MAIN, SCHEDULE
     }
 
-
     record ScheduleDetailNavigation(String backType, String backValue, String backLabel,
                                     boolean showFullSchedule, int fullSchedulePage) {
     }
-
 
     static final class Session {
         final UUID id;

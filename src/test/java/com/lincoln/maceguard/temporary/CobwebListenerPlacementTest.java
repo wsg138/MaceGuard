@@ -55,6 +55,46 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
+    void warzoneModifierPreAllowsOnlyWorldGuardRegionDeny() {
+        Harness harness = harness(true, true);
+        when(harness.worldGuard.buildAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.cobwebsAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
+        BlockPlaceEvent original = event(GameMode.SURVIVAL, 7, Material.AIR);
+        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent delegate =
+                mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
+        when(delegate.getOriginalEvent()).thenReturn(original);
+
+        harness.listener.onWorldGuardWarzoneCobweb(delegate);
+        harness.listener.onRestriction(original);
+        harness.listener.onPlace(original);
+
+        verify(delegate).setAllowed(true);
+        verify(original, never()).setCancelled(false);
+        verify(original, never()).setCancelled(true);
+        verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
+    }
+
+    @Test
+    void unrelatedPreCancelledWarzoneCobwebIsNeverReopened() {
+        Harness harness = harness(true, true);
+        when(harness.worldGuard.buildAllowed(any(Location.class), any(Player.class)))
+                .thenReturn(false);
+        when(harness.worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
+        BlockPlaceEvent event = event(GameMode.SURVIVAL, 8, Material.AIR);
+        when(event.isCancelled()).thenReturn(true);
+
+        harness.listener.onRestriction(event);
+
+        verify(event, never()).setCancelled(false);
+        verify(event, never()).setCancelled(true);
+        verify(harness.temporary, never())
+                .track(any(Block.class), anyString(), anyLong(), anyBoolean());
+    }
+
+    @Test
     void rejectedTrackingCancelsAndRestoresTheOriginalBlock() {
         Harness harness = harness(false, true);
         BlockPlaceEvent event = event(GameMode.SURVIVAL, 3, Material.AIR);
@@ -141,7 +181,7 @@ class CobwebListenerPlacementTest {
         when(worldGuard.warzoneCobwebsAllowed(any(Location.class))).thenReturn(true);
         when(temporary.track(any(Block.class), anyString(), anyLong(), eq(true)))
                 .thenReturn(trackResult);
-        return new Harness(listener, warzone, temporary, config, policies);
+        return new Harness(listener, warzone, temporary, config, policies, worldGuard);
     }
 
     private BlockPlaceEvent event(GameMode mode, int x, Material originalMaterial) {
@@ -183,5 +223,5 @@ class CobwebListenerPlacementTest {
 
     private record Harness(CobwebListener listener, WarzoneModule warzone,
                            TemporaryBlockService temporary, MaceGuardConfig config,
-                           BlockPolicyResolver policies) { }
+                           BlockPolicyResolver policies, WorldGuardQueryService worldGuard) { }
 }

@@ -47,7 +47,9 @@ jobs:
           set -o pipefail
           bash -euxo pipefail <<'SCRIPT' 2>&1 | tee jar-inspection.log
           JAR=target/MaceGuard.jar
+          FIXTURE=sentinel-fixtures/warzone-schema7-pre-carts.yml
           test -f "$JAR"
+          test -f "$FIXTURE"
           {
             echo "source_commit=$(git rev-parse HEAD)"
             java -version 2>&1
@@ -56,6 +58,7 @@ jobs:
             echo "test_source_count=$(find src/test/java -name '*.java' -type f | wc -l)"
             echo "jar_size_bytes=$(stat -c%s "$JAR")"
             sha256sum "$JAR"
+            sha256sum "$FIXTURE"
 
             while IFS='|' read -r expected dependency; do
               if [[ ! -f "$dependency" ]]; then
@@ -81,6 +84,11 @@ jobs:
           unzip -p "$JAR" plugin.yml | grep -q '^main: com.lincoln.maceguard.MaceGuardPlugin$'
           unzip -p "$JAR" plugin.yml | grep -q "^api-version: '1.21'$"
           unzip -p "$JAR" warzone.yml | grep -q '^config-version: 7$'
+          grep -q '^config-version: 7$' "$FIXTURE"
+          grep -q '^    time: "06:25"$' "$FIXTURE"
+          grep -q '^    weight: 37$' "$FIXTURE"
+          grep -q '^    display-name: "Custom SMP Kit"$' "$FIXTURE"
+          ! grep -q '^  carts:$' "$FIXTURE"
           ! jar tf "$JAR" | grep -Eq '^(com/github/sirblobman|io/papermc|org/bukkit|com/sk89q/worldguard|com/sk89q/worldedit|me/clip/placeholderapi|org/geysermc|org/floodgate|net/essentialsx|com/earth2me/essentials)/'
           ! jar tf "$JAR" | grep -Eq '(^|/)(test|tests)/|Test.class$|\.java$|^handoffs/'
           ! jar tf "$JAR" | grep -Eq 'CombatLogXBridge|ReflectiveCombat'
@@ -100,6 +108,7 @@ jobs:
             target/verification.txt
             target/dependency-tree.txt
             target/MaceGuard.jar
+            sentinel-fixtures/warzone-schema7-pre-carts.yml
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v4
@@ -113,6 +122,7 @@ jobs:
             target/dependency-tree.txt
             target/surefire-reports/*.txt
             target/surefire-reports/*.xml
+            sentinel-fixtures/warzone-schema7-pre-carts.yml
           if-no-files-found: error
           retention-days: 14
 

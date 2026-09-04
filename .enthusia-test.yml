@@ -8,7 +8,13 @@ artifact:
   jar_path: target/MaceGuard.jar
 profiles:
   - dependencies
-configs: []
+  - restart-config
+configs:
+  - path: plugins/MaceGuard/warzone.yml
+    format: yaml
+    required: true
+    reload_supported: false
+    fixture: sentinel-fixtures/warzone-schema7-pre-carts.yml
 databases: []
 dependencies:
   - id: worldguard
@@ -18,3 +24,39 @@ actions:
     stage: after-start
     type: console-command
     command: warzone debug
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: config-version
+    equals: 7
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: modifiers.carts.enabled
+    equals: true
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: modifiers.carts.weight
+    equals: 10
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: modifiers.cobwebs.weight
+    equals: 37
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: rotation.schedule.time
+    equals: "06:25"
+  - profile: restart-config
+    stage: after-restart
+    type: assert-config
+    path: plugins/MaceGuard/warzone.yml
+    key: kits.smp.display-name
+    equals: "Custom SMP Kit"

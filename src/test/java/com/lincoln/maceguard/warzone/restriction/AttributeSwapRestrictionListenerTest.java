@@ -11,12 +11,15 @@ import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Server;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
+import org.bukkit.scheduler.BukkitScheduler;
+import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -25,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -97,6 +101,44 @@ class AttributeSwapRestrictionListenerTest {
         verify(harness.messages, never()).cooldownStarted(any(), any(), any());
     }
 
+    @Test
+    void lungeReconcileWaitsForSameModuleRecoveryButCancelsAfterReplacement() {
+        MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
+        PluginRuntime pluginRuntime = mock(PluginRuntime.class);
+        WarzoneModule module = mock(WarzoneModule.class);
+        WarzoneModule replacement = mock(WarzoneModule.class);
+        WarzoneRuntime recoveredRuntime = mock(WarzoneRuntime.class);
+        Server server = mock(Server.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        BukkitTask task = mock(BukkitTask.class);
+        AtomicReference<Runnable> scheduled = new AtomicReference<>();
+
+        when(plugin.getServer()).thenReturn(server);
+        when(server.getScheduler()).thenReturn(scheduler);
+        when(server.getOnlinePlayers()).thenReturn(List.of());
+        when(plugin.runtime()).thenReturn(pluginRuntime);
+        when(pluginRuntime.warzone()).thenReturn(module);
+        when(module.runtime()).thenReturn(null);
+        when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), eq(1L), eq(1L)))
+                .thenAnswer(invocation -> {
+                    scheduled.set(invocation.getArgument(1));
+                    return task;
+                });
+
+        new AttributeSwapRestrictionListener(plugin, module);
+        Runnable reconcile = scheduled.get();
+        reconcile.run();
+        verify(task, never()).cancel();
+
+        when(module.runtime()).thenReturn(recoveredRuntime);
+        reconcile.run();
+        verify(task, never()).cancel();
+
+        when(pluginRuntime.warzone()).thenReturn(replacement);
+        reconcile.run();
+        verify(task).cancel();
+    }
+
     private Harness harness(WarzoneConfig.Restriction restriction) {
         MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
         PluginRuntime pluginRuntime = mock(PluginRuntime.class);
@@ -105,6 +147,9 @@ class AttributeSwapRestrictionListenerTest {
         WarzoneRegionService region = mock(WarzoneRegionService.class);
         RotationManager rotations = mock(RotationManager.class);
         WarzoneMessageService messages = mock(WarzoneMessageService.class);
+        Server server = mock(Server.class);
+        BukkitScheduler scheduler = mock(BukkitScheduler.class);
+        BukkitTask reconcileTask = mock(BukkitTask.class);
         AtomicLong clock = new AtomicLong(1_000L);
         CooldownService cooldowns = new CooldownService(clock::get);
         Player player = mock(Player.class);
@@ -115,6 +160,10 @@ class AttributeSwapRestrictionListenerTest {
         UUID playerId = UUID.randomUUID();
         UUID targetId = UUID.randomUUID();
 
+        when(plugin.getServer()).thenReturn(server);
+        when(server.getScheduler()).thenReturn(scheduler);
+        when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), eq(1L), eq(1L)))
+                .thenReturn(reconcileTask);
         when(plugin.runtime()).thenReturn(pluginRuntime);
         when(pluginRuntime.warzone()).thenReturn(module);
         when(module.runtime()).thenReturn(runtime);
