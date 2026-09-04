@@ -55,6 +55,7 @@ public final class StasisPearlListener implements Listener {
         this.ledger = new StasisPearlLedger();
         this.diagnostics = PearlEventDiagnostics.forPlugin(plugin);
         this.time = time;
+        StasisCommand.bind(plugin);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -199,10 +200,8 @@ public final class StasisPearlListener implements Listener {
 
     private boolean shouldBlock(Player player, boolean aged) {
         boolean combatBound = scopes.combatBound(player);
-        if (!combatBound || !scopes.insideCombatZone(player)
-                || !scopes.stasisDeniedAtLocation(player)) return false;
         Optional<CombatScopeService.Latch> latch = scopes.latch(player.getUniqueId());
-        return StasisPolicy.shouldBlock(aged, true, false,
+        return StasisPolicy.shouldBlock(aged, combatBound, false,
                 player.hasPermission("warzonerotator.bypass"), latch.isPresent(),
                 latch.map(CombatScopeService.Latch::stasisDenied).orElse(false));
     }
