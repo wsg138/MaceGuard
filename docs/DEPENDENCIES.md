@@ -1,6 +1,6 @@
 # Reproducible compile dependencies
 
-MaceGuard 6.1.5 keeps runtime plugin integrations out of its compile surface whenever their public Maven artifacts are not stable long-term dependencies.
+MaceGuard 6.1.6 keeps runtime plugin integrations out of its compile surface whenever their public Maven artifacts are not stable long-term dependencies.
 
 | API | Group ID | Artifact ID | Immutable version | SHA-256 | Repository | Intended runtime baseline |
 |---|---|---|---|---|---|---|
