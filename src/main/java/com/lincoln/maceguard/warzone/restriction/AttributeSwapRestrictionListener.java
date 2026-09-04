@@ -45,18 +45,27 @@ public final class AttributeSwapRestrictionListener implements Listener {
     private final WarzoneModule module;
     private final AttributeSwapTracker swaps = new AttributeSwapTracker(System::nanoTime, SWAP_WINDOW);
     private final LungeEnchantmentSuppressor lungeSuppressor;
+    private final JabReadiness jabReadiness;
     private final Set<UUID> pendingLungeCooldowns = new HashSet<>();
     private final BukkitTask lungeReconcileTask;
 
     public AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module) {
-        this(plugin, module, new LungeEnchantmentSuppressor(plugin));
+        this(plugin, module, new LungeEnchantmentSuppressor(plugin),
+                AttributeSwapRestrictionListener::defaultJabReady);
     }
 
     AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
                                      LungeEnchantmentSuppressor lungeSuppressor) {
+        this(plugin, module, lungeSuppressor, AttributeSwapRestrictionListener::defaultJabReady);
+    }
+
+    AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
+                                     LungeEnchantmentSuppressor lungeSuppressor,
+                                     JabReadiness jabReadiness) {
         this.plugin = plugin;
         this.module = module;
         this.lungeSuppressor = lungeSuppressor;
+        this.jabReadiness = jabReadiness;
         this.lungeReconcileTask = plugin.getServer().getScheduler().runTaskTimer(plugin,
                 this::reconcileLungeRestrictions, 1L, 1L);
     }
@@ -103,7 +112,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
         if (!RestrictionTarget.isSpear(held.getType()) || !vanillaLungeEligible(player)
-                || !jabReady(player, held)) return;
+                || !jabReadiness.ready(player, held)) return;
 
         boolean liveLunge = lungeSuppressor.hasLiveLunge(held);
         boolean trackedLunge = liveLunge || lungeSuppressor.isSuppressed(held);
@@ -286,7 +295,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
         return player.getFoodLevel() >= MIN_LUNGE_FOOD && !player.isInWater() && !player.isGliding();
     }
 
-    private boolean jabReady(Player player, ItemStack item) {
+    private static boolean defaultJabReady(Player player, ItemStack item) {
         float minimum = item.getDataOrDefault(DataComponentTypes.MINIMUM_ATTACK_CHARGE, 0.0F);
         return player.getCooledAttackStrength(0.0F) + 0.0001F >= minimum;
     }
@@ -375,6 +384,11 @@ public final class AttributeSwapRestrictionListener implements Listener {
 
     private Material type(ItemStack item) {
         return item == null ? Material.AIR : item.getType();
+    }
+
+    @FunctionalInterface
+    interface JabReadiness {
+        boolean ready(Player player, ItemStack item);
     }
 
     private record AttackSource(Material material, boolean spear) { }
