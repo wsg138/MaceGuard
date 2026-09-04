@@ -43,6 +43,8 @@ class StasisPearlListenerTest {
     @Test void maceGuardBlockConsumesExactlyOneImpactAndWarnsOnce() {
         Fixture fixture = fixture(false);
         when(fixture.scopes.combatBound(fixture.player)).thenReturn(true);
+        when(fixture.scopes.insideCombatZone(fixture.player)).thenReturn(true);
+        when(fixture.scopes.stasisDeniedAtLocation(fixture.player)).thenReturn(true);
         when(fixture.scopes.latch(fixture.playerId))
                 .thenReturn(Optional.of(new CombatScopeService.Latch(true)));
         when(fixture.player.hasPermission("warzonerotator.bypass")).thenReturn(false);
@@ -53,6 +55,36 @@ class StasisPearlListenerTest {
                 fixture.playerId, 100L, fixture.destinationPosition, 5_000L);
         verify(fixture.event).setCancelled(true);
         verify(fixture.messages).stasisBlocked(fixture.player);
+    }
+
+    @Test void agedPearlDoesNotBlockAfterPlayerLeavesWarzone() {
+        Fixture fixture = fixture(false);
+        when(fixture.scopes.combatBound(fixture.player)).thenReturn(true);
+        when(fixture.scopes.insideCombatZone(fixture.player)).thenReturn(false);
+        when(fixture.scopes.latch(fixture.playerId))
+                .thenReturn(Optional.of(new CombatScopeService.Latch(true)));
+
+        fixture.listener.onPearlTeleport(fixture.event);
+
+        verify(fixture.tracker, times(1)).correlate(
+                fixture.playerId, 100L, fixture.destinationPosition, 5_000L);
+        verify(fixture.event, never()).setCancelled(true);
+        verify(fixture.messages, never()).stasisBlocked(any());
+        verify(fixture.scopes, never()).stasisDeniedAtLocation(fixture.player);
+    }
+
+    @Test void currentAllowedStasisFlagDoesNotBlockOldDeniedLatch() {
+        Fixture fixture = fixture(false);
+        when(fixture.scopes.combatBound(fixture.player)).thenReturn(true);
+        when(fixture.scopes.insideCombatZone(fixture.player)).thenReturn(true);
+        when(fixture.scopes.stasisDeniedAtLocation(fixture.player)).thenReturn(false);
+        when(fixture.scopes.latch(fixture.playerId))
+                .thenReturn(Optional.of(new CombatScopeService.Latch(true)));
+
+        fixture.listener.onPearlTeleport(fixture.event);
+
+        verify(fixture.event, never()).setCancelled(true);
+        verify(fixture.messages, never()).stasisBlocked(any());
     }
 
     @Test void unmatchedTeleportDoesNotWarnOrCancel() {
