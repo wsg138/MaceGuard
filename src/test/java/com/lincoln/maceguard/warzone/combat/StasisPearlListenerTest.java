@@ -5,7 +5,9 @@ import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Logger;
 
+import static com.lincoln.maceguard.warzone.combat.PersistentDataTestSupport.container;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -87,6 +90,16 @@ class StasisPearlListenerTest {
         verify(fixture.messages, never()).stasisBlocked(any());
     }
 
+    @Test void deathClearsOwnerTrackerState() {
+        Fixture fixture = fixture(false);
+        PlayerDeathEvent death = mock(PlayerDeathEvent.class);
+        when(death.getEntity()).thenReturn(fixture.player);
+
+        fixture.listener.onPlayerDeath(death);
+
+        verify(fixture.tracker).clearOwner(fixture.playerId);
+    }
+
     @Test void unmatchedTeleportDoesNotWarnOrCancel() {
         Fixture fixture = fixture(false);
         when(fixture.tracker.correlate(any(), anyLong(), any(), anyLong()))
@@ -109,6 +122,7 @@ class StasisPearlListenerTest {
         CombatScopeService scopes = mock(CombatScopeService.class);
         StasisPearlTracker tracker = mock(StasisPearlTracker.class);
         WarzoneMessageService messages = mock(WarzoneMessageService.class);
+        PersistentDataContainer playerData = container();
         UUID playerId = UUID.randomUUID();
         UUID worldId = UUID.randomUUID();
         Location destination = new Location(world, 10.0, 64.0, 10.0);
@@ -126,6 +140,7 @@ class StasisPearlListenerTest {
         when(server.getCurrentTick()).thenReturn(100);
         when(player.getServer()).thenReturn(server);
         when(player.getUniqueId()).thenReturn(playerId);
+        when(player.getPersistentDataContainer()).thenReturn(playerData);
         when(event.getCause()).thenReturn(PlayerTeleportEvent.TeleportCause.ENDER_PEARL);
         when(event.getPlayer()).thenReturn(player);
         when(event.getTo()).thenReturn(destination);
