@@ -9,7 +9,6 @@ import com.lincoln.maceguard.warzone.region.WarzoneRegionService;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
-import io.papermc.paper.datacomponent.DataComponentTypes;
 import io.papermc.paper.event.player.PlayerArmSwingEvent;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -134,14 +133,12 @@ class LungeJabEnforcementTest {
         when(player.isGliding()).thenReturn(false);
         when(player.isOnline()).thenReturn(true);
         when(player.hasPermission("warzonerotator.bypass")).thenReturn(false);
-        when(player.getCooledAttackStrength(0.0F)).thenReturn(1.0F);
 
         when(inventory.getItemInMainHand()).thenReturn(spear);
         when(inventory.getHeldItemSlot()).thenReturn(0);
         when(inventory.getSize()).thenReturn(1);
         when(inventory.getItem(anyInt())).thenReturn(spear);
         when(spear.getType()).thenReturn(Material.IRON_SPEAR);
-        when(spear.getDataOrDefault(DataComponentTypes.MINIMUM_ATTACK_CHARGE, 0.0F)).thenReturn(0.0F);
         when(spear.getItemMeta()).thenReturn(itemMeta);
         when(spear.setItemMeta(itemMeta)).thenReturn(true);
         when(itemMeta.getPersistentDataContainer()).thenReturn(data);
@@ -160,7 +157,8 @@ class LungeJabEnforcementTest {
         when(swing.getPlayer()).thenReturn(player);
 
         return new Harness(plugin, scheduler,
-                new AttributeSwapRestrictionListener(plugin, module, suppressor),
+                new AttributeSwapRestrictionListener(plugin, module, suppressor,
+                        (ignoredPlayer, ignoredItem) -> true),
                 player, inventory, spear, itemMeta, lungeAccess, messages, cooldowns,
                 playerId, swing, nextTick);
     }
