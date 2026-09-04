@@ -13,8 +13,8 @@ import io.papermc.paper.datacomponent.DataComponentTypes;
 import io.papermc.paper.event.player.PlayerArmSwingEvent;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -71,7 +71,7 @@ class LungeJabEnforcementTest {
 
         harness.listener.onArmSwing(harness.swing);
 
-        verify(harness.itemMeta).removeEnchant(Enchantment.LUNGE);
+        verify(harness.lungeAccess).remove(harness.itemMeta);
         verify(harness.inventory).setItem(0, harness.spear);
         verify(harness.messages).denial(eq(harness.player),
                 org.mockito.ArgumentMatchers.argThat(decision ->
@@ -98,6 +98,10 @@ class LungeJabEnforcementTest {
         ItemStack spear = mock(ItemStack.class);
         ItemMeta itemMeta = mock(ItemMeta.class);
         PersistentDataContainer data = mock(PersistentDataContainer.class);
+        LungeEnchantmentSuppressor.LungeAccess lungeAccess =
+                mock(LungeEnchantmentSuppressor.LungeAccess.class);
+        LungeEnchantmentSuppressor suppressor = new LungeEnchantmentSuppressor(
+                new NamespacedKey("maceguard", "test-suppressed-lunge"), lungeAccess);
         Location location = mock(Location.class);
         PlayerArmSwingEvent swing = mock(PlayerArmSwingEvent.class);
         AtomicReference<Runnable> nextTick = new AtomicReference<>();
@@ -137,12 +141,12 @@ class LungeJabEnforcementTest {
         when(inventory.getSize()).thenReturn(1);
         when(inventory.getItem(anyInt())).thenReturn(spear);
         when(spear.getType()).thenReturn(Material.IRON_SPEAR);
-        when(spear.getEnchantmentLevel(Enchantment.LUNGE)).thenReturn(1);
         when(spear.getDataOrDefault(DataComponentTypes.MINIMUM_ATTACK_CHARGE, 0.0F)).thenReturn(0.0F);
         when(spear.getItemMeta()).thenReturn(itemMeta);
         when(spear.setItemMeta(itemMeta)).thenReturn(true);
         when(itemMeta.getPersistentDataContainer()).thenReturn(data);
-        when(itemMeta.getEnchantLevel(Enchantment.LUNGE)).thenReturn(1);
+        when(lungeAccess.itemLevel(spear)).thenReturn(1);
+        when(lungeAccess.metaLevel(itemMeta)).thenReturn(1);
 
         when(region.contains(any(Location.class))).thenReturn(true);
         WarzoneConfig.Restriction restriction = new WarzoneConfig.Restriction(
@@ -155,13 +159,16 @@ class LungeJabEnforcementTest {
         when(swing.getHand()).thenReturn(EquipmentSlot.HAND);
         when(swing.getPlayer()).thenReturn(player);
 
-        return new Harness(plugin, scheduler, new AttributeSwapRestrictionListener(plugin, module),
-                player, inventory, spear, itemMeta, messages, cooldowns, playerId, swing, nextTick);
+        return new Harness(plugin, scheduler,
+                new AttributeSwapRestrictionListener(plugin, module, suppressor),
+                player, inventory, spear, itemMeta, lungeAccess, messages, cooldowns,
+                playerId, swing, nextTick);
     }
 
     private record Harness(MaceGuardPlugin plugin, BukkitScheduler scheduler,
                            AttributeSwapRestrictionListener listener, Player player,
                            PlayerInventory inventory, ItemStack spear, ItemMeta itemMeta,
+                           LungeEnchantmentSuppressor.LungeAccess lungeAccess,
                            WarzoneMessageService messages, CooldownService cooldowns,
                            UUID playerId, PlayerArmSwingEvent swing,
                            AtomicReference<Runnable> nextTick) { }
