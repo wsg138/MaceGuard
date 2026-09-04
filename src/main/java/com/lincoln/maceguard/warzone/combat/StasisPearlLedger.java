@@ -39,13 +39,27 @@ final class StasisPearlLedger {
         if (launchedAtMillis <= 0L) return;
         Map<UUID, Long> entries = read(player.getPersistentDataContainer());
         entries.put(pearlId, launchedAtMillis);
-        if (entries.size() > MAX_ENTRIES) entries.remove(extreme(entries, false));
+        trimNewest(entries);
+        write(player, entries);
+    }
+
+    /**
+     * Records a live marked pearl and migrates one obsolete UUID only when its original launch
+     * timestamp identifies exactly one prior ledger entry. Ambiguous timestamp matches are kept.
+     */
+    void recordObserved(Player player, UUID pearlId, long launchedAtMillis) {
+        if (launchedAtMillis <= 0L) return;
+        Map<UUID, Long> entries = read(player.getPersistentDataContainer());
+        UUID priorId = uniqueOtherAt(entries, pearlId, launchedAtMillis);
+        if (priorId != null) entries.remove(priorId);
+        entries.put(pearlId, launchedAtMillis);
+        trimNewest(entries);
         write(player, entries);
     }
 
     Long rebindOldest(Player player, UUID replacementId) {
         Map<UUID, Long> entries = read(player.getPersistentDataContainer());
-        UUID originalId = extreme(entries, true);
+        UUID originalId = oldest(entries);
         if (originalId == null) return null;
         Long launchedAt = entries.remove(originalId);
         entries.put(replacementId, launchedAt);
@@ -62,7 +76,7 @@ final class StasisPearlLedger {
         player.getPersistentDataContainer().remove(key);
     }
 
-    void write(Player player, Map<UUID, Long> source) {
+    private void write(Player player, Map<UUID, Long> source) {
         PersistentDataContainer data = player.getPersistentDataContainer();
         if (source.isEmpty()) {
             data.remove(key);
@@ -99,6 +113,29 @@ final class StasisPearlLedger {
         long[] compact = new long[HEADER_VALUES + entries * VALUES_PER_ENTRY];
         System.arraycopy(stored, 0, compact, 0, compact.length);
         return compact;
+    }
+
+    private void trimNewest(Map<UUID, Long> entries) {
+        if (entries.size() > MAX_ENTRIES) entries.remove(newest(entries));
+    }
+
+    private UUID uniqueOtherAt(Map<UUID, Long> entries, UUID currentId, long launchedAtMillis) {
+        UUID match = null;
+        for (Map.Entry<UUID, Long> entry : entries.entrySet()) {
+            if (currentId.equals(entry.getKey()) || entry.getValue() == null
+                    || entry.getValue() != launchedAtMillis) continue;
+            if (match != null) return null;
+            match = entry.getKey();
+        }
+        return match;
+    }
+
+    private UUID oldest(Map<UUID, Long> entries) {
+        return extreme(entries, true);
+    }
+
+    private UUID newest(Map<UUID, Long> entries) {
+        return extreme(entries, false);
     }
 
     private UUID extreme(Map<UUID, Long> entries, boolean oldest) {
