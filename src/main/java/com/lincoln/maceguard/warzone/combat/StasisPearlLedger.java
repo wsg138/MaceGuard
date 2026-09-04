@@ -6,39 +6,32 @@ import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Small owner-side mirror of active pearl launch times. Modern Paper can reconstruct a player's
- * associated Ender Pearl during reconnect, so entity PDC alone is not a sufficient identity store.
- */
+/** Durable owner-side mirror of active pearl identity and original launch time. */
 final class StasisPearlLedger {
     static final String LEDGER_KEY = "stasis-pearl-ledger";
-    static final int FORMAT_VERSION = 1;
+    static final long FORMAT_VERSION = 1L;
     static final int MAX_ENTRIES = 32;
+    private static final int VALUES_PER_ENTRY = 3;
+    private static final int HEADER_VALUES = 1;
 
     private final NamespacedKey key = StasisPearlMetadata.key(LEDGER_KEY);
 
     Map<UUID, Long> read(PersistentDataContainerView data) {
         Map<UUID, Long> entries = new LinkedHashMap<>();
-        String serialized = data.get(key, PersistentDataType.STRING);
-        if (serialized == null || serialized.isBlank()) return entries;
-        String[] lines = serialized.split("\\n");
-        if (lines.length == 0 || !Integer.toString(FORMAT_VERSION).equals(lines[0])) return entries;
-        for (int index = 1; index < lines.length && entries.size() < MAX_ENTRIES; index++) {
-            String line = lines[index];
-            int separator = line.indexOf('=');
-            if (separator <= 0 || separator == line.length() - 1) continue;
-            try {
-                UUID pearlId = UUID.fromString(line.substring(0, separator));
-                long launchedAt = Long.parseLong(line.substring(separator + 1));
-                if (launchedAt > 0L) entries.put(pearlId, launchedAt);
-            } catch (IllegalArgumentException ignored) {
-                // A malformed owner-side mirror must not make unrelated pearls authoritative.
-            }
+        long[] stored = data.get(key, PersistentDataType.LONG_ARRAY);
+        if (!valid(stored)) return entries;
+        int available = (stored.length - HEADER_VALUES) / VALUES_PER_ENTRY;
+        int count = Math.min(available, MAX_ENTRIES);
+        for (int entry = 0; entry < count; entry++) {
+            int index = HEADER_VALUES + entry * VALUES_PER_ENTRY;
+            long launchedAt = stored[index + 2];
+            if (launchedAt <= 0L) continue;
+            UUID pearlId = new UUID(stored[index], stored[index + 1]);
+            entries.put(pearlId, launchedAt);
         }
         return entries;
     }
@@ -47,6 +40,7 @@ final class StasisPearlLedger {
         if (launchedAtMillis <= 0L) return;
         Map<UUID, Long> entries = read(player.getPersistentDataContainer());
         entries.put(pearlId, launchedAtMillis);
+        if (entries.size() > MAX_ENTRIES) entries.remove(newest(entries));
         write(player, entries);
     }
 
@@ -65,15 +59,47 @@ final class StasisPearlLedger {
             data.remove(key);
             return;
         }
-        StringBuilder serialized = new StringBuilder(Integer.toString(FORMAT_VERSION));
-        source.entrySet().stream()
-                .filter(entry -> entry.getValue() != null && entry.getValue() > 0L)
-                .sorted(Comparator.<Map.Entry<UUID, Long>>comparingLong(Map.Entry::getValue)
-                        .thenComparing(entry -> entry.getKey().toString()))
-                .limit(MAX_ENTRIES)
-                .forEach(entry -> serialized.append('\n').append(entry.getKey())
-                        .append('=').append(entry.getValue()));
-        if (serialized.indexOf("\n") < 0) data.remove(key);
-        else data.set(key, PersistentDataType.STRING, serialized.toString());
+        int count = Math.min(source.size(), MAX_ENTRIES);
+        long[] stored = new long[HEADER_VALUES + count * VALUES_PER_ENTRY];
+        stored[0] = FORMAT_VERSION;
+        int entry = 0;
+        for (Map.Entry<UUID, Long> value : source.entrySet()) {
+            if (entry >= count) break;
+            if (value.getValue() == null || value.getValue() <= 0L) continue;
+            int index = HEADER_VALUES + entry * VALUES_PER_ENTRY;
+            stored[index] = value.getKey().getMostSignificantBits();
+            stored[index + 1] = value.getKey().getLeastSignificantBits();
+            stored[index + 2] = value.getValue();
+            entry++;
+        }
+        if (entry == 0) {
+            data.remove(key);
+            return;
+        }
+        if (entry < count) {
+            long[] compact = new long[HEADER_VALUES + entry * VALUES_PER_ENTRY];
+            System.arraycopy(stored, 0, compact, 0, compact.length);
+            stored = compact;
+        }
+        data.set(key, PersistentDataType.LONG_ARRAY, stored);
+    }
+
+    private boolean valid(long[] stored) {
+        return stored != null && stored.length >= HEADER_VALUES
+                && stored[0] == FORMAT_VERSION
+                && (stored.length - HEADER_VALUES) % VALUES_PER_ENTRY == 0;
+    }
+
+    private UUID newest(Map<UUID, Long> entries) {
+        UUID newestId = null;
+        long newestLaunch = Long.MIN_VALUE;
+        for (Map.Entry<UUID, Long> entry : entries.entrySet()) {
+            Long launch = entry.getValue();
+            if (launch != null && launch > newestLaunch) {
+                newestLaunch = launch;
+                newestId = entry.getKey();
+            }
+        }
+        return newestId;
     }
 }
