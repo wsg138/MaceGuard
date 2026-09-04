@@ -16,15 +16,9 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 /** Tracks stasis pearls and consumes exactly one impact for each Ender Pearl teleport. */
@@ -90,18 +84,7 @@ public final class StasisPearlListener implements Listener {
         if (ownerId == null) return;
         Player owner = pearl.getServer().getPlayer(ownerId);
         if (owner == null) return;
-        long wall = time.wallMillis();
-        StasisPearlMetadata.ReadResult read = metadata.read(pearl, ownerId, wall);
-        if (read.marked()) {
-            if (!read.failClosed() && ownerId.equals(read.ownerId()))
-                ledger.record(owner, pearl.getUniqueId(), read.launchedAtMillis());
-            return;
-        }
-        Long launchedAt = ledger.read(owner.getPersistentDataContainer()).get(pearl.getUniqueId());
-        if (launchedAt == null) return;
-        metadata.mark(pearl, ownerId, launchedAt);
-        diagnostics.record(ownerId, "entity-recovered", () -> "pearl=" + pearl.getUniqueId()
-                + " launchedAt=" + launchedAt);
+        restoreExactMetadata(pearl, owner, time.wallMillis());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -119,14 +102,7 @@ public final class StasisPearlListener implements Listener {
         if (!(event.getEntity() instanceof EnderPearl pearl)) return;
         UUID entityOwner = pearl.getOwnerUniqueId();
         long wall = time.wallMillis();
-        StasisPearlMetadata.ReadResult read = metadata.read(pearl, entityOwner, wall);
-        if (!read.marked() && entityOwner != null) {
-            Player owner = pearl.getServer().getPlayer(entityOwner);
-            if (owner != null) {
-                reconcileOwnedPearls(owner);
-                read = metadata.read(pearl, entityOwner, wall);
-            }
-        }
+        StasisPearlMetadata.ReadResult read = recoverMetadata(pearl, entityOwner, wall);
         if (!read.marked()) return;
         UUID ownerId = read.ownerId() != null ? read.ownerId() : entityOwner;
         if (ownerId == null) {
@@ -175,54 +151,48 @@ public final class StasisPearlListener implements Listener {
                 + correlation.selectedPearlId() + " maceGuardCancelled=true");
     }
 
-    /** Repairs pearl metadata after Paper reconstructs a player's associated pearls on reconnect. */
+    /** Repairs exact identities for Paper-associated pearls that survived/reloaded unchanged. */
     void reconcileOwnedPearls(Player player) {
-        UUID ownerId = player.getUniqueId();
         long wall = time.wallMillis();
-        Map<UUID, Long> persisted = ledger.read(player.getPersistentDataContainer());
-        Map<UUID, Long> updated = new LinkedHashMap<>(persisted);
-        Set<UUID> matchedPersisted = new HashSet<>();
-        List<EnderPearl> unresolved = new ArrayList<>();
+        for (EnderPearl pearl : player.getEnderPearls())
+            if (player.getUniqueId().equals(pearl.getOwnerUniqueId()))
+                restoreExactMetadata(pearl, player, wall);
+    }
 
-        for (EnderPearl pearl : player.getEnderPearls()) {
-            if (!ownerId.equals(pearl.getOwnerUniqueId())) continue;
-            StasisPearlMetadata.ReadResult read = metadata.read(pearl, ownerId, wall);
-            if (read.marked()) {
-                if (!read.failClosed() && ownerId.equals(read.ownerId())) {
-                    updated.put(pearl.getUniqueId(), read.launchedAtMillis());
-                    if (persisted.containsKey(pearl.getUniqueId()))
-                        matchedPersisted.add(pearl.getUniqueId());
-                }
-                continue;
-            }
-            Long exactLaunch = persisted.get(pearl.getUniqueId());
-            if (exactLaunch != null) {
-                metadata.mark(pearl, ownerId, exactLaunch);
-                matchedPersisted.add(pearl.getUniqueId());
-                diagnostics.record(ownerId, "relog-recovered", () -> "pearl="
-                        + pearl.getUniqueId() + " launchedAt=" + exactLaunch + " exact=true");
-            } else unresolved.add(pearl);
-        }
+    /**
+     * Recovers a reconstructed pearl before impact authority is calculated. Exact identity wins.
+     * If Paper replaced the entity UUID, an otherwise unmarked impact consumes the oldest durable
+     * owner record so relogging cannot reset an old stasis chamber's age.
+     */
+    StasisPearlMetadata.ReadResult recoverMetadata(EnderPearl pearl, UUID ownerId, long wall) {
+        StasisPearlMetadata.ReadResult read = metadata.read(pearl, ownerId, wall);
+        if (read.marked() || ownerId == null) return read;
+        Player owner = pearl.getServer().getPlayer(ownerId);
+        if (owner == null) return read;
+        reconcileOwnedPearls(owner);
+        read = metadata.read(pearl, ownerId, wall);
+        if (read.marked()) return read;
+        Long launchedAt = ledger.rebindOldest(owner, pearl.getUniqueId());
+        if (launchedAt == null) return read;
+        metadata.mark(pearl, ownerId, launchedAt);
+        diagnostics.record(ownerId, "relog-recovered", () -> "pearl=" + pearl.getUniqueId()
+                + " launchedAt=" + launchedAt + " exact=false");
+        return metadata.read(pearl, ownerId, wall);
+    }
 
-        List<Map.Entry<UUID, Long>> unmatched = persisted.entrySet().stream()
-                .filter(entry -> !matchedPersisted.contains(entry.getKey()))
-                .sorted(Comparator.<Map.Entry<UUID, Long>>comparingLong(Map.Entry::getValue)
-                        .thenComparing(entry -> entry.getKey().toString()))
-                .toList();
-        if (!unresolved.isEmpty() && unresolved.size() == unmatched.size()) {
-            unresolved.sort(Comparator.comparing(pearl -> pearl.getUniqueId().toString()));
-            for (int index = 0; index < unresolved.size(); index++) {
-                EnderPearl pearl = unresolved.get(index);
-                Map.Entry<UUID, Long> previous = unmatched.get(index);
-                metadata.mark(pearl, ownerId, previous.getValue());
-                updated.remove(previous.getKey());
-                updated.put(pearl.getUniqueId(), previous.getValue());
-                diagnostics.record(ownerId, "relog-recovered", () -> "pearl="
-                        + pearl.getUniqueId() + " launchedAt=" + previous.getValue()
-                        + " exact=false");
-            }
+    private void restoreExactMetadata(EnderPearl pearl, Player owner, long wall) {
+        UUID ownerId = owner.getUniqueId();
+        StasisPearlMetadata.ReadResult read = metadata.read(pearl, ownerId, wall);
+        if (read.marked()) {
+            if (!read.failClosed() && ownerId.equals(read.ownerId()))
+                ledger.record(owner, pearl.getUniqueId(), read.launchedAtMillis());
+            return;
         }
-        ledger.write(player, updated);
+        Long launchedAt = ledger.read(owner.getPersistentDataContainer()).get(pearl.getUniqueId());
+        if (launchedAt == null) return;
+        metadata.mark(pearl, ownerId, launchedAt);
+        diagnostics.record(ownerId, "relog-recovered", () -> "pearl=" + pearl.getUniqueId()
+                + " launchedAt=" + launchedAt + " exact=true");
     }
 
     private boolean shouldBlock(Player player, boolean aged) {
