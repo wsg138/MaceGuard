@@ -94,7 +94,9 @@ public final class StasisPearlListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        ledger.clear(event.getEntity());
+        Player player = event.getEntity();
+        pearls.clearOwner(player.getUniqueId());
+        ledger.clear(player);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
