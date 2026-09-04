@@ -16,6 +16,10 @@ final class PersistentDataTestSupport {
     private PersistentDataTestSupport() { }
 
     static PersistentDataContainer container() {
+        return fixture().data();
+    }
+
+    static Fixture fixture() {
         PersistentDataContainer data = mock(PersistentDataContainer.class);
         Map<NamespacedKey, Object> values = new HashMap<>();
         doAnswer(invocation -> {
@@ -28,6 +32,8 @@ final class PersistentDataTestSupport {
             values.remove(invocation.getArgument(0));
             return null;
         }).when(data).remove(any(NamespacedKey.class));
-        return data;
+        return new Fixture(data, values);
     }
+
+    record Fixture(PersistentDataContainer data, Map<NamespacedKey, Object> values) { }
 }
