@@ -19,6 +19,9 @@ commands:
     description: View or administer Warzone kits, modifiers, schedules, and overrides.
     aliases: [warzonerotator, wzr]
     usage: /<command> [info|modifiers|modifier|kit|kits|items|next|schedule|menu|help|random|override|reload|validate|debug]
+  stasis:
+    description: See how Warzone combat affects your stasis chambers.
+    usage: /<command>
 
 permissions:
   maceguard.admin: { default: op }

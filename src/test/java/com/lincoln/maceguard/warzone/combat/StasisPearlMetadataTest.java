@@ -2,20 +2,16 @@ package com.lincoln.maceguard.warzone.combat;
 
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.EnderPearl;
-import org.bukkit.persistence.PersistentDataContainer;
-import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.lincoln.maceguard.warzone.combat.PersistentDataTestSupport.fixture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -26,15 +22,9 @@ class StasisPearlMetadataTest {
 
     @BeforeEach void setUp() {
         pearl = mock(EnderPearl.class);
-        PersistentDataContainer data = mock(PersistentDataContainer.class);
-        values = new HashMap<>();
-        when(pearl.getPersistentDataContainer()).thenReturn(data);
-        doAnswer(invocation -> {
-            values.put(invocation.getArgument(0), invocation.getArgument(2));
-            return null;
-        }).when(data).set(any(NamespacedKey.class), any(PersistentDataType.class), any());
-        when(data.get(any(NamespacedKey.class), any(PersistentDataType.class)))
-                .thenAnswer(invocation -> values.get(invocation.getArgument(0)));
+        PersistentDataTestSupport.Fixture fixture = fixture();
+        values = fixture.values();
+        when(pearl.getPersistentDataContainer()).thenReturn(fixture.data());
         metadata = new StasisPearlMetadata();
     }
 
