@@ -56,6 +56,13 @@ public final class WorldGuardQueryService {
         return value == StateFlag.State.DENY;
     }
 
+    /** Returns whether WorldGuard's native TNT flag denies detonation at this location. */
+    public boolean tntDenied(Location location) {
+        if (location.getWorld() == null) return false;
+        StateFlag.State value = query().queryState(BukkitAdapter.adapt(location), null, Flags.TNT);
+        return value == StateFlag.State.DENY;
+    }
+
     public boolean buildAllowed(Location location, Player player) {
         return testBuild(location, player);
     }
