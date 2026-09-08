@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -81,15 +82,13 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void trackedWarzoneCobwebCanBeBrokenThroughWorldGuard() {
+    void persistedWarzoneCobwebCanBeBrokenAfterListenerRestart() {
         Harness harness = harness(true, true);
         BlockPlaceEvent placement = event(GameMode.SURVIVAL, 9, Material.AIR);
-        harness.listener.onRestriction(placement);
-        harness.listener.onPlace(placement);
-
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
-        when(harness.worldGuard.buildAllowed(cobweb.getLocation(), player)).thenReturn(false);
+        stubTrackedWarzoneCobweb(harness, cobweb);
+        when(harness.worldGuard.blockBreakAllowed(cobweb.getLocation(), player)).thenReturn(false);
         BlockBreakEvent original = mock(BlockBreakEvent.class);
         when(original.getBlock()).thenReturn(cobweb);
         when(original.getPlayer()).thenReturn(player);
@@ -103,14 +102,24 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void trackedWarzoneCobwebAllowsWaterEscapeButNotGeneralWaterPlacement() {
+    void successfulCobwebBreakDropsDurableCoordinateImmediately() {
+        Harness harness = harness(true, true);
+        Block cobweb = event(GameMode.SURVIVAL, 11, Material.AIR).getBlockPlaced();
+        BlockBreakEvent event = mock(BlockBreakEvent.class);
+        when(event.getBlock()).thenReturn(cobweb);
+
+        harness.listener.onBreak(event);
+
+        verify(harness.temporary).discardMatching(any());
+    }
+
+    @Test
+    void persistedWarzoneCobwebAllowsAdjacentWaterEscapeAfterRestart() {
         Harness harness = harness(true, true);
         BlockPlaceEvent placement = event(GameMode.SURVIVAL, 10, Material.AIR);
-        harness.listener.onRestriction(placement);
-        harness.listener.onPlace(placement);
-
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
+        stubTrackedWarzoneCobweb(harness, cobweb);
         Location playerLocation = mock(Location.class);
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
@@ -120,34 +129,52 @@ class CobwebListenerPlacementTest {
         Location targetLocation = mock(Location.class);
         when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
         when(target.getLocation()).thenReturn(targetLocation);
+        when(target.getWorld()).thenReturn(cobweb.getWorld());
+        when(target.getX()).thenReturn(cobweb.getX() + 1);
+        when(target.getY()).thenReturn(cobweb.getY());
+        when(target.getZ()).thenReturn(cobweb.getZ());
         when(harness.warzone.appliesAt(targetLocation)).thenReturn(true);
 
-        PlayerBucketEmptyEvent bucket = mock(PlayerBucketEmptyEvent.class);
-        when(bucket.getBucket()).thenReturn(Material.WATER_BUCKET);
-        when(bucket.getPlayer()).thenReturn(player);
-        when(bucket.getBlockClicked()).thenReturn(clicked);
-        when(bucket.getBlockFace()).thenReturn(BlockFace.UP);
-        when(bucket.isCancelled()).thenReturn(false);
-
+        PlayerBucketEmptyEvent bucket = bucket(player, clicked, BlockFace.UP);
         com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent escapeDelegate =
                 mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
         when(escapeDelegate.getOriginalEvent()).thenReturn(bucket);
-        harness.listener.onWorldGuardCobwebEscapePlace(escapeDelegate);
-        verify(escapeDelegate).setAllowed(true);
 
-        Location safeLocation = mock(Location.class);
-        Block safeFeet = mock(Block.class);
-        Block safeHead = mock(Block.class);
-        when(safeFeet.getType()).thenReturn(Material.AIR);
-        when(safeFeet.getRelative(BlockFace.UP)).thenReturn(safeHead);
-        when(safeHead.getType()).thenReturn(Material.AIR);
-        when(safeLocation.getBlock()).thenReturn(safeFeet);
-        when(player.getLocation()).thenReturn(safeLocation);
-        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent ordinaryDelegate =
+        harness.listener.onWorldGuardCobwebEscapePlace(escapeDelegate);
+
+        verify(escapeDelegate).setAllowed(true);
+    }
+
+    @Test
+    void trappedPlayerCannotUseEscapeGrantForDistantWaterPlacement() {
+        Harness harness = harness(true, true);
+        BlockPlaceEvent placement = event(GameMode.SURVIVAL, 12, Material.AIR);
+        Block cobweb = placement.getBlockPlaced();
+        Player player = placement.getPlayer();
+        stubTrackedWarzoneCobweb(harness, cobweb);
+        Location playerLocation = mock(Location.class);
+        when(playerLocation.getBlock()).thenReturn(cobweb);
+        when(player.getLocation()).thenReturn(playerLocation);
+
+        Block clicked = mock(Block.class);
+        Block target = mock(Block.class);
+        Location targetLocation = mock(Location.class);
+        when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
+        when(target.getLocation()).thenReturn(targetLocation);
+        when(target.getWorld()).thenReturn(cobweb.getWorld());
+        when(target.getX()).thenReturn(cobweb.getX() + 4);
+        when(target.getY()).thenReturn(cobweb.getY());
+        when(target.getZ()).thenReturn(cobweb.getZ());
+        when(harness.warzone.appliesAt(targetLocation)).thenReturn(true);
+
+        PlayerBucketEmptyEvent bucket = bucket(player, clicked, BlockFace.UP);
+        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent delegate =
                 mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
-        when(ordinaryDelegate.getOriginalEvent()).thenReturn(bucket);
-        harness.listener.onWorldGuardCobwebEscapePlace(ordinaryDelegate);
-        verify(ordinaryDelegate, never()).setAllowed(true);
+        when(delegate.getOriginalEvent()).thenReturn(bucket);
+
+        harness.listener.onWorldGuardCobwebEscapePlace(delegate);
+
+        verify(delegate, never()).setAllowed(true);
     }
 
     @Test
@@ -255,6 +282,27 @@ class CobwebListenerPlacementTest {
         when(temporary.track(any(Block.class), anyString(), anyLong(), eq(true)))
                 .thenReturn(trackResult);
         return new Harness(listener, warzone, temporary, config, policies, worldGuard);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubTrackedWarzoneCobweb(Harness harness, Block block) {
+        TemporaryBlock persisted = new TemporaryBlock(block.getWorld().getUID().toString(),
+                block.getX(), block.getY(), block.getZ(), "minecraft:cobweb", "minecraft:air",
+                Long.MAX_VALUE, false, true);
+        when(harness.temporary.countMatching(any())).thenAnswer(invocation -> {
+            Predicate<TemporaryBlock> selected = invocation.getArgument(0);
+            return selected.test(persisted) ? 1 : 0;
+        });
+    }
+
+    private PlayerBucketEmptyEvent bucket(Player player, Block clicked, BlockFace face) {
+        PlayerBucketEmptyEvent bucket = mock(PlayerBucketEmptyEvent.class);
+        when(bucket.getBucket()).thenReturn(Material.WATER_BUCKET);
+        when(bucket.getPlayer()).thenReturn(player);
+        when(bucket.getBlockClicked()).thenReturn(clicked);
+        when(bucket.getBlockFace()).thenReturn(face);
+        when(bucket.isCancelled()).thenReturn(false);
+        return bucket;
     }
 
     private BlockPlaceEvent event(GameMode mode, int x, Material originalMaterial) {
