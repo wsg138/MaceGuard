@@ -66,6 +66,15 @@ public final class ExplosiveControlListener implements Listener {
     private final Set<UUID> cartExplosionClearBeforeWorldGuard = new HashSet<>();
     private boolean lifecycleActive;
 
+    /** Production constructor. Shared runtime services are resolved lazily after atomic startup. */
+    public ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard) {
+        this(plugin, worldGuard, ExplosiveControlListener::isWindBurstSource, null, null, null,
+                new CartArtifactGenerationStore(plugin.getDataFolder().toPath().resolve("state")
+                        .resolve("warzone-cart-generation.txt"), plugin.getLogger()),
+                new NamespacedKey(plugin, "warzone-cart-generation"));
+        scheduleLifecycleActivation();
+    }
+
     public ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard,
                                     WarzoneModule warzone, TemporaryBlockService temporary,
                                     TemporaryBlockAdmissionJournal admissions) {
@@ -74,6 +83,7 @@ public final class ExplosiveControlListener implements Listener {
                 new CartArtifactGenerationStore(plugin.getDataFolder().toPath().resolve("state")
                         .resolve("warzone-cart-generation.txt"), plugin.getLogger()),
                 new NamespacedKey(plugin, "warzone-cart-generation"));
+        scheduleLifecycleActivation();
     }
 
     /** Lightweight constructor retained for isolated unit tests of non-lifecycle behavior. */
@@ -98,14 +108,26 @@ public final class ExplosiveControlListener implements Listener {
         this.cartGenerationKey = cartGenerationKey;
     }
 
+    private void scheduleLifecycleActivation() {
+        plugin.getServer().getScheduler().runTask(plugin, this::activateIfAuthoritative);
+    }
+
+    /** A rejected reload candidate must never take ownership of the active module's cleanup task. */
+    private void activateIfAuthoritative() {
+        var current = plugin.runtime();
+        if (current == null || !current.listeners().contains(this)) return;
+        activateLifecycle();
+    }
+
     /**
-     * Called only after this runtime becomes authoritative. It fences carts from any retired
-     * runtime/restart, binds exact CARTS-removal cleanup, and clears stale loaded artifacts.
+     * Called only after this listener's runtime becomes authoritative. It fences carts from any
+     * retired runtime/restart, binds CARTS-removal cleanup, and clears stale loaded artifacts.
      */
     public void activateLifecycle() {
         if (lifecycleActive || cartGenerations == null) return;
         lifecycleActive = true;
-        if (warzone != null) warzone.bindCartCleanup(this::onCartsEnded);
+        WarzoneModule module = warzoneModule();
+        if (module != null) module.bindCartCleanup(this::onCartsEnded);
         cartGenerations.advance();
         cleanupLoadedTaggedCarts(true);
         if (!cartsEffectActive()) clearTrackedRails();
@@ -244,11 +266,13 @@ public final class ExplosiveControlListener implements Listener {
     public void onCartRailPlace(BlockPlaceEvent event) {
         Block placed = event.getBlockPlaced();
         if (!isCartRail(placed.getType()) || !cartModifierActive(placed.getLocation())) return;
-        if (temporary == null) return;
+        TemporaryBlockService service = temporaryBlocks();
+        if (service == null) return;
         String original = event.getBlockReplacedState().getBlockData().getAsString(true);
-        boolean tracked = admissions == null
-                ? temporary.track(placed, original, Long.MAX_VALUE, true)
-                : admissions.track(temporary, placed, original, Long.MAX_VALUE, true);
+        TemporaryBlockAdmissionJournal journal = admissionJournal();
+        boolean tracked = journal == null
+                ? service.track(placed, original, Long.MAX_VALUE, true)
+                : journal.track(service, placed, original, Long.MAX_VALUE, true);
         if (tracked) return;
         event.setCancelled(true);
         placed.setBlockData(event.getBlockReplacedState().getBlockData(), false);
@@ -256,8 +280,10 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onCartRailBreak(BlockBreakEvent event) {
-        if (!isCartRail(event.getBlock().getType()) || temporary == null) return;
-        temporary.discardMatching(entry -> entry.isKind(TemporaryBlock.Kind.CART_RAIL)
+        if (!isCartRail(event.getBlock().getType())) return;
+        TemporaryBlockService service = temporaryBlocks();
+        if (service == null) return;
+        service.discardMatching(entry -> entry.isKind(TemporaryBlock.Kind.CART_RAIL)
                 && sameCoordinate(entry, event.getBlock()));
     }
 
@@ -428,7 +454,7 @@ public final class ExplosiveControlListener implements Listener {
             removeIfStaleTaggedCart(entity, cartsActive);
     }
 
-    /** Exact callback from WarzoneRuntime for a CARTS true -> false transition. */
+    /** Exact callback from the owning WarzoneModule for a CARTS true -> false transition. */
     void onCartsEnded() {
         if (cartGenerations != null) cartGenerations.advance();
         clearTrackedRails();
@@ -436,8 +462,9 @@ public final class ExplosiveControlListener implements Listener {
     }
 
     private void clearTrackedRails() {
-        if (temporary == null) return;
-        temporary.clearMatching(entry -> entry.warzoneOwned()
+        TemporaryBlockService service = temporaryBlocks();
+        if (service == null) return;
+        service.clearMatching(entry -> entry.warzoneOwned()
                 && entry.isKind(TemporaryBlock.Kind.CART_RAIL));
     }
 
@@ -477,9 +504,28 @@ public final class ExplosiveControlListener implements Listener {
     }
 
     private boolean isTrackedCartRail(Block block) {
-        return temporary != null && temporary.countMatching(entry -> entry.warzoneOwned()
+        TemporaryBlockService service = temporaryBlocks();
+        return service != null && service.countMatching(entry -> entry.warzoneOwned()
                 && entry.isKind(TemporaryBlock.Kind.CART_RAIL)
                 && sameCoordinate(entry, block)) > 0;
+    }
+
+    private TemporaryBlockService temporaryBlocks() {
+        if (temporary != null) return temporary;
+        var current = plugin.runtime();
+        return current == null ? null : current.temporaryBlocks();
+    }
+
+    private TemporaryBlockAdmissionJournal admissionJournal() {
+        if (admissions != null) return admissions;
+        var current = plugin.runtime();
+        return current == null ? null : current.temporaryAdmissions();
+    }
+
+    private WarzoneModule warzoneModule() {
+        if (warzone != null) return warzone;
+        var current = plugin.runtime();
+        return current == null ? null : current.warzone();
     }
 
     private static boolean sameCoordinate(TemporaryBlock entry, Block block) {
@@ -538,9 +584,8 @@ public final class ExplosiveControlListener implements Listener {
     private WarzoneRuntime warzoneRuntime() {
         if (warzone != null) return warzone.runtime();
         if (!plugin.isFeatureEnabled()) return null;
-        var pluginRuntime = plugin.runtime();
-        if (pluginRuntime == null || pluginRuntime.warzone() == null) return null;
-        return pluginRuntime.warzone().runtime();
+        WarzoneModule module = warzoneModule();
+        return module == null ? null : module.runtime();
     }
 
     private boolean denied(Location location, Player player) {
