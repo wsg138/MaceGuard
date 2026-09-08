@@ -116,12 +116,13 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void persistedWarzoneCobwebAllowsAdjacentWaterEscapeAfterRestart() {
+    void persistedWarzoneCobwebAllowsAdjacentWaterEscapeWithoutLeavingWater() {
         Harness harness = harness(true, true);
         BlockPlaceEvent placement = event(GameMode.SURVIVAL, 10, Material.AIR);
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
         stubTrackedWarzoneCobweb(harness, cobweb);
+        when(harness.temporary.clearMatching(any())).thenReturn(1);
         Location playerLocation = mock(Location.class);
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
@@ -143,8 +144,11 @@ class CobwebListenerPlacementTest {
         when(escapeDelegate.getOriginalEvent()).thenReturn(bucket);
 
         harness.listener.onWorldGuardCobwebEscapePlace(escapeDelegate);
+        harness.listener.onWaterEscape(bucket);
 
         verify(escapeDelegate).setAllowed(true);
+        verify(harness.temporary).clearMatching(any());
+        verify(bucket).setCancelled(true);
     }
 
     @Test
@@ -175,8 +179,11 @@ class CobwebListenerPlacementTest {
         when(delegate.getOriginalEvent()).thenReturn(bucket);
 
         harness.listener.onWorldGuardCobwebEscapePlace(delegate);
+        harness.listener.onWaterEscape(bucket);
 
         verify(delegate, never()).setAllowed(true);
+        verify(harness.temporary, never()).clearMatching(any());
+        verify(bucket, never()).setCancelled(true);
     }
 
     @Test
