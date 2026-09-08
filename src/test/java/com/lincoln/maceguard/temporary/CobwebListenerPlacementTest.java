@@ -102,15 +102,17 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void successfulCobwebBreakDropsDurableCoordinateImmediately() {
+    void successfulCobwebBreakRestoresTrackedOriginalAndCancelsVanillaAirBreak() {
         Harness harness = harness(true, true);
         Block cobweb = event(GameMode.SURVIVAL, 11, Material.AIR).getBlockPlaced();
         BlockBreakEvent event = mock(BlockBreakEvent.class);
         when(event.getBlock()).thenReturn(cobweb);
+        when(harness.temporary.clearMatching(any())).thenReturn(1);
 
         harness.listener.onBreak(event);
 
-        verify(harness.temporary).discardMatching(any());
+        verify(harness.temporary).clearMatching(any());
+        verify(event).setCancelled(true);
     }
 
     @Test
