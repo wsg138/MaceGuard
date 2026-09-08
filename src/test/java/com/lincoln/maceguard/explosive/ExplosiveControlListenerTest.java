@@ -102,7 +102,7 @@ class ExplosiveControlListenerTest {
         when(cart.getLocation()).thenReturn(harness.location);
         when(event.getEntity()).thenReturn(cart);
         when(event.isCancelled()).thenReturn(true);
-        when(harness.worldGuard.explosivesDenied(harness.location, null)).thenReturn(true);
+        when(harness.worldGuard.tntDenied(harness.location)).thenReturn(true);
 
         harness.listener.onPrime(event);
 
@@ -118,7 +118,7 @@ class ExplosiveControlListenerTest {
         when(cart.getLocation()).thenReturn(harness.location);
         when(event.getEntity()).thenReturn(cart);
         when(event.isCancelled()).thenReturn(true);
-        when(harness.worldGuard.explosivesDenied(harness.location, null)).thenReturn(false);
+        when(harness.worldGuard.tntDenied(harness.location)).thenReturn(false);
 
         harness.listener.onPrime(event);
 
