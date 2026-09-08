@@ -87,7 +87,7 @@ public final class CobwebListener implements Listener {
         if (original.getBlock().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
         if (!warzoneCobwebs.contains(blockKey(original.getBlock()))) return;
-        if (!worldGuard.buildAllowed(original.getBlock().getLocation(), original.getPlayer()))
+        if (!worldGuard.blockBreakAllowed(original.getBlock().getLocation(), original.getPlayer()))
             event.setAllowed(true);
     }
 
