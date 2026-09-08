@@ -71,6 +71,10 @@ public final class WorldGuardQueryService {
         return testBuild(location, player, Flags.BLOCK_PLACE);
     }
 
+    public boolean blockBreakAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.BLOCK_BREAK);
+    }
+
     public boolean vehiclePlaceAllowed(Location location, Player player) {
         return testBuild(location, player, Flags.PLACE_VEHICLE);
     }
