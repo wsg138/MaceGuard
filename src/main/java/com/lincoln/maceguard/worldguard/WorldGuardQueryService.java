@@ -65,14 +65,15 @@ public final class WorldGuardQueryService {
 
     /**
      * WorldGuard 7.0.17 cancels TNT and TNT-minecart prime/explode events from the per-world
-     * ignition.block-tnt setting, independently of the region TNT flag. This mirrors that exact
-     * global setting so MaceGuard can distinguish the configured WorldGuard veto it intentionally
-     * overrides for the Warzone CARTS modifier.
+     * ignition.block-tnt setting, independently of the region TNT flag. Return true only for that
+     * ordinary configuration veto. The global activity-halt switch is an emergency boundary and
+     * must never be reopened by a Warzone modifier.
      */
     public boolean tntExplosionsGloballyBlocked(Location location) {
         if (location.getWorld() == null) return false;
-        return WorldGuard.getInstance().getPlatform().getGlobalStateManager()
-                .get(BukkitAdapter.adapt(location.getWorld())).blockTNTExplosions;
+        var global = WorldGuard.getInstance().getPlatform().getGlobalStateManager();
+        if (global.activityHaltToggle) return false;
+        return global.get(BukkitAdapter.adapt(location.getWorld())).blockTNTExplosions;
     }
 
     public boolean buildAllowed(Location location, Player player) {
