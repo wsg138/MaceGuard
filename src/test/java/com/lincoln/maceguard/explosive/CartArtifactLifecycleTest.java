@@ -1,106 +1,201 @@
 package com.lincoln.maceguard.explosive;
 
 import com.lincoln.maceguard.MaceGuardPlugin;
-import com.lincoln.maceguard.bootstrap.PluginRuntime;
+import com.lincoln.maceguard.temporary.TemporaryBlock;
+import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.warzone.rotation.RotationManager;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
-import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Server;
 import org.bukkit.World;
-import org.bukkit.block.Block;
-import org.bukkit.block.BlockState;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
-import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityPlaceEvent;
+import org.bukkit.event.entity.ExplosionPrimeEvent;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CartArtifactLifecycleTest {
     @Test
-    void disablingCartsRestoresTrackedRailAndRemovesTrackedMinecart() {
+    @SuppressWarnings("unchecked")
+    void cartsEndRestoresOnlyOwnedRailsAndRemovesTaggedLoadedCarts() {
         MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
         Server server = mock(Server.class);
         WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
-        PluginRuntime pluginRuntime = mock(PluginRuntime.class);
         WarzoneModule module = mock(WarzoneModule.class);
         WarzoneRuntime runtime = mock(WarzoneRuntime.class);
         RotationManager rotations = mock(RotationManager.class);
+        TemporaryBlockService temporary = mock(TemporaryBlockService.class);
+        CartArtifactGenerationStore generations = mock(CartArtifactGenerationStore.class);
         World world = mock(World.class);
-        Block rail = mock(Block.class);
-        BlockState replaced = mock(BlockState.class);
-        BlockData originalData = mock(BlockData.class);
         Entity cart = mock(Entity.class);
-        Player player = mock(Player.class);
-        Location location = mock(Location.class);
-        UUID worldId = UUID.randomUUID();
-        UUID cartId = UUID.randomUUID();
+        PersistentDataContainer pdc = mock(PersistentDataContainer.class);
+        NamespacedKey key = new NamespacedKey("maceguard", "test-cart-generation");
 
-        WarzoneConfig.ActiveSet carts = new WarzoneConfig.ActiveSet(
-                List.of("carts"), "Carts", "Carts", Set.of(WarzoneConfig.Effect.CARTS), Map.of());
-        WarzoneConfig.ActiveSet ordinary = new WarzoneConfig.ActiveSet(
-                List.of("ordinary"), "Ordinary", "Ordinary", Set.of(), Map.of());
-        AtomicReference<WarzoneConfig.ActiveSet> active = new AtomicReference<>(carts);
-
-        when(plugin.isFeatureEnabled()).thenReturn(true);
-        when(plugin.runtime()).thenReturn(pluginRuntime);
         when(plugin.getServer()).thenReturn(server);
-        when(pluginRuntime.warzone()).thenReturn(module);
+        when(server.getWorlds()).thenReturn(List.of(world));
+        // Activation clears inherited tags; the second scan is the actual CARTS-end cleanup.
+        when(world.getEntities()).thenReturn(List.of(), List.of(cart));
         when(module.runtime()).thenReturn(runtime);
         when(runtime.rotations()).thenReturn(rotations);
-        when(rotations.active()).thenAnswer(ignored -> active.get());
-        when(runtime.appliesAt(location)).thenReturn(true);
-
-        when(world.getUID()).thenReturn(worldId);
-        when(rail.getType()).thenReturn(Material.RAIL);
-        when(rail.getLocation()).thenReturn(location);
-        when(rail.getWorld()).thenReturn(world);
-        when(rail.getX()).thenReturn(4);
-        when(rail.getY()).thenReturn(65);
-        when(rail.getZ()).thenReturn(7);
-        when(replaced.getBlockData()).thenReturn(originalData);
-        when(originalData.getAsString(true)).thenReturn("minecraft:air");
-        when(server.getWorld(worldId)).thenReturn(world);
-        when(world.getBlockAt(4, 65, 7)).thenReturn(rail);
-        when(server.createBlockData("minecraft:air")).thenReturn(originalData);
-
-        BlockPlaceEvent railPlace = mock(BlockPlaceEvent.class);
-        when(railPlace.getBlockPlaced()).thenReturn(rail);
-        when(railPlace.getBlockReplacedState()).thenReturn(replaced);
-
+        when(rotations.active()).thenReturn(carts());
+        when(generations.advance()).thenReturn(true);
+        when(generations.healthy()).thenReturn(true);
         when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
-        when(cart.getLocation()).thenReturn(location);
-        when(cart.getUniqueId()).thenReturn(cartId);
-        when(server.getEntity(cartId)).thenReturn(cart);
-        EntityPlaceEvent cartPlace = mock(EntityPlaceEvent.class);
-        when(cartPlace.getEntityType()).thenReturn(EntityType.TNT_MINECART);
-        when(cartPlace.getEntity()).thenReturn(cart);
-        when(cartPlace.getPlayer()).thenReturn(player);
+        when(cart.getPersistentDataContainer()).thenReturn(pdc);
+        when(pdc.get(key, PersistentDataType.LONG)).thenReturn(41L);
 
-        ExplosiveControlListener listener = new ExplosiveControlListener(
-                plugin, worldGuard, ignored -> false);
-        listener.onCartRailPlace(railPlace);
-        listener.onAcceptedCartPlace(cartPlace);
+        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard,
+                ignored -> false, module, temporary, null, generations, key);
+        listener.activateLifecycle();
+        listener.onCartsEnded();
 
-        active.set(ordinary);
-        listener.reconcileCartArtifacts();
-
-        verify(rail).setBlockData(originalData, false);
+        verify(generations, times(2)).advance();
+        verify(module).bindCartCleanup(any(Runnable.class));
         verify(cart).remove();
+
+        ArgumentCaptor<Predicate<TemporaryBlock>> selected =
+                (ArgumentCaptor<Predicate<TemporaryBlock>>) (ArgumentCaptor<?>)
+                        ArgumentCaptor.forClass(Predicate.class);
+        verify(temporary).clearMatching(selected.capture());
+        Predicate<TemporaryBlock> predicate = selected.getValue();
+        TemporaryBlock ownedRail = block(true, TemporaryBlock.Kind.CART_RAIL);
+        TemporaryBlock nonOwnedRail = block(false, TemporaryBlock.Kind.CART_RAIL);
+        TemporaryBlock ownedCobweb = block(true, TemporaryBlock.Kind.COBWEB);
+        assertTrue(predicate.test(ownedRail));
+        assertFalse(predicate.test(nonOwnedRail));
+        assertFalse(predicate.test(ownedCobweb));
     }
+
+    @Test
+    void generationFenceFailureRejectsNewPlayerCart() {
+        LifecycleHarness harness = lifecycleHarness(false, 77L);
+        Entity cart = mock(Entity.class);
+        Player player = mock(Player.class);
+        EntityPlaceEvent event = mock(EntityPlaceEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(event.getEntityType()).thenReturn(EntityType.TNT_MINECART);
+        when(event.getEntity()).thenReturn(cart);
+        when(event.getPlayer()).thenReturn(player);
+        when(harness.generations.ensurePersisted()).thenReturn(false);
+
+        harness.listener.activateLifecycle();
+        harness.listener.onEntityPlace(event);
+
+        verify(event).setCancelled(true);
+        verify(cart, never()).remove();
+    }
+
+    @Test
+    void untaggedPreexistingCartNeverReceivesWorldGuardPrimeBypass() {
+        LifecycleHarness harness = lifecycleHarness(true, 91L);
+        Entity cart = mock(Entity.class);
+        PersistentDataContainer pdc = mock(PersistentDataContainer.class);
+        ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(cart.getPersistentDataContainer()).thenReturn(pdc);
+        when(pdc.get(harness.key, PersistentDataType.LONG)).thenReturn(null);
+        when(event.getEntity()).thenReturn(cart);
+        when(event.isCancelled()).thenReturn(false, true);
+        when(harness.worldGuard.tntExplosionsGloballyBlocked(harness.location)).thenReturn(true);
+
+        harness.listener.activateLifecycle();
+        harness.listener.onCartPrimeBeforeWorldGuard(event);
+        harness.listener.onCartPrimeWorldGuardBypass(event);
+
+        verify(event, never()).setCancelled(false);
+        verify(harness.worldGuard, never()).tntExplosionsGloballyBlocked(harness.location);
+    }
+
+    @Test
+    void currentTaggedCartReceivesOnlyTheIntendedWorldGuardPrimeBypass() {
+        LifecycleHarness harness = lifecycleHarness(true, 103L);
+        Entity cart = mock(Entity.class);
+        PersistentDataContainer pdc = mock(PersistentDataContainer.class);
+        ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(cart.getPersistentDataContainer()).thenReturn(pdc);
+        when(pdc.get(harness.key, PersistentDataType.LONG)).thenReturn(103L);
+        when(event.getEntity()).thenReturn(cart);
+        when(event.isCancelled()).thenReturn(false, true);
+        when(harness.worldGuard.tntExplosionsGloballyBlocked(harness.location)).thenReturn(true);
+
+        harness.listener.activateLifecycle();
+        harness.listener.onCartPrimeBeforeWorldGuard(event);
+        harness.listener.onCartPrimeWorldGuardBypass(event);
+
+        verify(event).setCancelled(false);
+        verify(event, never()).setCancelled(true);
+    }
+
+    private LifecycleHarness lifecycleHarness(boolean generationPersisted, long generation) {
+        MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
+        Server server = mock(Server.class);
+        WorldGuardQueryService worldGuard = mock(WorldGuardQueryService.class);
+        WarzoneModule module = mock(WarzoneModule.class);
+        WarzoneRuntime runtime = mock(WarzoneRuntime.class);
+        RotationManager rotations = mock(RotationManager.class);
+        TemporaryBlockService temporary = mock(TemporaryBlockService.class);
+        CartArtifactGenerationStore generations = mock(CartArtifactGenerationStore.class);
+        Location location = mock(Location.class);
+        NamespacedKey key = new NamespacedKey("maceguard", "test-cart-generation");
+
+        when(plugin.getServer()).thenReturn(server);
+        when(server.getWorlds()).thenReturn(List.of());
+        when(module.runtime()).thenReturn(runtime);
+        when(runtime.rotations()).thenReturn(rotations);
+        when(rotations.active()).thenReturn(carts());
+        when(runtime.appliesAt(location)).thenReturn(true);
+        when(generations.advance()).thenReturn(generationPersisted);
+        when(generations.healthy()).thenReturn(generationPersisted);
+        when(generations.generation()).thenReturn(generation);
+
+        ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard,
+                ignored -> false, module, temporary, null, generations, key);
+        return new LifecycleHarness(listener, worldGuard, generations, location, key);
+    }
+
+    private static TemporaryBlock block(boolean owned, TemporaryBlock.Kind kind) {
+        String expected = kind == TemporaryBlock.Kind.CART_RAIL
+                ? "minecraft:rail" : "minecraft:cobweb";
+        return new TemporaryBlock(UUID.randomUUID().toString(), 1, 64, 1, expected,
+                "minecraft:air", Long.MAX_VALUE, false, owned, kind);
+    }
+
+    private static WarzoneConfig.ActiveSet carts() {
+        return new WarzoneConfig.ActiveSet(List.of("carts"), "Carts", "Carts",
+                Set.of(WarzoneConfig.Effect.CARTS), Map.of());
+    }
+
+    private record LifecycleHarness(ExplosiveControlListener listener,
+                                    WorldGuardQueryService worldGuard,
+                                    CartArtifactGenerationStore generations,
+                                    Location location, NamespacedKey key) { }
 }
