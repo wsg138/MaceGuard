@@ -10,10 +10,12 @@ import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.ExplosionPrimeEvent;
 import org.junit.jupiter.api.Test;
@@ -172,6 +174,46 @@ class ExplosiveControlListenerTest {
         verify(event, never()).setCancelled(true);
     }
 
+    @Test void ownedCartExplosionDamageCannotCrossOutOfWarzone() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        Entity victim = mock(Entity.class);
+        DamageSource source = mock(DamageSource.class);
+        EntityDamageEvent event = mock(EntityDamageEvent.class);
+        Location outside = mock(Location.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(source.getDirectEntity()).thenReturn(cart);
+        when(event.getDamageSource()).thenReturn(source);
+        when(event.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_EXPLOSION);
+        when(event.getEntity()).thenReturn(victim);
+        when(victim.getLocation()).thenReturn(outside);
+        when(harness.runtime.appliesAt(outside)).thenReturn(false);
+
+        harness.listener.onExplosionDamage(event);
+
+        verify(event).setCancelled(true);
+    }
+
+    @Test void ownedCartExplosionDamageRemainsAllowedInsideWarzone() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        Entity victim = mock(Entity.class);
+        DamageSource source = mock(DamageSource.class);
+        EntityDamageEvent event = mock(EntityDamageEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(source.getDirectEntity()).thenReturn(cart);
+        when(event.getDamageSource()).thenReturn(source);
+        when(event.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_EXPLOSION);
+        when(event.getEntity()).thenReturn(victim);
+        when(victim.getLocation()).thenReturn(harness.location);
+
+        harness.listener.onExplosionDamage(event);
+
+        verify(event, never()).setCancelled(true);
+    }
+
     @Test void windBurstClassificationRequiresMaceAndEnchant() {
         assertTrue(ExplosiveControlListener.isWindBurstMace(Material.MACE, true));
         assertFalse(ExplosiveControlListener.isWindBurstMace(Material.MACE, false));
@@ -234,10 +276,10 @@ class ExplosiveControlListenerTest {
         when(rotations.active()).thenReturn(active);
 
         return new CartHarness(new ExplosiveControlListener(plugin, worldGuard, entity -> false),
-                worldGuard, location);
+                worldGuard, runtime, location);
     }
 
     private record CartHarness(ExplosiveControlListener listener,
                                WorldGuardQueryService worldGuard,
-                               Location location) { }
+                               WarzoneRuntime runtime, Location location) { }
 }
