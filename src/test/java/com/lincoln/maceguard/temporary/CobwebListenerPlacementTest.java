@@ -137,7 +137,10 @@ class CobwebListenerPlacementTest {
 
         Location safeLocation = mock(Location.class);
         Block safeFeet = mock(Block.class);
+        Block safeHead = mock(Block.class);
         when(safeFeet.getType()).thenReturn(Material.AIR);
+        when(safeFeet.getRelative(BlockFace.UP)).thenReturn(safeHead);
+        when(safeHead.getType()).thenReturn(Material.AIR);
         when(safeLocation.getBlock()).thenReturn(safeFeet);
         when(player.getLocation()).thenReturn(safeLocation);
         com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent ordinaryDelegate =
