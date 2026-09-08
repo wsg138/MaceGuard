@@ -6,10 +6,17 @@ import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Material;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public final class CobwebListener implements Listener {
     private static final String BLOCK_POLICY_BYPASS_PERMISSION = "maceguard.block-policy.bypass";
@@ -22,6 +29,7 @@ public final class CobwebListener implements Listener {
     private final MaceGuardConfig config;
     private final BlockPolicyResolver policies;
     private final TemporaryBlockAdmissionJournal admissions;
+    private final Set<String> warzoneCobwebs = new HashSet<>();
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config) {
@@ -68,9 +76,39 @@ public final class CobwebListener implements Listener {
         if (!worldGuard.warzoneCobwebsAllowed(location)
                 || !replacementAllowed(config, original.getBlockReplacedState().getType())) return;
 
-        // No exception is needed when normal WorldGuard building is already permitted. When it is
-        // denied, ALLOW makes RegionProtectionListener stand down for this delegate event only.
         if (!worldGuard.buildAllowed(location, original.getPlayer())) event.setAllowed(true);
+    }
+
+    /** Allows players to break only the Warzone cobwebs that this listener accepted this runtime. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardWarzoneCobwebBreak(
+            com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent event) {
+        if (!(event.getOriginalEvent() instanceof BlockBreakEvent original)) return;
+        if (original.getBlock().getType() != Material.COBWEB) return;
+        if (!handlersEnabled(config.enabled(), config.validSchema())) return;
+        if (!warzoneCobwebs.contains(blockKey(original.getBlock()))) return;
+        if (!worldGuard.buildAllowed(original.getBlock().getLocation(), original.getPlayer()))
+            event.setAllowed(true);
+    }
+
+    /**
+     * WorldGuard abstracts bucket-empty into both block-placement and item-use delegates. When a
+     * player is physically trapped in one of our Warzone cobwebs, allow those two WorldGuard
+     * delegates for a water bucket so vanilla water can free the player. This does not grant
+     * general water placement in the Warzone or override named block-policy areas.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardCobwebEscapePlace(
+            com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
+        if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original
+                && waterEscapeAllowed(original)) event.setAllowed(true);
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardCobwebEscapeItem(
+            com.sk89q.worldguard.bukkit.event.inventory.UseItemEvent event) {
+        if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original
+                && waterEscapeAllowed(original)) event.setAllowed(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -85,8 +123,6 @@ public final class CobwebListener implements Listener {
 
         BlockPolicyResolver.Resolution policy = policies.resolve(location);
         if (policy.referenced()) {
-            // Dedicated block-policy areas keep their stricter semantics. Never resurrect an event
-            // that another protection layer already cancelled in a policy-referenced scope.
             if (event.isCancelled()) return;
             boolean worldGuardAllowed = worldGuard.buildAllowed(location, event.getPlayer())
                     && worldGuard.cobwebsAllowed(location, event.getPlayer());
@@ -100,9 +136,6 @@ public final class CobwebListener implements Listener {
         }
 
         if (!warzone.appliesAt(location)) return;
-        // The WorldGuard-specific delegate hook above is the only place where the Warzone grant
-        // overrides WorldGuard region protection. Any cancellation still present here belongs to
-        // another protection boundary and must remain intact.
         if (event.isCancelled()) return;
 
         var decision = warzone.cobwebDecision(event.getPlayer(), location);
@@ -171,8 +204,34 @@ public final class CobwebListener implements Listener {
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
+        if (warzoneOwned) warzoneCobwebs.add(blockKey(event.getBlockPlaced()));
         if (decision != null && !temporaryBypass)
             warzone.successfulCobweb(event.getPlayer(), decision.restriction());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBreak(BlockBreakEvent event) {
+        if (event.getBlock().getType() == Material.COBWEB)
+            warzoneCobwebs.remove(blockKey(event.getBlock()));
+    }
+
+    private boolean waterEscapeAllowed(PlayerBucketEmptyEvent event) {
+        if (event.isCancelled() || event.getBucket() != Material.WATER_BUCKET) return false;
+        if (!handlersEnabled(config.enabled(), config.validSchema())) return false;
+        Block target = event.getBlockClicked().getRelative(event.getBlockFace());
+        if (policies.resolve(target.getLocation()).referenced() || !warzone.appliesAt(target.getLocation()))
+            return false;
+        Block feet = event.getPlayer().getLocation().getBlock();
+        Block head = feet.getRelative(BlockFace.UP);
+        return trappedInTrackedCobweb(feet) || trappedInTrackedCobweb(head);
+    }
+
+    private boolean trappedInTrackedCobweb(Block block) {
+        return block.getType() == Material.COBWEB && warzoneCobwebs.contains(blockKey(block));
+    }
+
+    private static String blockKey(Block block) {
+        return block.getWorld().getUID() + ":" + block.getX() + ":" + block.getY() + ":" + block.getZ();
     }
 
     private static void rollbackUnmanagedPlacement(BlockPlaceEvent event) {
