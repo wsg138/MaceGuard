@@ -284,11 +284,10 @@ public final class ExplosiveControlListener implements Listener {
     public void onPrime(ExplosionPrimeEvent event) {
         Location location = event.getEntity().getLocation();
         if (isCartExplosion(event.getEntity(), location)) {
-            // WorldGuard's TNT/explosives restriction can cancel the prime event even though the
-            // CARTS modifier has already granted placement and ignition. Re-open only that exact
-            // WorldGuard denial; unrelated cancellations remain untouched.
-            if (event.isCancelled() && worldGuard.explosivesDenied(location, null))
-                event.setCancelled(false);
+            // WorldGuard's native TNT flag can cancel priming even though CARTS already granted
+            // placement and ignition. Re-open only when that exact WorldGuard flag is denying here;
+            // a cancellation without a TNT deny still belongs to some other protection boundary.
+            if (event.isCancelled() && worldGuard.tntDenied(location)) event.setCancelled(false);
             return;
         }
         if (event.isCancelled()) return;
