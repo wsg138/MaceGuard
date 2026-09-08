@@ -94,7 +94,7 @@ class ExplosiveControlListenerTest {
         verify(original, never()).setCancelled(false);
     }
 
-    @Test void preCancelledCartPrimeRemainsCancelled() {
+    @Test void worldGuardCancelledCartPrimeIsReopenedForActiveModifier() {
         CartHarness harness = cartHarness();
         Entity cart = mock(Entity.class);
         ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
@@ -102,6 +102,23 @@ class ExplosiveControlListenerTest {
         when(cart.getLocation()).thenReturn(harness.location);
         when(event.getEntity()).thenReturn(cart);
         when(event.isCancelled()).thenReturn(true);
+        when(harness.worldGuard.explosivesDenied(harness.location, null)).thenReturn(true);
+
+        harness.listener.onPrime(event);
+
+        verify(event).setCancelled(false);
+        verify(event, never()).setCancelled(true);
+    }
+
+    @Test void unrelatedCancelledCartPrimeRemainsCancelled() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(event.getEntity()).thenReturn(cart);
+        when(event.isCancelled()).thenReturn(true);
+        when(harness.worldGuard.explosivesDenied(harness.location, null)).thenReturn(false);
 
         harness.listener.onPrime(event);
 
@@ -125,7 +142,7 @@ class ExplosiveControlListenerTest {
         verify(event, never()).blockList();
     }
 
-    @Test void allowedCartExplosionClearsBlocksWithoutCancellingEntityEffects() {
+    @Test void allowedCartExplosionClearsBlocksBeforeAndAfterWorldGuard() {
         CartHarness harness = cartHarness();
         Entity cart = mock(Entity.class);
         EntityExplodeEvent event = mock(EntityExplodeEvent.class);
@@ -138,6 +155,8 @@ class ExplosiveControlListenerTest {
         when(event.isCancelled()).thenReturn(false);
         when(event.blockList()).thenReturn(blocks);
 
+        harness.listener.onCartExplosionPrepare(event);
+        assertTrue(blocks.isEmpty());
         harness.listener.onEntityExplosion(event);
 
         assertTrue(blocks.isEmpty());
