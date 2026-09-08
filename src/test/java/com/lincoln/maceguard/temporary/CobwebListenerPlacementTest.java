@@ -127,15 +127,19 @@ class CobwebListenerPlacementTest {
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
 
+        World cobwebWorld = cobweb.getWorld();
+        int cobwebX = cobweb.getX();
+        int cobwebY = cobweb.getY();
+        int cobwebZ = cobweb.getZ();
         Block clicked = mock(Block.class);
         Block target = mock(Block.class);
         Location targetLocation = mock(Location.class);
         when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
         when(target.getLocation()).thenReturn(targetLocation);
-        when(target.getWorld()).thenReturn(cobweb.getWorld());
-        when(target.getX()).thenReturn(cobweb.getX() + 1);
-        when(target.getY()).thenReturn(cobweb.getY());
-        when(target.getZ()).thenReturn(cobweb.getZ());
+        when(target.getWorld()).thenReturn(cobwebWorld);
+        when(target.getX()).thenReturn(cobwebX + 1);
+        when(target.getY()).thenReturn(cobwebY);
+        when(target.getZ()).thenReturn(cobwebZ);
         when(harness.warzone.appliesAt(targetLocation)).thenReturn(true);
 
         PlayerBucketEmptyEvent bucket = bucket(player, clicked, BlockFace.UP);
@@ -162,15 +166,19 @@ class CobwebListenerPlacementTest {
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
 
+        World cobwebWorld = cobweb.getWorld();
+        int cobwebX = cobweb.getX();
+        int cobwebY = cobweb.getY();
+        int cobwebZ = cobweb.getZ();
         Block clicked = mock(Block.class);
         Block target = mock(Block.class);
         Location targetLocation = mock(Location.class);
         when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
         when(target.getLocation()).thenReturn(targetLocation);
-        when(target.getWorld()).thenReturn(cobweb.getWorld());
-        when(target.getX()).thenReturn(cobweb.getX() + 4);
-        when(target.getY()).thenReturn(cobweb.getY());
-        when(target.getZ()).thenReturn(cobweb.getZ());
+        when(target.getWorld()).thenReturn(cobwebWorld);
+        when(target.getX()).thenReturn(cobwebX + 4);
+        when(target.getY()).thenReturn(cobwebY);
+        when(target.getZ()).thenReturn(cobwebZ);
         when(harness.warzone.appliesAt(targetLocation)).thenReturn(true);
 
         PlayerBucketEmptyEvent bucket = bucket(player, clicked, BlockFace.UP);
