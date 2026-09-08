@@ -122,6 +122,7 @@ class CobwebListenerPlacementTest {
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
         stubTrackedWarzoneCobweb(harness, cobweb);
+        stubAirAbove(cobweb);
         when(harness.temporary.clearMatching(any())).thenReturn(1);
         Location playerLocation = mock(Location.class);
         when(playerLocation.getBlock()).thenReturn(cobweb);
@@ -162,6 +163,7 @@ class CobwebListenerPlacementTest {
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
         stubTrackedWarzoneCobweb(harness, cobweb);
+        stubAirAbove(cobweb);
         Location playerLocation = mock(Location.class);
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
@@ -310,6 +312,12 @@ class CobwebListenerPlacementTest {
             Predicate<TemporaryBlock> selected = invocation.getArgument(0);
             return selected.test(persisted) ? 1 : 0;
         });
+    }
+
+    private void stubAirAbove(Block block) {
+        Block head = mock(Block.class);
+        when(head.getType()).thenReturn(Material.AIR);
+        when(block.getRelative(BlockFace.UP)).thenReturn(head);
     }
 
     private PlayerBucketEmptyEvent bucket(Player player, Block clicked, BlockFace face) {
