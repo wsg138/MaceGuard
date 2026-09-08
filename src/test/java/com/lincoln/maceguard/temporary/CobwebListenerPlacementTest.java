@@ -11,10 +11,13 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -75,6 +78,73 @@ class CobwebListenerPlacementTest {
         verify(original, never()).setCancelled(false);
         verify(original, never()).setCancelled(true);
         verify(harness.temporary).track(any(Block.class), anyString(), anyLong(), eq(true));
+    }
+
+    @Test
+    void trackedWarzoneCobwebCanBeBrokenThroughWorldGuard() {
+        Harness harness = harness(true, true);
+        BlockPlaceEvent placement = event(GameMode.SURVIVAL, 9, Material.AIR);
+        harness.listener.onRestriction(placement);
+        harness.listener.onPlace(placement);
+
+        Block cobweb = placement.getBlockPlaced();
+        Player player = placement.getPlayer();
+        when(harness.worldGuard.buildAllowed(cobweb.getLocation(), player)).thenReturn(false);
+        BlockBreakEvent original = mock(BlockBreakEvent.class);
+        when(original.getBlock()).thenReturn(cobweb);
+        when(original.getPlayer()).thenReturn(player);
+        com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent delegate =
+                mock(com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent.class);
+        when(delegate.getOriginalEvent()).thenReturn(original);
+
+        harness.listener.onWorldGuardWarzoneCobwebBreak(delegate);
+
+        verify(delegate).setAllowed(true);
+    }
+
+    @Test
+    void trackedWarzoneCobwebAllowsWaterEscapeButNotGeneralWaterPlacement() {
+        Harness harness = harness(true, true);
+        BlockPlaceEvent placement = event(GameMode.SURVIVAL, 10, Material.AIR);
+        harness.listener.onRestriction(placement);
+        harness.listener.onPlace(placement);
+
+        Block cobweb = placement.getBlockPlaced();
+        Player player = placement.getPlayer();
+        Location playerLocation = mock(Location.class);
+        when(playerLocation.getBlock()).thenReturn(cobweb);
+        when(player.getLocation()).thenReturn(playerLocation);
+
+        Block clicked = mock(Block.class);
+        Block target = mock(Block.class);
+        Location targetLocation = mock(Location.class);
+        when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
+        when(target.getLocation()).thenReturn(targetLocation);
+        when(harness.warzone.appliesAt(targetLocation)).thenReturn(true);
+
+        PlayerBucketEmptyEvent bucket = mock(PlayerBucketEmptyEvent.class);
+        when(bucket.getBucket()).thenReturn(Material.WATER_BUCKET);
+        when(bucket.getPlayer()).thenReturn(player);
+        when(bucket.getBlockClicked()).thenReturn(clicked);
+        when(bucket.getBlockFace()).thenReturn(BlockFace.UP);
+        when(bucket.isCancelled()).thenReturn(false);
+
+        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent escapeDelegate =
+                mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
+        when(escapeDelegate.getOriginalEvent()).thenReturn(bucket);
+        harness.listener.onWorldGuardCobwebEscapePlace(escapeDelegate);
+        verify(escapeDelegate).setAllowed(true);
+
+        Location safeLocation = mock(Location.class);
+        Block safeFeet = mock(Block.class);
+        when(safeFeet.getType()).thenReturn(Material.AIR);
+        when(safeLocation.getBlock()).thenReturn(safeFeet);
+        when(player.getLocation()).thenReturn(safeLocation);
+        com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent ordinaryDelegate =
+                mock(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent.class);
+        when(ordinaryDelegate.getOriginalEvent()).thenReturn(bucket);
+        harness.listener.onWorldGuardCobwebEscapePlace(ordinaryDelegate);
+        verify(ordinaryDelegate, never()).setAllowed(true);
     }
 
     @Test
