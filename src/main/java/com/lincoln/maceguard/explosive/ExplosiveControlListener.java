@@ -3,8 +3,10 @@ package com.lincoln.maceguard.explosive;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
@@ -13,6 +15,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockBurnEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockIgniteEvent;
@@ -32,7 +35,12 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /** Enforces explosive controls and the narrowly-scoped Warzone carts grant. */
@@ -46,16 +54,28 @@ public final class ExplosiveControlListener implements Listener {
     private final MaceGuardPlugin plugin;
     private final WorldGuardQueryService worldGuard;
     private final Predicate<Entity> windBurstSource;
+    private final Map<BlockKey, RailPlacement> placedRails = new HashMap<>();
+    private final Set<UUID> placedCarts = new HashSet<>();
+    private boolean cartsWereActive;
 
     public ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard) {
-        this(plugin, worldGuard, ExplosiveControlListener::isWindBurstSource);
+        this(plugin, worldGuard, ExplosiveControlListener::isWindBurstSource, true);
     }
 
     ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard,
                              Predicate<Entity> windBurstSource) {
+        this(plugin, worldGuard, windBurstSource, false);
+    }
+
+    private ExplosiveControlListener(MaceGuardPlugin plugin, WorldGuardQueryService worldGuard,
+                                     Predicate<Entity> windBurstSource, boolean reconcileLifecycle) {
         this.plugin = plugin;
         this.worldGuard = worldGuard;
         this.windBurstSource = windBurstSource;
+        if (reconcileLifecycle) {
+            plugin.getServer().getScheduler().runTaskTimer(plugin,
+                    this::reconcileCartArtifacts, 1L, 1L);
+        }
     }
 
     /**
@@ -86,6 +106,14 @@ public final class ExplosiveControlListener implements Listener {
                 event.setAllowed(true);
             }
         }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardCartBlockBreak(
+            com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent event) {
+        if (!(event.getOriginalEvent() instanceof BlockBreakEvent original)) return;
+        if (!isCartRail(original.getBlock().getType())) return;
+        if (placedRails.containsKey(BlockKey.of(original.getBlock()))) event.setAllowed(true);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -179,18 +207,45 @@ public final class ExplosiveControlListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCartRailPlace(BlockPlaceEvent event) {
+        Block placed = event.getBlockPlaced();
+        if (!isCartRail(placed.getType()) || !cartModifierActive(placed.getLocation())) return;
+        BlockKey key = BlockKey.of(placed);
+        placedRails.putIfAbsent(key, new RailPlacement(
+                event.getBlockReplacedState().getBlockData().getAsString(true),
+                placed.getBlockData().getAsString(true)));
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCartRailBreak(BlockBreakEvent event) {
+        if (isCartRail(event.getBlock().getType())) placedRails.remove(BlockKey.of(event.getBlock()));
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEntityPlace(EntityPlaceEvent event) {
         EntityType type = event.getEntityType();
         if (type == EntityType.TNT_MINECART && event.getPlayer() != null
                 && cartModifierActive(event.getEntity().getLocation())) {
-            // WorldGuard's region grant is handled before its own delegate decision. Never clear a
-            // cancellation that reaches this Bukkit event because it can belong to another plugin.
             return;
         }
         if (event.isCancelled()) return;
         if ((type == EntityType.END_CRYSTAL || type == EntityType.TNT_MINECART)
                 && denied(event.getEntity().getLocation(), event.getPlayer())) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onAcceptedCartPlace(EntityPlaceEvent event) {
+        if (event.getEntityType() == EntityType.TNT_MINECART && event.getPlayer() != null
+                && cartModifierActive(event.getEntity().getLocation())) {
+            placedCarts.add(event.getEntity().getUniqueId());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCartDestroyed(VehicleDestroyEvent event) {
+        if (event.getVehicle().getType() == EntityType.TNT_MINECART)
+            placedCarts.remove(event.getVehicle().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -229,18 +284,36 @@ public final class ExplosiveControlListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPrime(ExplosionPrimeEvent event) {
-        // Carts bypass MaceGuard's generic explosives deny, but they do not override any cancellation
-        // already applied by WorldGuard global settings or another protection plugin.
-        if (isCartExplosion(event.getEntity(), event.getEntity().getLocation())) return;
+        Location location = event.getEntity().getLocation();
+        if (isCartExplosion(event.getEntity(), location)) {
+            // WorldGuard's TNT/explosives restriction can cancel the prime event even though the
+            // CARTS modifier has already granted placement and ignition. Re-open only that exact
+            // WorldGuard denial; unrelated cancellations remain untouched.
+            if (event.isCancelled() && worldGuard.explosivesDenied(location, null))
+                event.setCancelled(false);
+            return;
+        }
         if (event.isCancelled()) return;
         if (isWindCharge(event.getEntityType()) || windBurstSource.test(event.getEntity())) return;
-        if (denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
+        if (denied(location, null)) event.setCancelled(true);
+    }
+
+    /**
+     * Empty a cart explosion's block list before WorldGuard converts it into bulk block-break
+     * delegate checks. Player/entity damage remains vanilla, while the Warzone terrain is never
+     * damaged by an allowed cart explosion.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
+    public void onCartExplosionPrepare(EntityExplodeEvent event) {
+        if (!event.isCancelled() && isCartExplosion(event.getEntity(), event.getLocation()))
+            event.blockList().clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onEntityExplosion(EntityExplodeEvent event) {
         if (isCartExplosion(event.getEntity(), event.getLocation())) {
             if (!event.isCancelled()) event.blockList().clear();
+            placedCarts.remove(event.getEntity().getUniqueId());
             return;
         }
         if (event.isCancelled()) return;
@@ -262,6 +335,38 @@ public final class ExplosiveControlListener implements Listener {
         if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
                 || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
                 && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
+    }
+
+    void reconcileCartArtifacts() {
+        boolean active = cartsEffectActive();
+        if (!active && (cartsWereActive || !placedRails.isEmpty() || !placedCarts.isEmpty()))
+            clearCartArtifacts();
+        cartsWereActive = active;
+    }
+
+    private void clearCartArtifacts() {
+        Iterator<Map.Entry<BlockKey, RailPlacement>> rails = placedRails.entrySet().iterator();
+        while (rails.hasNext()) {
+            Map.Entry<BlockKey, RailPlacement> entry = rails.next();
+            BlockKey key = entry.getKey();
+            World world = plugin.getServer().getWorld(key.worldId());
+            if (world == null) continue;
+            Block block = world.getBlockAt(key.x(), key.y(), key.z());
+            String current = block.getBlockData().getAsString(true);
+            if (entry.getValue().expected().equals(current)) {
+                block.setBlockData(Bukkit.createBlockData(entry.getValue().original()), false);
+            }
+            rails.remove();
+        }
+
+        Iterator<UUID> carts = placedCarts.iterator();
+        while (carts.hasNext()) {
+            UUID id = carts.next();
+            Entity entity = plugin.getServer().getEntity(id);
+            if (entity == null) continue;
+            if (entity.getType() == EntityType.TNT_MINECART) entity.remove();
+            carts.remove();
+        }
     }
 
     static boolean isWindCharge(EntityType type) {
@@ -295,13 +400,22 @@ public final class ExplosiveControlListener implements Listener {
                 && cartModifierActive(location);
     }
 
+    private boolean cartsEffectActive() {
+        WarzoneRuntime runtime = warzoneRuntime();
+        return runtime != null && runtime.rotations().active().cartsAllowed();
+    }
+
     private boolean cartModifierActive(Location location) {
-        if (!plugin.isFeatureEnabled()) return false;
+        WarzoneRuntime runtime = warzoneRuntime();
+        return runtime != null && runtime.appliesAt(location)
+                && runtime.rotations().active().cartsAllowed();
+    }
+
+    private WarzoneRuntime warzoneRuntime() {
+        if (!plugin.isFeatureEnabled()) return null;
         var pluginRuntime = plugin.runtime();
-        if (pluginRuntime == null || pluginRuntime.warzone() == null) return false;
-        WarzoneRuntime warzoneRuntime = pluginRuntime.warzone().runtime();
-        return warzoneRuntime != null && warzoneRuntime.appliesAt(location)
-                && warzoneRuntime.rotations().active().cartsAllowed();
+        if (pluginRuntime == null || pluginRuntime.warzone() == null) return null;
+        return pluginRuntime.warzone().runtime();
     }
 
     private boolean denied(Location location, Player player) {
@@ -310,5 +424,13 @@ public final class ExplosiveControlListener implements Listener {
 
     private Player player(Entity entity) {
         return entity instanceof Player value ? value : null;
+    }
+
+    private record RailPlacement(String original, String expected) { }
+
+    private record BlockKey(UUID worldId, int x, int y, int z) {
+        static BlockKey of(Block block) {
+            return new BlockKey(block.getWorld().getUID(), block.getX(), block.getY(), block.getZ());
+        }
     }
 }
