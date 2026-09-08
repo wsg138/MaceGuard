@@ -33,14 +33,13 @@ final class CartArtifactGenerationStore {
     }
 
     /**
-     * Invalidates every previously tagged cart. A newly placed cart receives the returned durable
-     * generation and therefore cannot be confused with artifacts left in an unloaded chunk.
+     * Invalidates every previously tagged cart. Advance memory first so a transient write failure
+     * can later retry the new generation instead of accidentally reusing the stale generation.
      */
     boolean advance() {
-        long next = generation == Long.MAX_VALUE ? 1L : generation + 1L;
-        if (!persist(next)) return false;
-        generation = next;
-        return true;
+        generation = generation == Long.MAX_VALUE ? 1L : generation + 1L;
+        persisted = false;
+        return persist(generation);
     }
 
     private void load() {
