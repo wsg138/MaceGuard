@@ -10,16 +10,19 @@ import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.ExplosionPrimeEvent;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -94,16 +97,38 @@ class ExplosiveControlListenerTest {
         verify(original, never()).setCancelled(false);
     }
 
-    @Test void preCancelledCartPrimeRemainsCancelled() {
+    @Test void worldGuardGlobalTntCancellationIsReopenedForActiveOwnedCart() {
         CartHarness harness = cartHarness();
         Entity cart = mock(Entity.class);
         ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
         when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
         when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(event.getEntity()).thenReturn(cart);
+        // NORMAL observes an originally-clear event; HIGH observes WorldGuard's cancellation.
+        when(event.isCancelled()).thenReturn(false, true);
+        when(harness.worldGuard.tntExplosionsGloballyBlocked(harness.location)).thenReturn(true);
+
+        harness.listener.onCartPrimeBeforeWorldGuard(event);
+        harness.listener.onCartPrimeWorldGuardBypass(event);
+
+        verify(event).setCancelled(false);
+        verify(event, never()).setCancelled(true);
+    }
+
+    @Test void cancellationAlreadyPresentBeforeWorldGuardIsNeverReopened() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        ExplosionPrimeEvent event = mock(ExplosionPrimeEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
         when(event.getEntity()).thenReturn(cart);
         when(event.isCancelled()).thenReturn(true);
+        when(harness.worldGuard.tntExplosionsGloballyBlocked(harness.location)).thenReturn(true);
 
-        harness.listener.onPrime(event);
+        harness.listener.onCartPrimeBeforeWorldGuard(event);
+        harness.listener.onCartPrimeWorldGuardBypass(event);
 
         verify(event, never()).setCancelled(false);
         verify(event, never()).setCancelled(true);
@@ -115,6 +140,7 @@ class ExplosiveControlListenerTest {
         EntityExplodeEvent event = mock(EntityExplodeEvent.class);
         when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
         when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
         when(event.getEntity()).thenReturn(cart);
         when(event.getLocation()).thenReturn(harness.location);
         when(event.isCancelled()).thenReturn(true);
@@ -125,7 +151,7 @@ class ExplosiveControlListenerTest {
         verify(event, never()).blockList();
     }
 
-    @Test void allowedCartExplosionClearsBlocksWithoutCancellingEntityEffects() {
+    @Test void allowedCartExplosionClearsBlocksBeforeAndAfterWorldGuard() {
         CartHarness harness = cartHarness();
         Entity cart = mock(Entity.class);
         EntityExplodeEvent event = mock(EntityExplodeEvent.class);
@@ -133,15 +159,58 @@ class ExplosiveControlListenerTest {
         blocks.add(mock(Block.class));
         when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
         when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getUniqueId()).thenReturn(UUID.randomUUID());
         when(event.getEntity()).thenReturn(cart);
         when(event.getLocation()).thenReturn(harness.location);
         when(event.isCancelled()).thenReturn(false);
         when(event.blockList()).thenReturn(blocks);
 
+        harness.listener.onCartExplosionPrepare(event);
+        assertTrue(blocks.isEmpty());
         harness.listener.onEntityExplosion(event);
 
         assertTrue(blocks.isEmpty());
         verify(event, never()).setCancelled(false);
+        verify(event, never()).setCancelled(true);
+    }
+
+    @Test void ownedCartExplosionDamageCannotCrossOutOfWarzone() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        Entity victim = mock(Entity.class);
+        DamageSource source = mock(DamageSource.class);
+        EntityDamageEvent event = mock(EntityDamageEvent.class);
+        Location outside = mock(Location.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(source.getDirectEntity()).thenReturn(cart);
+        when(event.getDamageSource()).thenReturn(source);
+        when(event.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_EXPLOSION);
+        when(event.getEntity()).thenReturn(victim);
+        when(victim.getLocation()).thenReturn(outside);
+        when(harness.runtime.appliesAt(outside)).thenReturn(false);
+
+        harness.listener.onExplosionDamage(event);
+
+        verify(event).setCancelled(true);
+    }
+
+    @Test void ownedCartExplosionDamageRemainsAllowedInsideWarzone() {
+        CartHarness harness = cartHarness();
+        Entity cart = mock(Entity.class);
+        Entity victim = mock(Entity.class);
+        DamageSource source = mock(DamageSource.class);
+        EntityDamageEvent event = mock(EntityDamageEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(source.getDirectEntity()).thenReturn(cart);
+        when(event.getDamageSource()).thenReturn(source);
+        when(event.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_EXPLOSION);
+        when(event.getEntity()).thenReturn(victim);
+        when(victim.getLocation()).thenReturn(harness.location);
+
+        harness.listener.onExplosionDamage(event);
+
         verify(event, never()).setCancelled(true);
     }
 
@@ -207,10 +276,10 @@ class ExplosiveControlListenerTest {
         when(rotations.active()).thenReturn(active);
 
         return new CartHarness(new ExplosiveControlListener(plugin, worldGuard, entity -> false),
-                worldGuard, location);
+                worldGuard, runtime, location);
     }
 
     private record CartHarness(ExplosiveControlListener listener,
                                WorldGuardQueryService worldGuard,
-                               Location location) { }
+                               WarzoneRuntime runtime, Location location) { }
 }

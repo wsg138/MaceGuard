@@ -56,12 +56,36 @@ public final class WorldGuardQueryService {
         return value == StateFlag.State.DENY;
     }
 
+    /** Returns whether WorldGuard's native region TNT flag denies this location. */
+    public boolean tntDenied(Location location) {
+        if (location.getWorld() == null) return false;
+        StateFlag.State value = query().queryState(BukkitAdapter.adapt(location), null, Flags.TNT);
+        return value == StateFlag.State.DENY;
+    }
+
+    /**
+     * WorldGuard 7.0.17 cancels TNT and TNT-minecart prime/explode events from the per-world
+     * ignition.block-tnt setting, independently of the region TNT flag. Return true only for that
+     * ordinary configuration veto. The global activity-halt switch is an emergency boundary and
+     * must never be reopened by a Warzone modifier.
+     */
+    public boolean tntExplosionsGloballyBlocked(Location location) {
+        if (location.getWorld() == null) return false;
+        var global = WorldGuard.getInstance().getPlatform().getGlobalStateManager();
+        if (global.activityHaltToggle) return false;
+        return global.get(BukkitAdapter.adapt(location.getWorld())).blockTNTExplosions;
+    }
+
     public boolean buildAllowed(Location location, Player player) {
         return testBuild(location, player);
     }
 
     public boolean blockPlaceAllowed(Location location, Player player) {
         return testBuild(location, player, Flags.BLOCK_PLACE);
+    }
+
+    public boolean blockBreakAllowed(Location location, Player player) {
+        return testBuild(location, player, Flags.BLOCK_BREAK);
     }
 
     public boolean vehiclePlaceAllowed(Location location, Player player) {

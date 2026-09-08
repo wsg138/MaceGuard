@@ -379,7 +379,8 @@ public final class WarzoneRuntime {
         pendingWarzoneCobwebClear = true;
 
         if (!region.fullyResolved())
-            return temporaryBlocks.clearMatching(TemporaryBlock::warzoneOwned);
+            return temporaryBlocks.clearMatching(entry -> entry.warzoneOwned()
+                    && entry.isKind(TemporaryBlock.Kind.COBWEB));
 
         Predicate<TemporaryBlock> selected = this::isWarzoneCobweb;
         int affected = temporaryBlocks.clearMatching(selected);
@@ -397,6 +398,7 @@ public final class WarzoneRuntime {
     }
 
     private boolean isWarzoneCobweb(TemporaryBlock entry) {
+        if (!entry.isKind(TemporaryBlock.Kind.COBWEB)) return false;
         if (entry.warzoneOwned()) return true;
         org.bukkit.World world;
         try { world = org.bukkit.Bukkit.getWorld(java.util.UUID.fromString(entry.worldUuid())); }
