@@ -3,7 +3,6 @@ package com.lincoln.maceguard.explosive;
 import com.lincoln.maceguard.MaceGuardPlugin;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -213,8 +212,7 @@ public final class ExplosiveControlListener implements Listener {
         if (!isCartRail(placed.getType()) || !cartModifierActive(placed.getLocation())) return;
         BlockKey key = BlockKey.of(placed);
         placedRails.putIfAbsent(key, new RailPlacement(
-                event.getBlockReplacedState().getBlockData().getAsString(true),
-                placed.getBlockData().getAsString(true)));
+                event.getBlockReplacedState().getBlockData().getAsString(true)));
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -352,9 +350,11 @@ public final class ExplosiveControlListener implements Listener {
             World world = plugin.getServer().getWorld(key.worldId());
             if (world == null) continue;
             Block block = world.getBlockAt(key.x(), key.y(), key.z());
-            String current = block.getBlockData().getAsString(true);
-            if (entry.getValue().expected().equals(current)) {
-                block.setBlockData(Bukkit.createBlockData(entry.getValue().original()), false);
+            // Rail block-data (especially shape) can legitimately change as neighboring rails are
+            // placed. Ownership is by the tracked coordinate, so restore while it is still any
+            // rail material; leave a player/plugin replacement of a non-rail block untouched.
+            if (isCartRail(block.getType())) {
+                block.setBlockData(plugin.getServer().createBlockData(entry.getValue().original()), false);
             }
             rails.remove();
         }
@@ -426,7 +426,7 @@ public final class ExplosiveControlListener implements Listener {
         return entity instanceof Player value ? value : null;
     }
 
-    private record RailPlacement(String original, String expected) { }
+    private record RailPlacement(String original) { }
 
     private record BlockKey(UUID worldId, int x, int y, int z) {
         static BlockKey of(Block block) {
