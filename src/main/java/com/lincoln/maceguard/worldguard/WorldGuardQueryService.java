@@ -56,11 +56,23 @@ public final class WorldGuardQueryService {
         return value == StateFlag.State.DENY;
     }
 
-    /** Returns whether WorldGuard's native TNT flag denies detonation at this location. */
+    /** Returns whether WorldGuard's native region TNT flag denies this location. */
     public boolean tntDenied(Location location) {
         if (location.getWorld() == null) return false;
         StateFlag.State value = query().queryState(BukkitAdapter.adapt(location), null, Flags.TNT);
         return value == StateFlag.State.DENY;
+    }
+
+    /**
+     * WorldGuard 7.0.17 cancels TNT and TNT-minecart prime/explode events from the per-world
+     * ignition.block-tnt setting, independently of the region TNT flag. This mirrors that exact
+     * global setting so MaceGuard can distinguish the configured WorldGuard veto it intentionally
+     * overrides for the Warzone CARTS modifier.
+     */
+    public boolean tntExplosionsGloballyBlocked(Location location) {
+        if (location.getWorld() == null) return false;
+        return WorldGuard.getInstance().getPlatform().getGlobalStateManager()
+                .get(BukkitAdapter.adapt(location.getWorld())).blockTNTExplosions;
     }
 
     public boolean buildAllowed(Location location, Player player) {
