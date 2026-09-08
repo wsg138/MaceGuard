@@ -8,15 +8,13 @@ import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.Waterlogged;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
-
-import java.util.HashSet;
-import java.util.Set;
 
 public final class CobwebListener implements Listener {
     private static final String BLOCK_POLICY_BYPASS_PERMISSION = "maceguard.block-policy.bypass";
@@ -29,7 +27,6 @@ public final class CobwebListener implements Listener {
     private final MaceGuardConfig config;
     private final BlockPolicyResolver policies;
     private final TemporaryBlockAdmissionJournal admissions;
-    private final Set<String> warzoneCobwebs = new HashSet<>();
 
     public CobwebListener(WorldGuardQueryService worldGuard, WarzoneModule warzone,
                           TemporaryBlockService temporary, MaceGuardConfig config) {
@@ -79,14 +76,14 @@ public final class CobwebListener implements Listener {
         if (!worldGuard.buildAllowed(location, original.getPlayer())) event.setAllowed(true);
     }
 
-    /** Allows players to break only the Warzone cobwebs that this listener accepted this runtime. */
+    /** Allows players to break only a durably tracked Warzone cobweb, including after reload. */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldGuardWarzoneCobwebBreak(
             com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent event) {
         if (!(event.getOriginalEvent() instanceof BlockBreakEvent original)) return;
         if (original.getBlock().getType() != Material.COBWEB) return;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return;
-        if (!warzoneCobwebs.contains(blockKey(original.getBlock()))) return;
+        if (!isTrackedWarzoneCobweb(original.getBlock())) return;
         if (!worldGuard.blockBreakAllowed(original.getBlock().getLocation(), original.getPlayer()))
             event.setAllowed(true);
     }
@@ -94,8 +91,8 @@ public final class CobwebListener implements Listener {
     /**
      * WorldGuard abstracts bucket-empty into both block-placement and item-use delegates. When a
      * player is physically trapped in one of our Warzone cobwebs, allow those two WorldGuard
-     * delegates for a water bucket so vanilla water can free the player. This does not grant
-     * general water placement in the Warzone or override named block-policy areas.
+     * delegates for a nearby water placement so vanilla water can free the player. The source must
+     * be at or directly beside the trapped block; this is not a general water-placement bypass.
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldGuardCobwebEscapePlace(
@@ -204,34 +201,53 @@ public final class CobwebListener implements Listener {
             warzone.sendBlockPlaceDenied(event.getPlayer(), Material.COBWEB);
             return;
         }
-        if (warzoneOwned) warzoneCobwebs.add(blockKey(event.getBlockPlaced()));
         if (decision != null && !temporaryBypass)
             warzone.successfulCobweb(event.getPlayer(), decision.restriction());
     }
 
+    /** Drop the persistence record immediately so the coordinate can be reused without waiting TTL. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
-        if (event.getBlock().getType() == Material.COBWEB)
-            warzoneCobwebs.remove(blockKey(event.getBlock()));
+        if (event.getBlock().getType() != Material.COBWEB) return;
+        temporary.discardMatching(entry -> entry.isKind(TemporaryBlock.Kind.COBWEB)
+                && sameCoordinate(entry, event.getBlock()));
     }
 
     private boolean waterEscapeAllowed(PlayerBucketEmptyEvent event) {
         if (event.isCancelled() || event.getBucket() != Material.WATER_BUCKET) return false;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return false;
-        Block target = event.getBlockClicked().getRelative(event.getBlockFace());
-        if (policies.resolve(target.getLocation()).referenced() || !warzone.appliesAt(target.getLocation()))
-            return false;
+
+        Block clicked = event.getBlockClicked();
+        Block target = clicked.getBlockData() instanceof Waterlogged
+                ? clicked : clicked.getRelative(event.getBlockFace());
+        if (policies.resolve(target.getLocation()).referenced()
+                || !warzone.appliesAt(target.getLocation())) return false;
+
         Block feet = event.getPlayer().getLocation().getBlock();
         Block head = feet.getRelative(BlockFace.UP);
-        return trappedInTrackedCobweb(feet) || trappedInTrackedCobweb(head);
+        return isEscapePlacement(target, feet) || isEscapePlacement(target, head);
     }
 
-    private boolean trappedInTrackedCobweb(Block block) {
-        return block.getType() == Material.COBWEB && warzoneCobwebs.contains(blockKey(block));
+    private boolean isEscapePlacement(Block target, Block trapped) {
+        if (!isTrackedWarzoneCobweb(trapped)) return false;
+        if (!target.getWorld().getUID().equals(trapped.getWorld().getUID())) return false;
+        int distance = Math.abs(target.getX() - trapped.getX())
+                + Math.abs(target.getY() - trapped.getY())
+                + Math.abs(target.getZ() - trapped.getZ());
+        return distance <= 1;
     }
 
-    private static String blockKey(Block block) {
-        return block.getWorld().getUID() + ":" + block.getX() + ":" + block.getY() + ":" + block.getZ();
+    private boolean isTrackedWarzoneCobweb(Block block) {
+        if (block.getType() != Material.COBWEB) return false;
+        return temporary.countMatching(entry -> entry.warzoneOwned()
+                && entry.isKind(TemporaryBlock.Kind.COBWEB)
+                && sameCoordinate(entry, block)) > 0;
+    }
+
+    private static boolean sameCoordinate(TemporaryBlock entry, Block block) {
+        return entry.worldUuid().equals(block.getWorld().getUID().toString())
+                && entry.x() == block.getX() && entry.y() == block.getY()
+                && entry.z() == block.getZ();
     }
 
     private static void rollbackUnmanagedPlacement(BlockPlaceEvent event) {
