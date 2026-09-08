@@ -460,10 +460,15 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onExplosionDamage(EntityDamageEvent event) {
         Entity direct = event.getDamageSource().getDirectEntity();
-        if (isWindCharge(direct) || windBurstSource.test(direct) || cartExplosionSource(direct)) return;
-        if ((event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
-                || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION)
-                && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
+        boolean explosionDamage = event.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION
+                || event.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION;
+        if (cartExplosionSource(direct)) {
+            if (explosionDamage && !cartModifierActive(event.getEntity().getLocation()))
+                event.setCancelled(true);
+            return;
+        }
+        if (isWindCharge(direct) || windBurstSource.test(direct)) return;
+        if (explosionDamage && denied(event.getEntity().getLocation(), null)) event.setCancelled(true);
     }
 
     /** A modifier-owned cart cannot be exported from the effective Warzone for later detonation. */
