@@ -205,12 +205,17 @@ public final class CobwebListener implements Listener {
             warzone.successfulCobweb(event.getPlayer(), decision.restriction());
     }
 
-    /** Drop the persistence record immediately so the coordinate can be reused without waiting TTL. */
+    /**
+     * A successful manual break removes the temporary cobweb by restoring its recorded original
+     * state. Cancelling vanilla's break after that restoration prevents a protected grass/vine/etc.
+     * that the cobweb temporarily replaced from being turned into permanent air.
+     */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         if (event.getBlock().getType() != Material.COBWEB) return;
-        temporary.discardMatching(entry -> entry.isKind(TemporaryBlock.Kind.COBWEB)
+        int affected = temporary.clearMatching(entry -> entry.isKind(TemporaryBlock.Kind.COBWEB)
                 && sameCoordinate(entry, event.getBlock()));
+        if (affected > 0) event.setCancelled(true);
     }
 
     private boolean waterEscapeAllowed(PlayerBucketEmptyEvent event) {
