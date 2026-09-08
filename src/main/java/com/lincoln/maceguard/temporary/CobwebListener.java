@@ -90,9 +90,9 @@ public final class CobwebListener implements Listener {
 
     /**
      * WorldGuard abstracts bucket-empty into both block-placement and item-use delegates. When a
-     * player is physically trapped in one of our Warzone cobwebs, allow those two WorldGuard
-     * delegates for a nearby water placement so vanilla water can free the player. The source must
-     * be at or directly beside the trapped block; this is not a general water-placement bypass.
+     * player is physically trapped in one of our Warzone cobwebs, pre-allow those delegates only
+     * for a target at or directly beside the trapped block. The Bukkit event is consumed at MONITOR
+     * after all other plugins have accepted it, so no persistent water source is created.
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldGuardCobwebEscapePlace(
@@ -106,6 +106,26 @@ public final class CobwebListener implements Listener {
             com.sk89q.worldguard.bukkit.event.inventory.UseItemEvent event) {
         if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original
                 && waterEscapeAllowed(original)) event.setAllowed(true);
+    }
+
+    /**
+     * Treat a successful nearby water-bucket attempt as an escape action, not a build permission.
+     * This restores the tracked cobweb(s), cancels vanilla water placement, and leaves unrelated
+     * protection-plugin cancellations authoritative.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onWaterEscape(PlayerBucketEmptyEvent event) {
+        if (!waterEscapeAllowed(event)) return;
+        Block target = bucketTarget(event);
+        Block feet = event.getPlayer().getLocation().getBlock();
+        Block head = feet.getRelative(BlockFace.UP);
+        boolean clearFeet = isEscapePlacement(target, feet);
+        boolean clearHead = isEscapePlacement(target, head);
+        int affected = temporary.clearMatching(entry -> entry.warzoneOwned()
+                && entry.isKind(TemporaryBlock.Kind.COBWEB)
+                && (clearFeet && sameCoordinate(entry, feet)
+                    || clearHead && sameCoordinate(entry, head)));
+        if (affected > 0) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -222,15 +242,19 @@ public final class CobwebListener implements Listener {
         if (event.isCancelled() || event.getBucket() != Material.WATER_BUCKET) return false;
         if (!handlersEnabled(config.enabled(), config.validSchema())) return false;
 
-        Block clicked = event.getBlockClicked();
-        Block target = clicked.getBlockData() instanceof Waterlogged
-                ? clicked : clicked.getRelative(event.getBlockFace());
+        Block target = bucketTarget(event);
         if (policies.resolve(target.getLocation()).referenced()
                 || !warzone.appliesAt(target.getLocation())) return false;
 
         Block feet = event.getPlayer().getLocation().getBlock();
         Block head = feet.getRelative(BlockFace.UP);
         return isEscapePlacement(target, feet) || isEscapePlacement(target, head);
+    }
+
+    private Block bucketTarget(PlayerBucketEmptyEvent event) {
+        Block clicked = event.getBlockClicked();
+        return clicked.getBlockData() instanceof Waterlogged
+                ? clicked : clicked.getRelative(event.getBlockFace());
     }
 
     private boolean isEscapePlacement(Block target, Block trapped) {
