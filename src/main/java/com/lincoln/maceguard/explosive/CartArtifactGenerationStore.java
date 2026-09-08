@@ -1,12 +1,14 @@
 package com.lincoln.maceguard.explosive;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /** Durable generation fence for TNT-minecart artifacts that can survive unloaded chunks/restarts. */
@@ -26,18 +28,20 @@ final class CartArtifactGenerationStore {
     long generation() { return generation; }
     boolean healthy() { return healthy; }
 
-    /** Ensures the current generation is durable before carts are allowed to be tagged with it. */
+    /** Retries the already-selected generation after a transient persistence failure. */
     boolean ensurePersisted() {
         if (persisted && healthy) return true;
-        return persist(generation);
+        return generation != 0L && persist(generation);
     }
 
     /**
-     * Invalidates every previously tagged cart. Advance memory first so a transient write failure
-     * can later retry the new generation instead of accidentally reusing the stale generation.
+     * Invalidates every previously tagged cart. Use a fresh random token rather than a small
+     * counter so deletion/corruption of this state file cannot plausibly make an old unloaded cart
+     * collide with the next runtime's generation. Memory advances before I/O so a failed write can
+     * retry exactly the same new fence rather than reverting to a stale generation.
      */
     boolean advance() {
-        generation = generation == Long.MAX_VALUE ? 1L : generation + 1L;
+        generation = freshGeneration(generation);
         persisted = false;
         return persist(generation);
     }
@@ -51,15 +55,13 @@ final class CartArtifactGenerationStore {
         try {
             String value = Files.readString(file, StandardCharsets.UTF_8).trim();
             generation = Long.parseLong(value);
-            if (generation < 0L) throw new NumberFormatException("negative generation");
+            if (generation == 0L) throw new NumberFormatException("zero generation");
             persisted = true;
         } catch (IOException | NumberFormatException ex) {
-            // Fail closed with a fresh generation. Once it is persisted, all old entity tags are
-            // stale and will be removed when their chunks become available.
-            generation = Math.max(1L, System.currentTimeMillis());
+            generation = freshGeneration(0L);
             persisted = false;
             logger.warning("Cart artifact generation state was unreadable; a fresh generation will "
-                    + "invalidate previously tagged TNT minecarts: " + ex.getMessage());
+                    + "invalidate previously tagged TNT minecarts once persisted: " + ex.getMessage());
         }
     }
 
@@ -71,6 +73,9 @@ final class CartArtifactGenerationStore {
             temp = Files.createTempFile(parent, "cart-generation-", ".tmp");
             Files.writeString(temp, Long.toString(value) + "\n", StandardCharsets.UTF_8,
                     StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
+                channel.force(true);
+            }
             try {
                 Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
@@ -92,5 +97,12 @@ final class CartArtifactGenerationStore {
                 catch (IOException ignored) { }
             }
         }
+    }
+
+    private static long freshGeneration(long previous) {
+        long candidate;
+        do candidate = ThreadLocalRandom.current().nextLong();
+        while (candidate == 0L || candidate == previous);
+        return candidate;
     }
 }
