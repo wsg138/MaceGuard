@@ -15,8 +15,10 @@ import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Vehicle;
 import org.bukkit.event.entity.EntityPlaceEvent;
 import org.bukkit.event.entity.ExplosionPrimeEvent;
+import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.junit.jupiter.api.Test;
@@ -110,6 +112,47 @@ class CartArtifactLifecycleTest {
     }
 
     @Test
+    void acceptedPlayerCartIsTaggedWithCurrentDurableGeneration() {
+        LifecycleHarness harness = lifecycleHarness(true, 83L);
+        Entity cart = mock(Entity.class);
+        Player player = mock(Player.class);
+        PersistentDataContainer pdc = mock(PersistentDataContainer.class);
+        EntityPlaceEvent event = mock(EntityPlaceEvent.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getPersistentDataContainer()).thenReturn(pdc);
+        when(event.getEntity()).thenReturn(cart);
+        when(event.getPlayer()).thenReturn(player);
+
+        harness.listener.activateLifecycle();
+        harness.listener.onAcceptedCartPlace(event);
+
+        verify(pdc).set(harness.key, PersistentDataType.LONG, 83L);
+        verify(cart, never()).remove();
+    }
+
+    @Test
+    void currentTaggedCartIsRemovedWhenItLeavesEffectiveWarzone() {
+        LifecycleHarness harness = lifecycleHarness(true, 87L);
+        Vehicle cart = mock(Vehicle.class);
+        PersistentDataContainer pdc = mock(PersistentDataContainer.class);
+        VehicleMoveEvent event = mock(VehicleMoveEvent.class);
+        Location outside = mock(Location.class);
+        when(cart.getType()).thenReturn(EntityType.TNT_MINECART);
+        when(cart.getLocation()).thenReturn(harness.location);
+        when(cart.getPersistentDataContainer()).thenReturn(pdc);
+        when(pdc.get(harness.key, PersistentDataType.LONG)).thenReturn(87L);
+        when(event.getVehicle()).thenReturn(cart);
+        when(event.getTo()).thenReturn(outside);
+        when(harness.runtime.appliesAt(outside)).thenReturn(false);
+
+        harness.listener.activateLifecycle();
+        harness.listener.onCartMove(event);
+
+        verify(cart).remove();
+    }
+
+    @Test
     void untaggedPreexistingCartNeverReceivesWorldGuardPrimeBypass() {
         LifecycleHarness harness = lifecycleHarness(true, 91L);
         Entity cart = mock(Entity.class);
@@ -179,7 +222,7 @@ class CartArtifactLifecycleTest {
 
         ExplosiveControlListener listener = new ExplosiveControlListener(plugin, worldGuard,
                 ignored -> false, module, temporary, null, generations, key);
-        return new LifecycleHarness(listener, worldGuard, generations, location, key);
+        return new LifecycleHarness(listener, worldGuard, generations, runtime, location, key);
     }
 
     private static TemporaryBlock block(boolean owned, TemporaryBlock.Kind kind) {
@@ -197,5 +240,6 @@ class CartArtifactLifecycleTest {
     private record LifecycleHarness(ExplosiveControlListener listener,
                                     WorldGuardQueryService worldGuard,
                                     CartArtifactGenerationStore generations,
-                                    Location location, NamespacedKey key) { }
+                                    WarzoneRuntime runtime, Location location,
+                                    NamespacedKey key) { }
 }
