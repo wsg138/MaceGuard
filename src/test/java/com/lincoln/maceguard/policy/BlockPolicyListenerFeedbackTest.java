@@ -4,7 +4,6 @@ import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
@@ -65,18 +64,15 @@ class BlockPolicyListenerFeedbackTest {
         when(breakEvent.getBlock()).thenReturn(broken);
 
         Block emptyTarget = block(Material.AIR);
-        Block emptyClicked = mock(Block.class);
-        when(emptyClicked.getRelative(BlockFace.UP)).thenReturn(emptyTarget);
         PlayerBucketEmptyEvent empty = mock(PlayerBucketEmptyEvent.class);
         when(empty.getPlayer()).thenReturn(player);
-        when(empty.getBlockClicked()).thenReturn(emptyClicked);
-        when(empty.getBlockFace()).thenReturn(BlockFace.UP);
+        when(empty.getBlock()).thenReturn(emptyTarget);
         when(empty.getBucket()).thenReturn(Material.WATER_BUCKET);
 
         Block fillSource = block(Material.WATER);
         PlayerBucketFillEvent fill = mock(PlayerBucketFillEvent.class);
         when(fill.getPlayer()).thenReturn(player);
-        when(fill.getBlockClicked()).thenReturn(fillSource);
+        when(fill.getBlock()).thenReturn(fillSource);
 
         listener.onPlace(place);
         listener.onBreak(breakEvent);
