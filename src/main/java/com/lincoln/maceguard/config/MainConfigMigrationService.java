@@ -28,6 +28,10 @@ public final class MainConfigMigrationService {
             "end_island.block_maces",
             "end_island.block_spears"
     );
+    private static final String COBWEB_POLICY = "block-policies.cobweb-box";
+    private static final List<String> STOCK_COBWEB_MATERIALS = List.of("COBWEB", "ICE");
+    private static final List<String> STOCK_WATER_ONLY = List.of("WATER");
+    private static final List<String> STOCK_WATER_AND_LAVA = List.of("WATER", "LAVA");
 
     private final JavaPlugin plugin;
 
@@ -42,14 +46,16 @@ public final class MainConfigMigrationService {
             YamlConfiguration old = new YamlConfiguration();
             old.load(config.toFile());
             int version = old.getInt("config-version", -1);
-            if (version == ConfigLoader.VERSION) return;
+            if (version == ConfigLoader.VERSION) {
+                if (!upgradeStockSchema8BucketDefaults(old)) return;
+                Path backup = backup(config, version, "stock-defaults");
+                old.save(config.toFile());
+                plugin.getLogger().warning("Updated the stock schema-8 cobweb-box bucket defaults "
+                        + "to allow WATER and LAVA; backup: " + backup.getFileName() + ".");
+                return;
+            }
 
-            Path backups = plugin.getDataFolder().toPath().resolve("migration-backups");
-            Files.createDirectories(backups);
-            Path backup = backups.resolve("config-v" + version + "-"
-                    + System.currentTimeMillis() + ".yml.bak");
-            Files.copy(config, backup, StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.COPY_ATTRIBUTES);
+            Path backup = backup(config, version, null);
 
             plugin.saveResource("config.yml", true);
             YamlConfiguration clean = new YamlConfiguration();
@@ -84,5 +90,43 @@ public final class MainConfigMigrationService {
             plugin.getLogger().severe(message);
             throw new IllegalStateException(message, ex);
         }
+    }
+
+    /**
+     * Schema 8 predates the bundled Lava bucket allowance but is otherwise still the live schema.
+     * Upgrade only the exact previous bundled cobweb-box policy. A server that customized any part
+     * of that policy is intentionally left untouched rather than silently broadening its rules.
+     */
+    static boolean upgradeStockSchema8BucketDefaults(YamlConfiguration config) {
+        if (config.getInt("config-version", -1) != ConfigLoader.VERSION) return false;
+        if (!config.getBoolean(COBWEB_POLICY + ".place.deny-unlisted", false)
+                || !STOCK_COBWEB_MATERIALS.equals(
+                        config.getStringList(COBWEB_POLICY + ".place.materials"))) return false;
+        if (!config.getBoolean(COBWEB_POLICY + ".break.deny-unlisted", false)
+                || !STOCK_COBWEB_MATERIALS.equals(
+                        config.getStringList(COBWEB_POLICY + ".break.materials"))) return false;
+        if (!STOCK_WATER_ONLY.equals(config.getStringList(COBWEB_POLICY + ".buckets.empty"))
+                || !STOCK_WATER_ONLY.equals(
+                        config.getStringList(COBWEB_POLICY + ".buckets.fill"))) return false;
+        if (!config.getBoolean(COBWEB_POLICY + ".liquids.confine-to-region", false)
+                || !config.getBoolean(
+                        COBWEB_POLICY + ".liquids.block-infinite-water-sources", false)
+                || config.getBoolean(COBWEB_POLICY + ".allow-non-player-sources", true))
+            return false;
+
+        config.set(COBWEB_POLICY + ".buckets.empty", STOCK_WATER_AND_LAVA);
+        config.set(COBWEB_POLICY + ".buckets.fill", STOCK_WATER_AND_LAVA);
+        return true;
+    }
+
+    private Path backup(Path config, int version, String suffix) throws IOException {
+        Path backups = plugin.getDataFolder().toPath().resolve("migration-backups");
+        Files.createDirectories(backups);
+        String label = suffix == null ? "" : "-" + suffix;
+        Path backup = backups.resolve("config-v" + version + label + "-"
+                + System.currentTimeMillis() + ".yml.bak");
+        Files.copy(config, backup, StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.COPY_ATTRIBUTES);
+        return backup;
     }
 }

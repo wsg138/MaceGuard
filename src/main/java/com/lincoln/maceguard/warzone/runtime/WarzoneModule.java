@@ -19,6 +19,7 @@ import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -40,6 +41,8 @@ public final class WarzoneModule {
     private volatile WarzoneRuntime runtime;
     private WarzonePlaceholderHook placeholder;
     private ReloadState pendingReloadState;
+    private BukkitTask cartCleanupTask;
+    private boolean cartsPreviouslyActive;
 
     public WarzoneModule(JavaPlugin plugin, TemporaryBlockService temporaryBlocks, Executor io) {
         this(plugin, temporaryBlocks, io, Clock.systemUTC(), null, null, null);
@@ -210,10 +213,27 @@ public final class WarzoneModule {
 
     public void shutdown(boolean pluginDisable) {
         pendingReloadState = null;
+        if (cartCleanupTask != null) cartCleanupTask.cancel();
+        cartCleanupTask = null;
         if (runtime != null) runtime.shutdown(pluginDisable);
         runtime = null;
         if (placeholder != null) placeholder.close();
         placeholder = null;
+    }
+
+    /**
+     * Binds CARTS lifecycle cleanup after the owning MaceGuard runtime becomes authoritative.
+     * Keeping the task on this module makes it follow both full-plugin and Warzone-only reloads.
+     */
+    public void bindCartCleanup(Runnable cleanup) {
+        Objects.requireNonNull(cleanup, "cleanup");
+        if (cartCleanupTask != null) cartCleanupTask.cancel();
+        cartsPreviouslyActive = runtime != null && runtime.rotations().active().cartsAllowed();
+        cartCleanupTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            boolean active = runtime != null && runtime.rotations().active().cartsAllowed();
+            if (cartsPreviouslyActive && !active) cleanup.run();
+            cartsPreviouslyActive = active;
+        }, 1L, 1L);
     }
 
     public void reload(CommandSender sender) {

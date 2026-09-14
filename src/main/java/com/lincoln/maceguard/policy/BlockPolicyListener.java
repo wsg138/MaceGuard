@@ -4,11 +4,15 @@ import com.lincoln.maceguard.config.BlockPolicy;
 import com.lincoln.maceguard.config.MaceGuardConfig;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
+import com.sk89q.worldedit.bukkit.BukkitAdapter;
+import com.sk89q.worldguard.WorldGuard;
+import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Directional;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -16,6 +20,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDispenseEvent;
 import org.bukkit.event.block.BlockFadeEvent;
 import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
@@ -23,15 +28,22 @@ import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiPredicate;
 
 public final class BlockPolicyListener implements Listener {
     private static final String BYPASS_PERMISSION = "maceguard.block-policy.bypass";
 
     private final BlockPolicyResolver resolver;
     private final WarzoneModule warzone;
+    private final BiPredicate<Location, Player> globalLighterBlocked;
+    private final Set<BlockIgniteEvent> cartIgniteClearBeforeWorldGuard =
+            Collections.newSetFromMap(new IdentityHashMap<>());
 
     public BlockPolicyListener(MaceGuardConfig config, WorldGuardQueryService worldGuard) {
         this(new BlockPolicyResolver(config, worldGuard), null);
@@ -42,8 +54,87 @@ public final class BlockPolicyListener implements Listener {
     }
 
     public BlockPolicyListener(BlockPolicyResolver resolver, WarzoneModule warzone) {
+        this(resolver, warzone, BlockPolicyListener::worldGuardGlobalLighterBlocked);
+    }
+
+    BlockPolicyListener(BlockPolicyResolver resolver, WarzoneModule warzone,
+                        BiPredicate<Location, Player> globalLighterBlocked) {
         this.resolver = resolver;
         this.warzone = warzone;
+        this.globalLighterBlocked = globalLighterBlocked;
+    }
+
+    /**
+     * WorldGuard translates bucket-empty and liquid-flow Bukkit events into PlaceBlockEvent
+     * delegates before this listener's Bukkit handlers run. Pre-allow only the delegate when the
+     * effective MaceGuard policy explicitly permits the operation; blacklist/build-permission
+     * listeners and unrelated plugins retain their own vetoes.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardPolicyPlace(
+            com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
+        if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original) {
+            if (original.isCancelled()) return;
+            Block target = original.getBlock();
+            Material fluid = fluid(original.getBucket());
+            BlockPolicyResolver.Resolution resolution = resolve(target.getLocation());
+            if (resolution.referenced() && bucketEmptyAllowed(resolution, fluid))
+                event.setAllowed(true);
+            return;
+        }
+        if (!(event.getOriginalEvent() instanceof BlockFromToEvent original)
+                || original.isCancelled()) return;
+        Block sourceBlock = original.getBlock();
+        Block targetBlock = original.getToBlock();
+        BlockPolicyResolver.Resolution source = resolve(sourceBlock.getLocation());
+        BlockPolicyResolver.Resolution target = resolve(targetBlock.getLocation());
+        if (!source.referenced() && !target.referenced()) return;
+        boolean createsInfiniteWater = sourceBlock.getType() == Material.WATER
+                && createsInfiniteSource(targetBlock);
+        if (!flowDenied(source, target, createsInfiniteWater)) event.setAllowed(true);
+    }
+
+    /** Same scoped exception for WorldGuard's bucket-fill BreakBlockEvent delegate. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardPolicyBreak(
+            com.sk89q.worldguard.bukkit.event.block.BreakBlockEvent event) {
+        if (!(event.getOriginalEvent() instanceof PlayerBucketFillEvent original)
+                || original.isCancelled()) return;
+        Block source = original.getBlock();
+        BlockPolicyResolver.Resolution resolution = resolve(source.getLocation());
+        if (resolution.referenced() && bucketFillAllowed(resolution, source.getType()))
+            event.setAllowed(true);
+    }
+
+    /**
+     * Snapshot whether a CARTS flint-and-steel ignition was still clear before WorldGuard's
+     * HIGH-priority global block-lighter hook runs. This is used only to reopen that one known
+     * WorldGuard veto, never a cancellation that already existed beforehand.
+     */
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = false)
+    public void onCartIgniteBeforeWorldGuard(BlockIgniteEvent event) {
+        if (!cartFlintIgnition(event)) return;
+        if (event.isCancelled()) cartIgniteClearBeforeWorldGuard.remove(event);
+        else cartIgniteClearBeforeWorldGuard.add(event);
+    }
+
+    /**
+     * WorldGuard is a hard dependency and registers before MaceGuard. Its global block-lighter
+     * check is HIGH priority, so this HIGH handler runs after it. Region lighter/build decisions
+     * remain handled by the CARTS delegate grant in ExplosiveControlListener, while unrelated
+     * HIGHEST/MONITOR protection plugins can still veto the ignition afterward.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onCartIgniteWorldGuardBypass(BlockIgniteEvent event) {
+        if (!cartFlintIgnition(event)) {
+            cartIgniteClearBeforeWorldGuard.remove(event);
+            return;
+        }
+        boolean wasClear = cartIgniteClearBeforeWorldGuard.remove(event);
+        if (event.isCancelled() && wasClear
+                && globalLighterBlocked.test(event.getBlock().getLocation(), event.getPlayer())) {
+            event.setCancelled(false);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -69,7 +160,7 @@ public final class BlockPolicyListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketEmpty(PlayerBucketEmptyEvent event) {
         if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
-        Block target = event.getBlockClicked().getRelative(event.getBlockFace());
+        Block target = event.getBlock();
         Material fluid = fluid(event.getBucket());
         if (bucketEmptyAllowed(resolve(target.getLocation()), fluid)) return;
         event.setCancelled(true);
@@ -79,7 +170,7 @@ public final class BlockPolicyListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBucketFill(PlayerBucketFillEvent event) {
         if (event.getPlayer().hasPermission(BYPASS_PERMISSION)) return;
-        Block source = event.getBlockClicked();
+        Block source = event.getBlock();
         if (bucketFillAllowed(resolve(source.getLocation()), source.getType())) return;
         event.setCancelled(true);
         if (warzone != null) warzone.sendBucketFillDenied(event.getPlayer(), source.getType());
@@ -161,6 +252,26 @@ public final class BlockPolicyListener implements Listener {
 
     private boolean blocksAutomation(Location location) {
         return automationDenied(resolve(location));
+    }
+
+    private boolean cartFlintIgnition(BlockIgniteEvent event) {
+        Player player = event.getPlayer();
+        return player != null && event.getCause() == BlockIgniteEvent.IgniteCause.FLINT_AND_STEEL
+                && cartsActiveAt(event.getBlock().getLocation());
+    }
+
+    private boolean cartsActiveAt(Location location) {
+        if (warzone == null || warzone.runtime() == null) return false;
+        var runtime = warzone.runtime();
+        return runtime.appliesAt(location) && runtime.rotations().active().cartsAllowed();
+    }
+
+    private static boolean worldGuardGlobalLighterBlocked(Location location, Player player) {
+        if (location.getWorld() == null) return false;
+        var global = WorldGuard.getInstance().getPlatform().getGlobalStateManager();
+        if (global.activityHaltToggle) return false;
+        return global.get(BukkitAdapter.adapt(location.getWorld())).blockLighter
+                && !WorldGuardPlugin.inst().hasPermission(player, "worldguard.override.lighter");
     }
 
     static boolean placeAllowed(BlockPolicyResolver.Resolution resolution, Material material) {
