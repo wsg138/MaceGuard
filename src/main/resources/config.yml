@@ -84,8 +84,8 @@ material-groups:
     - TWISTING_VINES
     - TWISTING_VINES_PLANT
 
-# WorldGuard block-place/block-break still provide general build permission.
-# A named MaceGuard policy only narrows the allowed materials and automation.
+# Block place/break rules still narrow WorldGuard build permission. Bucket and liquid entries are
+# explicit scoped exceptions so approved Warzone fluids can work inside otherwise build-denied regions.
 block-policies:
   cobweb-box:
     place:
@@ -101,8 +101,10 @@ block-policies:
     buckets:
       empty:
         - WATER
+        - LAVA
       fill:
         - WATER
+        - LAVA
     liquids:
       confine-to-region: true
       block-infinite-water-sources: true
