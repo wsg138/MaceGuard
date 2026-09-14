@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.config;
 
+import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,6 +20,11 @@ class ConfigLoaderTest {
         assertTrue(config.validSchema(), config.errors().toString());
         assertEquals(8, ConfigLoader.VERSION);
         assertTrue(config.blockPolicies().containsKey("cobweb-box"));
+        BlockPolicy policy = config.blockPolicies().get("cobweb-box");
+        assertTrue(policy.buckets().empty().contains(Material.WATER));
+        assertTrue(policy.buckets().empty().contains(Material.LAVA));
+        assertTrue(policy.buckets().fill().contains(Material.WATER));
+        assertTrue(policy.buckets().fill().contains(Material.LAVA));
         assertEquals(ResetProfile.Mode.FULL_SNAPSHOT,
                 config.resetProfiles().get("war-pit").mode());
         assertEquals(ResetProfile.Mode.FILTERED_SNAPSHOT,
