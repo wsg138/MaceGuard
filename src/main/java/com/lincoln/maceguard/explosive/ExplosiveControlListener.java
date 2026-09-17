@@ -7,6 +7,7 @@ import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
+import org.bukkit.ExplosionResult;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -451,8 +452,27 @@ public final class ExplosiveControlListener implements Listener {
         else event.blockList().removeIf(block -> denied(block.getLocation(), null));
     }
 
+    /**
+     * Wind Burst's enchantment explosion is exposed as a TRIGGER_BLOCK BlockExplodeEvent. Remove
+     * protected block interactions before WorldGuard abstracts the event, but keep the explosion
+     * itself alive so its knockback/launch behavior is preserved.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onTriggerBlockExplosionPrepare(BlockExplodeEvent event) {
+        if (!isTriggerBlockExplosion(event)) return;
+        if (denied(event.getBlock().getLocation(), null)) {
+            event.blockList().clear();
+            return;
+        }
+        event.blockList().removeIf(block -> denied(block.getLocation(), null));
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockExplosion(BlockExplodeEvent event) {
+        if (isTriggerBlockExplosion(event)) {
+            event.blockList().removeIf(block -> denied(block.getLocation(), null));
+            return;
+        }
         if (denied(event.getBlock().getLocation(), null)) event.setCancelled(true);
         else event.blockList().removeIf(block -> denied(block.getLocation(), null));
     }
@@ -594,6 +614,10 @@ public final class ExplosiveControlListener implements Listener {
 
     static boolean isWindBurstMace(Material material, boolean hasWindBurst) {
         return material == Material.MACE && hasWindBurst;
+    }
+
+    static boolean isTriggerBlockExplosion(BlockExplodeEvent event) {
+        return event.getExplosionResult() == ExplosionResult.TRIGGER_BLOCK;
     }
 
     static boolean isCartRail(Material material) {
