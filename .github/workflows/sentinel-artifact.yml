@@ -45,7 +45,7 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Build exact plugin JAR
+      - name: Build exact plugin JAR and declared fixture
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -53,8 +53,11 @@ jobs:
           ./mvnw -B -DskipTests clean package
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test -f target/MaceGuard.jar
-          mkdir -p sentinel-artifact/target
+          test -f sentinel-fixtures/warzone-schema7-pre-carts.yml
+          mkdir -p sentinel-artifact/target sentinel-artifact/sentinel-fixtures
           cp -- target/MaceGuard.jar sentinel-artifact/target/MaceGuard.jar
+          cp -- sentinel-fixtures/warzone-schema7-pre-carts.yml \
+            sentinel-artifact/sentinel-fixtures/warzone-schema7-pre-carts.yml
 
       - name: Upload exact Sentinel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
