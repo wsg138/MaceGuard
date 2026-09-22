@@ -1,0 +1,65 @@
+name: Sentinel Artifact
+
+on:
+  push:
+    branches:
+      - "**"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-artifact-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  artifact:
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact source SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build exact plugin JAR
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod +x ./mvnw
+          ./mvnw -B -DskipTests clean package
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -f target/MaceGuard.jar
+          mkdir -p sentinel-artifact/target
+          cp -- target/MaceGuard.jar sentinel-artifact/target/MaceGuard.jar
+
+      - name: Upload exact Sentinel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: MaceGuard
+          path: sentinel-artifact/
+          if-no-files-found: error
+          retention-days: 3
