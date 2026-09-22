@@ -1,13 +1,14 @@
 name: Build
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 permissions:
   contents: read
 jobs:
   build:
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,10 +125,10 @@ jobs:
             target/surefire-reports/*.xml
             sentinel-fixtures/warzone-schema7-pre-carts.yml
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   publish-latest:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
