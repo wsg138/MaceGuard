@@ -1,0 +1,37 @@
+name: SEN-M03 Delete Hosted Acceptance Artifact
+
+on:
+  push:
+    branches:
+      - ops/sen-m03-delete-artifact-10703103774
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  delete-exact-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify and delete exact hosted artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ARTIFACT_ID: "10703103774"
+          EXPECTED_ARTIFACT_NAME: "MaceGuard"
+          EXPECTED_RUN_ID: "35748916349"
+          EXPECTED_HEAD_SHA: "112df43dfe9974191bd8e11e4e2de0ead2cd69e7"
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/actions/artifacts/${EXPECTED_ARTIFACT_ID}"
+          observed="$(gh api "$endpoint" --jq '[.id,.name,.expired,.workflow_run.id,.workflow_run.head_sha] | @tsv')"
+          expected="${EXPECTED_ARTIFACT_ID}"$'\t'"${EXPECTED_ARTIFACT_NAME}"$'\t'"false"$'\t'"${EXPECTED_RUN_ID}"$'\t'"${EXPECTED_HEAD_SHA}"
+          [[ "$observed" == "$expected" ]]
+
+          gh api --method DELETE "$endpoint"
+
+          remaining="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EXPECTED_RUN_ID}/artifacts" \
+            --jq "[.artifacts[] | select(.id == (${EXPECTED_ARTIFACT_ID} | tonumber))] | length")"
+          [[ "$remaining" == "0" ]]
+          printf 'deleted_exact_artifact=%s\n' "$EXPECTED_ARTIFACT_ID"
