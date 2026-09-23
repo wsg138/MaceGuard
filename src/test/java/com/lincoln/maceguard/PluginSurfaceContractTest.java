@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -90,7 +91,7 @@ class PluginSurfaceContractTest {
         expected.addAll(DEFAULT_TRUE);
         expected.addAll(DEFAULT_FALSE);
         expected.addAll(DEFAULT_OP);
-        assertEquals(expected, permissions.getKeys(false));
+        assertEquals(expected, declaredPermissions(permissions));
 
         DEFAULT_TRUE.forEach(permission ->
                 assertEquals(Boolean.TRUE, permissions.get(permission + ".default"), permission));
@@ -104,17 +105,29 @@ class PluginSurfaceContractTest {
     void everyPermissionChildReferencesADeclaredPermissionAndGrantsItExplicitly() {
         ConfigurationSection permissions = descriptor().getConfigurationSection("permissions");
         assertNotNull(permissions);
+        Set<String> declared = declaredPermissions(permissions);
 
-        for (String permission : permissions.getKeys(false)) {
+        for (String permission : declared) {
             ConfigurationSection children = permissions.getConfigurationSection(permission + ".children");
             if (children == null) {
                 continue;
             }
-            for (String child : children.getKeys(false)) {
-                assertTrue(permissions.contains(child), permission + " references undeclared child " + child);
-                assertEquals(Boolean.TRUE, children.get(child), permission + " must grant child " + child);
+            for (String child : children.getKeys(true)) {
+                Object value = children.get(child);
+                if (!(value instanceof Boolean)) {
+                    continue;
+                }
+                assertTrue(declared.contains(child), permission + " references undeclared child " + child);
+                assertEquals(Boolean.TRUE, value, permission + " must grant child " + child);
             }
         }
+    }
+
+    private static Set<String> declaredPermissions(ConfigurationSection permissions) {
+        return permissions.getKeys(true).stream()
+                .filter(key -> key.endsWith(".default"))
+                .map(key -> key.substring(0, key.length() - ".default".length()))
+                .collect(Collectors.toSet());
     }
 
     private static YamlConfiguration descriptor() {
