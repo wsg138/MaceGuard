@@ -10,6 +10,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PluginSurfaceContractTest {
@@ -75,9 +76,9 @@ class PluginSurfaceContractTest {
         assertEquals("warzonerotator.command.debug", commands.getString("maceguardpearltrace.permission"));
         assertEquals(Set.of("warzonerotator", "wzr"), Set.copyOf(commands.getStringList("warzone.aliases")));
 
-        assertEquals(null, commands.get("maceguard.permission"));
-        assertEquals(null, commands.get("warzone.permission"));
-        assertEquals(null, commands.get("stasis.permission"));
+        assertNull(commands.get("maceguard.permission"));
+        assertNull(commands.get("warzone.permission"));
+        assertNull(commands.get("stasis.permission"));
     }
 
     @Test
