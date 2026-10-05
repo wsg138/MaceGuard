@@ -129,7 +129,8 @@ public final class WarzoneRuntime {
         this.combatLogX = CombatLogXGatewayFactory.discover(plugin);
         this.combatScopes = new CombatScopeService(combatLogX, queries,
                 config.combat().warzoneTag());
-        this.combatRetagListener = new WarzoneRetagListener(plugin, combatScopes);
+        this.combatRetagListener = new WarzoneRetagListener(plugin, combatScopes,
+                player -> appliesAt(player.getLocation()), this::windChargeEnabled);
         this.combatVaultCommands = new CombatVaultCommandListener(combatLogX, messages,
                 plugin.getServer(), plugin.getLogger()::warning);
         this.combatBar = new WarzoneCombatBar(combatScopes, config.combat().warzoneTag());
@@ -158,24 +159,14 @@ public final class WarzoneRuntime {
         if (activatePendingRecovery) activatePendingCobwebRecovery();
         combatIntegration.setBarActive(pendingCobwebRecoveryActivated);
         plugin.getServer().getPluginManager().registerEvents(guis, plugin);
-        clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
-            rotations.tick();
-            cooldowns.discardExpired();
-            messages.cleanup();
-            restrictionListener.cleanup();
-            combatIntegration.cleanup();
-            if (pendingCobwebRecoveryActivated)
-                combatBar.reconcile(plugin.getServer().getOnlinePlayers());
-            guis.cleanup();
-            if (pendingCobwebRecoveryActivated && pendingWarzoneCobwebClear
-                    && region.fullyResolved()) clearTrackedCobwebs();
-        }, 20L, 20L);
+        clockTask = plugin.getServer().getScheduler().runTaskTimer(plugin, this::tickRuntime, 20L, 20L);
         // Ordinary CombatLogX combat must protect vaults even if Warzone gameplay is disabled.
         plugin.getServer().getPluginManager().registerEvents(combatVaultCommands, plugin);
+        // Global wind-charge retagging remains available when Warzone gameplay is disabled.
+        plugin.getServer().getPluginManager().registerEvents(combatRetagListener, plugin);
         if (!config.enabled()) return;
         plugin.getServer().getPluginManager().registerEvents(restrictionListener, plugin);
         plugin.getServer().getPluginManager().registerEvents(combatPositionListener, plugin);
-        plugin.getServer().getPluginManager().registerEvents(combatRetagListener, plugin);
         plugin.getServer().getPluginManager().registerEvents(combatBar, plugin);
         plugin.getServer().getPluginManager().registerEvents(stasisPearlListener, plugin);
         combatLogX.register(combatIntegration);
@@ -189,6 +180,19 @@ public final class WarzoneRuntime {
             if (pendingCobwebRecoveryActivated && resolved && pendingWarzoneCobwebClear)
                 clearTrackedCobwebs();
         }, 20L, 100L);
+    }
+
+    private void tickRuntime() {
+        rotations.tick();
+        cooldowns.discardExpired();
+        messages.cleanup();
+        restrictionListener.cleanup();
+        combatIntegration.cleanup();
+        if (pendingCobwebRecoveryActivated)
+            combatBar.reconcile(plugin.getServer().getOnlinePlayers());
+        guis.cleanup();
+        if (pendingCobwebRecoveryActivated && pendingWarzoneCobwebClear
+                && region.fullyResolved()) clearTrackedCobwebs();
     }
 
     void activatePendingCobwebRecovery() {
@@ -208,6 +212,7 @@ public final class WarzoneRuntime {
         HandlerList.unregisterAll(restrictionListener);
         HandlerList.unregisterAll(combatPositionListener);
         HandlerList.unregisterAll(combatRetagListener);
+        combatRetagListener.close();
         HandlerList.unregisterAll(combatVaultCommands);
         HandlerList.unregisterAll(combatBar);
         HandlerList.unregisterAll(stasisPearlListener);
@@ -397,6 +402,18 @@ public final class WarzoneRuntime {
     public RotationManager rotations() { return rotations; }
     public CooldownService cooldowns() { return cooldowns; }
     public CombatScopeService combatScopes() { return combatScopes; }
+
+    public void retagAcceptedLunge(Player player) {
+        combatRetagListener.onAcceptedLunge(player, appliesAt(player.getLocation()));
+    }
+
+    private boolean windChargeEnabled(Player player) {
+        RestrictionDecision decision = restrictions.material(player.getUniqueId(), Material.WIND_CHARGE,
+                player.hasPermission("warzonerotator.bypass"), appliesAt(player.getLocation()), false);
+        // Launch finalization can already have started its item cooldown. Only DISABLED
+        // suppresses retag here; cancellation guards the rejected-use/cooldown path.
+        return decision.result() != RestrictionDecision.Result.DISABLED;
+    }
     public WarzoneGuiManager guis() { return guis; }
     public boolean schedulerActive() { return clockTask != null && !clockTask.isCancelled(); }
 

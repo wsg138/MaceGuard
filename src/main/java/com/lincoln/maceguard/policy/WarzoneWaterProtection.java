@@ -13,10 +13,17 @@ public final class WarzoneWaterProtection {
     }
 
     static boolean waterTransforms(Material original, Material formed) {
-        return ((original == Material.LAVA || original == Material.WATER)
+        return solidifiesFluid(original, formed) || hardensConcrete(original, formed);
+    }
+
+    private static boolean solidifiesFluid(Material original, Material formed) {
+        return (original == Material.LAVA || original == Material.WATER)
                 && (formed == Material.OBSIDIAN || formed == Material.COBBLESTONE
-                || formed == Material.STONE))
-                || original != null && formed != null
+                || formed == Material.STONE);
+    }
+
+    private static boolean hardensConcrete(Material original, Material formed) {
+        return original != null && formed != null
                 && original.name().endsWith("_CONCRETE_POWDER")
                 && formed.name().equals(original.name().replace("_POWDER", ""));
     }

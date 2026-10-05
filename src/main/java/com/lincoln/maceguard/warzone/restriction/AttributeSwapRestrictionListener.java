@@ -139,6 +139,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
             return;
         }
         scheduleLungeCooldown(runtime, player, lungeDecision);
+        runtime.retagAcceptedLunge(player);
     }
 
     private void handleDeniedLunge(WarzoneRuntime runtime, Player player, ItemStack held,

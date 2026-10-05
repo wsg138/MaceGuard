@@ -15,6 +15,9 @@ import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.util.List;
 import java.util.Map;
@@ -29,16 +32,15 @@ import static org.mockito.Mockito.when;
 class BlockPolicyWorldGuardGrantTest {
     private static final String WARZONE_SCOPE = "warzone";
 
-    @Test void flowingWaterCannotDestroyAnyNonCobwebDecoration() {
-        for (Material material : List.of(Material.SHORT_GRASS, Material.DANDELION,
-                Material.TORCH, Material.REDSTONE_WIRE, Material.RAIL, Material.WHEAT,
-                Material.SNOW, Material.VINE, Material.FIRE, Material.LAVA)) {
+    @ParameterizedTest
+    @EnumSource(value = Material.class, names = {"SHORT_GRASS", "DANDELION", "TORCH",
+            "REDSTONE_WIRE", "RAIL", "WHEAT", "SNOW", "VINE", "FIRE", "LAVA"})
+    void flowingWaterCannotDestroyAnyNonCobwebDecoration(Material material) {
             var flow = new CobwebFlow(true, true, material);
             flow.listener.onWorldGuardPolicyPlace(flow.delegate);
             verify(flow.delegate, never()).setAllowed(true);
             flow.listener.onFlow(flow.event);
             verify(flow.event).setCancelled(true);
-        }
     }
 
     @Test void disabledCobwebsStillProtectMapBlocksFromWater() {
@@ -57,20 +59,18 @@ class BlockPolicyWorldGuardGrantTest {
         verify(flow.event).setCancelled(true);
     }
 
-    @Test void waterContactCannotTransformLavaOrConcreteInWarzone() {
-        for (Material[] change : List.of(new Material[]{Material.LAVA, Material.OBSIDIAN},
-                new Material[]{Material.LAVA, Material.COBBLESTONE},
-                new Material[]{Material.WATER, Material.STONE},
-                new Material[]{Material.WHITE_CONCRETE_POWDER, Material.WHITE_CONCRETE})) {
-            var flow = new CobwebFlow(true, true, change[0]);
+    @ParameterizedTest
+    @CsvSource({"LAVA,OBSIDIAN", "LAVA,COBBLESTONE", "WATER,STONE",
+            "WHITE_CONCRETE_POWDER,WHITE_CONCRETE"})
+    void waterContactCannotTransformLavaOrConcreteInWarzone(Material original, Material formed) {
+            var flow = new CobwebFlow(true, true, original);
             var state = mock(org.bukkit.block.BlockState.class);
-            when(state.getType()).thenReturn(change[1]);
+            when(state.getType()).thenReturn(formed);
             var form = mock(org.bukkit.event.block.BlockFormEvent.class);
             when(form.getBlock()).thenReturn(flow.target);
             when(form.getNewState()).thenReturn(state);
             flow.listener.onWaterBlockForm(form);
             verify(form).setCancelled(true);
-        }
     }
 
     @Test void unrelatedFormationAndOutsideWarzoneRemainUnchanged() {
@@ -105,15 +105,14 @@ class BlockPolicyWorldGuardGrantTest {
         verify(bucket).setCancelled(true);
     }
 
-    @Test void waterStillFlowsIntoEmptySpaceWaterAndCobwebs() {
-        for (Material material : List.of(Material.AIR, Material.CAVE_AIR,
-                Material.VOID_AIR, Material.WATER, Material.COBWEB)) {
+    @ParameterizedTest
+    @EnumSource(value = Material.class, names = {"AIR", "CAVE_AIR", "VOID_AIR", "WATER", "COBWEB"})
+    void waterStillFlowsIntoEmptySpaceWaterAndCobwebs(Material material) {
             var flow = new CobwebFlow(true, true, material);
             flow.listener.onWorldGuardPolicyPlace(flow.delegate);
             verify(flow.delegate).setAllowed(true);
             flow.listener.onFlow(flow.event);
             verify(flow.event, never()).setCancelled(true);
-        }
     }
 
     @Test void cobwebWaterWithoutNamedPolicyGainsFlowGrant() {

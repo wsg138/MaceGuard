@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, review/fork-45-warzone-combat-canonical]
 permissions:
   contents: read
 jobs:

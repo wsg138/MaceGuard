@@ -15,12 +15,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CombatScopeServiceTest {
+    private static final String SPAWN_REGION = "spawn";
     @Test void blockedRegionEntryAppliesOnlyToLatchedPlayersAndHonorsBypass() {
-        when(worldGuard.enteringRegion(outside, inside, List.of("spawn", "market")))
-                .thenReturn("spawn");
+        when(worldGuard.enteringRegion(outside, inside, List.of(SPAWN_REGION, "market")))
+                .thenReturn(SPAWN_REGION);
         assertNull(scopes.blockedRegionOnEntry(player, outside, inside));
         assertTrue(scopes.acquireIfEligible(player, inside));
-        assertEquals("spawn", scopes.blockedRegionOnEntry(player, outside, inside));
+        assertEquals(SPAWN_REGION, scopes.blockedRegionOnEntry(player, outside, inside));
         when(player.hasPermission("warzonerotator.bypass")).thenReturn(true);
         assertNull(scopes.blockedRegionOnEntry(player, outside, inside));
     }
@@ -30,7 +31,7 @@ class CombatScopeServiceTest {
         assertNull(scopes.blockedRegionOnEntry(player, inside, inside));
         when(combat.inCombat(player)).thenReturn(false);
         assertNull(scopes.blockedRegionOnEntry(player, outside, inside));
-        verify(worldGuard, never()).enteringRegion(outside, inside, List.of("spawn", "market"));
+        verify(worldGuard, never()).enteringRegion(outside, inside, List.of(SPAWN_REGION, "market"));
     }
     private CombatLogXGateway combat;
     private WorldGuardQueryService worldGuard;

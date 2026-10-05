@@ -2,6 +2,33 @@
 
 ## Local evidence
 
+### Codacy findings cleanup, 2026-10-05
+
+- Spec/prove: captured 29 confirmed and 12 potential findings from #46 plus the #47 fixture-length finding. These are static-analysis source findings; no historical gameplay red/green result is claimed. See `review-findings.md` for each disposition.
+- Engine/architecture: split eligibility/rendering/validation/setup methods, preserve adapter signatures and suppression rollback, name repeated literals, use concurrent maps for the three flagged caches, and parameterize water test cases. Bukkit operations remain on the server thread. Strict config scalar readers retain the same error paths and defaults.
+- Refine: final Java 21 canonical Maven-wrapper `clean verify` passed **634 tests, zero failures/errors/skips**. Local Lizard 1.24.0 checks of reported functions/helpers meet complexity/length/parameter limits; `git diff --check` passed. No lint settings or thresholds were weakened. Project-local EARS/state tooling remains absent.
+- Infrastructure: Build/Codacy pull-request branch filters now include #46's canonical continuation branch so #47 can receive hosted checks. Behavioral proof does not apply to this trigger-only change; validation consists of the explicit branch filter and actual hosted dispatch/approval state.
+- Delivery remains via #47; direct push permission on #46 is unavailable. Hosted final-head analysis, canonical integration and real player acceptance remain separate. Production was not changed.
+- Hosted refine: initial cleanup head `0bda431` dispatched both workflows, but GitHub requires maintainer approval for this fork. Codacy's separate service completed and identified two remaining findings; nested duplicate constants were removed, and the local ordered/null-capable parser map uses Java 21's sized factory. New parsing regressions verify order, nulls, independent copy and invalid keys. Canonical clean verification passes 636 tests, zero failures/errors/skips.
+
+### Wind-charge combat retag, 2026-10-05
+
+- Spec: MG-WZ-13 follows the user's correction: disabled wind charges must never retag Warzone Combat. Only successful enabled launches inside refresh existing Warzone tags; successful outside launches refresh existing ordinary/carried CombatLogX tags. No new combat tags or latches are created by this service.
+- Prove: a new outside-launch regression failed behaviorally against the previous handler (12 tests, 1 failure, no errors): CombatLogX retag was never called. A subsequent missing-import error in the expanded fixtures was corrected before final verification.
+- Engine/architecture: reuse the existing deferred CombatLogX refresh and its lifecycle/bypass/expiry fences. Capture effective scope at launch, verify inside enablement against the active restriction, and ignore cancelled events and non-player shooters. Register the listener even when Warzone gameplay is disabled for global outside behavior. No new CombatLogX API signatures or operator settings.
+- Refine: Java 21 canonical Maven-wrapper `clean verify` passed 618 tests, zero failures/errors/skips; `git diff --check` passed. Existing item-denial tests still pass. Manual SPEAR records are maintained because project-local EARS/state helpers are absent.
+- Delivery continues on fork PR #47 targeting canonical #46's branch. Production was not changed. Real player acceptance still needs enabled/disabled/cooldown wind charges inside and ordinary/carried/absent combat outside, including bar duration, runtime reload and dependency disable.
+
+### Lunge combat retag, 2026-10-05
+
+- Spec: MG-WZ-12 refreshes existing combat on permitted eligible Lunge use, with Warzone-only tagging inside and ordinary CombatLogX tagging outside. Source inspection showed the accepted Jab path previously started only its item cooldown and never requested a combat refresh.
+- Prove: newly added service regressions initially failed test compilation because the accepted-Lunge entry point and runtime-close fence did not exist. This is missing-interface evidence, not a historical behavioral red run. After implementation, the initial 15 focused tests passed; the final suite adds bypass, duplicate timer, and unready-Jab cases.
+- Engine/architecture: reuse existing 1.21.11 Jab recognition and validated CombatLogX retag adapter. No new runtime API signatures or configuration keys. Deferred work checks connection, tag, bypass and runtime lifetime. No Warzone latch is created by the retag service.
+- Refine: canonical Java 21 Maven-wrapper `clean verify` passes 613 tests with zero failures/errors/skips. No project-local EARS/state helpers exist; manual requirements/task/evidence records are maintained.
+- Current authoritative main `38e4255cf1940c2397da5a4e2cecc6c56498c8b4` was fetched, inspected, and safely merged into the ongoing candidate. GitHub reports #45 closed and #46 as its canonical continuation at the same former head; delivery follows #46. Existing cumulative Codacy findings remain release blockers.
+- Production was not changed. Acceptance still requires real Lunge uses inside with enabled/disabled/cooldown modifiers and outside with ordinary/carried/absent combat, verifying CombatLogX duration, bar continuity, bypass and reload behavior on the deployed server.
+- Delivery: direct canonical-branch push was denied to the signed-in FainNeito account (403). Follow-up PR #47 targets #46's canonical source branch and is mergeable; it preserves #46 as the combined candidate. Exact gameplay head `18842e3c8d8383e22be9154fcee63848cafa3e26` had no Actions runs, commit statuses or inline review threads at inspection. The Build workflow only triggers for PRs targeting main; CodeRabbit skipped review for a non-default base. Local tests do not replace CI/review of the combined #46 head after integration.
+
 ### Water/flint report follow-up, 2026-10-04
 
 - Production inspection remained read-only. Saved Warzone region flags include `water-flow: allow`, `build: deny`, `block-place: deny`, `interact: deny`, and `lighter: deny`; global `block-lighter` is false. The enabled COBWEBS/CARTS definitions and effective-world exclusions are present. Saved settings do not prove an individual player's action path.

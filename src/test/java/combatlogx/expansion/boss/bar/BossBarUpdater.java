@@ -4,8 +4,8 @@ import org.bukkit.entity.Player;
 
 /** Test double with the public CombatLogX expansion updater name and method. */
 public final class BossBarUpdater {
-    private Player removedPlayer;
+    private Player lastRemovedPlayer;
 
-    public void remove(Player player) { removedPlayer = player; }
-    public Player removedPlayer() { return removedPlayer; }
+    public void remove(Player player) { lastRemovedPlayer = player; }
+    public Player removedPlayer() { return lastRemovedPlayer; }
 }

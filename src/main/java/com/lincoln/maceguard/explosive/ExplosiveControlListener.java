@@ -156,15 +156,24 @@ public final class ExplosiveControlListener implements Listener {
             return;
         }
         if (event.getOriginalEvent() instanceof BlockPlaceEvent original) {
-            if (original.isCancelled()) return;
-            Location location = original.getBlockPlaced().getLocation();
-            if (isCartRail(original.getBlockPlaced().getType()) && cartModifierActive(location)
-                    && !worldGuard.blockPlaceAllowed(location, original.getPlayer())) {
-                event.setAllowed(true);
-            }
+            grantCartRailPlacement(event, original);
             return;
         }
         if (event.getOriginalEvent() instanceof BlockIgniteEvent original) {
+            grantCartIgnition(event, original);
+        }
+    }
+
+    private void grantCartRailPlacement(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event,
+                                        BlockPlaceEvent original) {
+        if (original.isCancelled()) return;
+        Location location = original.getBlockPlaced().getLocation();
+        if (isCartRail(original.getBlockPlaced().getType()) && cartModifierActive(location)
+                && !worldGuard.blockPlaceAllowed(location, original.getPlayer())) event.setAllowed(true);
+    }
+
+    private void grantCartIgnition(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event,
+                                   BlockIgniteEvent original) {
             if (original.isCancelled()
                     || original.getCause() != BlockIgniteEvent.IgniteCause.FLINT_AND_STEEL
                     || original.getPlayer() == null) return;
@@ -173,7 +182,6 @@ public final class ExplosiveControlListener implements Listener {
                     && warzoneAppliesTo(original.getPlayer(), location)) {
                 event.setAllowed(true);
             }
-        }
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -277,15 +285,21 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldGuardCartDamageEntity(
             com.sk89q.worldguard.bukkit.event.entity.DamageEntityEvent event) {
-        if (event.getEntity().getType() != EntityType.TNT_MINECART
-                || !isCurrentCartArtifact(event.getEntity())
-                || !(event.getOriginalEvent() instanceof VehicleDamageEvent original)
-                || original.isCancelled()
-                || !cartModifierActive(event.getTarget())) return;
+        if (!managedCartDamage(event)) return;
+        VehicleDamageEvent original = (VehicleDamageEvent) event.getOriginalEvent();
         Player player = original.getAttacker() instanceof Player attacker
                 ? attacker : flameArrowShooter(original.getAttacker());
         if (player == null || !warzoneAppliesTo(player, event.getTarget())) return;
         if (!worldGuard.vehicleDestroyAllowed(event.getTarget(), player)) event.setAllowed(true);
+    }
+
+    private boolean managedCartDamage(com.sk89q.worldguard.bukkit.event.entity.DamageEntityEvent event) {
+        if (event.getEntity().getType() != EntityType.TNT_MINECART
+                || !isCurrentCartArtifact(event.getEntity())
+                || !(event.getOriginalEvent() instanceof VehicleDamageEvent original)
+                || original.isCancelled()
+                || !cartModifierActive(event.getTarget())) return false;
+        return true;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -323,11 +337,7 @@ public final class ExplosiveControlListener implements Listener {
     }
 
     private boolean cartFlintInteraction(PlayerInteractEvent original) {
-        if (original.useItemInHand() == org.bukkit.event.Event.Result.DENY
-                || original.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
-                || original.getItem() == null
-                || original.getItem().getType() != Material.FLINT_AND_STEEL
-                || original.getClickedBlock() == null) return false;
+        if (!isFlintBlockUse(original)) return false;
         Block clicked = original.getClickedBlock();
         Material material = clicked.getType();
         // Holding a lighter must not grant chest/door access or ordinary TNT priming.
@@ -336,6 +346,15 @@ public final class ExplosiveControlListener implements Listener {
         Location fire = clicked.getRelative(original.getBlockFace()).getLocation();
         return cartModifierActive(clicked.getLocation()) && cartModifierActive(fire)
                 && warzoneAppliesTo(original.getPlayer(), fire);
+    }
+
+    private boolean isFlintBlockUse(PlayerInteractEvent original) {
+        if (original.useItemInHand() == org.bukkit.event.Event.Result.DENY
+                || original.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                || original.getItem() == null
+                || original.getItem().getType() != Material.FLINT_AND_STEEL
+                || original.getClickedBlock() == null) return false;
+        return true;
     }
 
     // Paper's material classification needs its live server registry; isolate it for routing tests.

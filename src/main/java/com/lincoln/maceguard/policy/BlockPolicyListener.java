@@ -75,17 +75,26 @@ public final class BlockPolicyListener implements Listener {
     public void onWorldGuardPolicyPlace(
             com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
         if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original) {
-            if (original.isCancelled()) return;
-            Block target = original.getBlock();
-            Material fluid = fluid(original.getBucket());
-            if (fluid == Material.WATER && protectedWaterDestination(target)) return;
-            BlockPolicyResolver.Resolution resolution = resolve(target.getLocation());
-            if (resolution.referenced() && bucketEmptyAllowed(resolution, fluid))
-                event.setAllowed(true);
+            grantBucketPlacement(event, original);
             return;
         }
         if (!(event.getOriginalEvent() instanceof BlockFromToEvent original)
                 || original.isCancelled()) return;
+        grantFlowPlacement(event, original);
+    }
+
+    private void grantBucketPlacement(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event,
+                                      PlayerBucketEmptyEvent original) {
+        if (original.isCancelled()) return;
+        Block target = original.getBlock();
+        Material fluid = fluid(original.getBucket());
+        if (fluid == Material.WATER && protectedWaterDestination(target)) return;
+        BlockPolicyResolver.Resolution resolution = resolve(target.getLocation());
+        if (resolution.referenced() && bucketEmptyAllowed(resolution, fluid)) event.setAllowed(true);
+    }
+
+    private void grantFlowPlacement(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event,
+                                    BlockFromToEvent original) {
         Block sourceBlock = original.getBlock();
         Block targetBlock = original.getToBlock();
         if (sourceBlock.getType() == Material.WATER && protectedWaterDestination(targetBlock))
@@ -194,9 +203,7 @@ public final class BlockPolicyListener implements Listener {
             return;
         }
         // The source's water-flow flag does not protect destinations such as the nested spawn.
-        if (warzone != null && event.getBlock().getType() == Material.WATER
-                && warzone.appliesAt(event.getBlock().getLocation())
-                && !warzone.appliesAt(event.getToBlock().getLocation())) {
+        if (waterLeavesWarzone(event)) {
             event.setCancelled(true);
             return;
         }
@@ -207,6 +214,12 @@ public final class BlockPolicyListener implements Listener {
         if (flowDenied(source, target, createsInfiniteWater)
                 && !warzoneWaterMayCrossPolicyBoundary(event.getBlock(), event.getToBlock(),
                 source, target, createsInfiniteWater)) event.setCancelled(true);
+    }
+
+    private boolean waterLeavesWarzone(BlockFromToEvent event) {
+        return warzone != null && event.getBlock().getType() == Material.WATER
+                && warzone.appliesAt(event.getBlock().getLocation())
+                && !warzone.appliesAt(event.getToBlock().getLocation());
     }
 
     private boolean protectedWaterDestination(Block target) {
