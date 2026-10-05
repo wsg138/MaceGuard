@@ -116,14 +116,13 @@ class CobwebListenerPlacementTest {
     }
 
     @Test
-    void persistedWarzoneCobwebAllowsAdjacentWaterEscapeWithoutLeavingWater() {
+    void persistedWarzoneCobwebAllowsAdjacentWaterPlacementAndNaturalFlow() {
         Harness harness = harness(true, true);
         BlockPlaceEvent placement = event(GameMode.SURVIVAL, 10, Material.AIR);
         Block cobweb = placement.getBlockPlaced();
         Player player = placement.getPlayer();
         stubTrackedWarzoneCobweb(harness, cobweb);
         stubAirAbove(cobweb);
-        when(harness.temporary.clearMatching(any())).thenReturn(1);
         Location playerLocation = mock(Location.class);
         when(playerLocation.getBlock()).thenReturn(cobweb);
         when(player.getLocation()).thenReturn(playerLocation);
@@ -134,6 +133,7 @@ class CobwebListenerPlacementTest {
         int cobwebZ = cobweb.getZ();
         Block clicked = mock(Block.class);
         Block target = mock(Block.class);
+        when(target.getType()).thenReturn(Material.AIR);
         Location targetLocation = mock(Location.class);
         when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
         when(target.getLocation()).thenReturn(targetLocation);
@@ -149,15 +149,14 @@ class CobwebListenerPlacementTest {
         when(escapeDelegate.getOriginalEvent()).thenReturn(bucket);
 
         harness.listener.onWorldGuardCobwebEscapePlace(escapeDelegate);
-        harness.listener.onWaterEscape(bucket);
 
         verify(escapeDelegate).setAllowed(true);
-        verify(harness.temporary).clearMatching(any());
-        verify(bucket).setCancelled(true);
+        verify(harness.temporary, never()).clearMatching(any());
+        verify(bucket, never()).setCancelled(true);
     }
 
     @Test
-    void trappedPlayerCannotUseEscapeGrantForDistantWaterPlacement() {
+    void trappedPlayerMayPlaceWaterElsewhereInsideActiveWarzone() {
         Harness harness = harness(true, true);
         BlockPlaceEvent placement = event(GameMode.SURVIVAL, 12, Material.AIR);
         Block cobweb = placement.getBlockPlaced();
@@ -174,6 +173,7 @@ class CobwebListenerPlacementTest {
         int cobwebZ = cobweb.getZ();
         Block clicked = mock(Block.class);
         Block target = mock(Block.class);
+        when(target.getType()).thenReturn(Material.AIR);
         Location targetLocation = mock(Location.class);
         when(clicked.getRelative(BlockFace.UP)).thenReturn(target);
         when(target.getLocation()).thenReturn(targetLocation);
@@ -189,9 +189,8 @@ class CobwebListenerPlacementTest {
         when(delegate.getOriginalEvent()).thenReturn(bucket);
 
         harness.listener.onWorldGuardCobwebEscapePlace(delegate);
-        harness.listener.onWaterEscape(bucket);
 
-        verify(delegate, never()).setAllowed(true);
+        verify(delegate).setAllowed(true);
         verify(harness.temporary, never()).clearMatching(any());
         verify(bucket, never()).setCancelled(true);
     }
@@ -291,6 +290,14 @@ class CobwebListenerPlacementTest {
                 BlockPolicyResolver.Resolution.none(
                         BlockPolicyResolver.Status.NO_EFFECTIVE_VALUE));
         when(warzone.appliesAt(any(Location.class))).thenReturn(warzoneApplies);
+        WarzoneRuntime runtime = mock(WarzoneRuntime.class);
+        com.lincoln.maceguard.warzone.rotation.RotationManager rotations =
+                mock(com.lincoln.maceguard.warzone.rotation.RotationManager.class);
+        when(warzone.runtime()).thenReturn(runtime);
+        when(runtime.rotations()).thenReturn(rotations);
+        when(rotations.active()).thenReturn(new com.lincoln.maceguard.warzone.config.WarzoneConfig.ActiveSet(
+                java.util.List.of("cobwebs"), "Cobwebs", "", Set.of(
+                com.lincoln.maceguard.warzone.config.WarzoneConfig.Effect.COBWEBS), Map.of()));
         when(warzone.cobwebDecision(any(Player.class), any(Location.class)))
                 .thenReturn(WarzoneRuntime.CobwebDecision.permit());
         when(warzone.cobwebLifetime(any(Duration.class), any(Location.class)))
@@ -325,6 +332,8 @@ class CobwebListenerPlacementTest {
         when(bucket.getBucket()).thenReturn(Material.WATER_BUCKET);
         when(bucket.getPlayer()).thenReturn(player);
         when(bucket.getBlockClicked()).thenReturn(clicked);
+        Block affected = clicked.getRelative(face);
+        when(bucket.getBlock()).thenReturn(affected);
         when(bucket.getBlockFace()).thenReturn(face);
         when(bucket.isCancelled()).thenReturn(false);
         return bucket;

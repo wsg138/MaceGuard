@@ -57,6 +57,19 @@ messages:
 combat:
   stasis:
     minimum-age: 60s
+  warzone-tag:
+    enabled: true
+    carry-restrictions-outside: true
+    prevent-riptide: true
+    prevent-teleportation: true
+    blocked-region-ids:
+      - spawn
+      - market
+    boss-bar:
+      enabled: true
+      title: "Warzone Combat"
+      text-color: "#EE4B00"
+      fill-color: RED
 
 cobwebs:
   clear-after: 60s

@@ -40,6 +40,75 @@ class ItemRestrictionListenerFeedbackTest {
     private static final String PEARL_TARGET = "ENDER_PEARL";
     private static final String MACE_TARGET = "MACE";
 
+    @Test void combatRiptideIsDeniedBeforeChargingInEitherInteraction() {
+        Harness h = harness(Map.of());
+        ItemRestrictionListener listener = spy(h.listener);
+        doReturn(true).when(listener).isRiptideTrident(any());
+        when(h.combatScopes.riptideBlocked(h.player, true)).thenReturn(true);
+        for (Action action : List.of(Action.RIGHT_CLICK_AIR, Action.RIGHT_CLICK_BLOCK)) {
+            PlayerInteractEvent event = riptideInteract(h.player, action);
+            // Vanilla air prediction may mark block use denied without denying the item.
+            when(event.isCancelled()).thenReturn(true);
+            listener.onRiptideCharge(event);
+            verify(event).setUseItemInHand(Event.Result.DENY);
+            verify(event, never()).setUseInteractedBlock(any());
+        }
+        verify(h.messages, times(2)).riptideUnavailable(h.player);
+    }
+
+    @Test void ordinaryCombatAndUnenchantedTridentsAreUnaffected() {
+        Harness h = harness(Map.of());
+        ItemRestrictionListener listener = spy(h.listener);
+        doReturn(true).when(listener).isRiptideTrident(any());
+        PlayerInteractEvent ordinary = riptideInteract(h.player, Action.RIGHT_CLICK_AIR);
+        listener.onRiptideCharge(ordinary);
+        verify(ordinary, never()).setUseItemInHand(any());
+        when(h.combatScopes.riptideBlocked(h.player, true)).thenReturn(true);
+        PlayerInteractEvent unenchanted = riptideInteract(h.player, Action.RIGHT_CLICK_BLOCK);
+        ItemStack plainTrident = unenchanted.getItem();
+        doReturn(false).when(listener).isRiptideTrident(plainTrident);
+        listener.onRiptideCharge(unenchanted);
+        verify(unenchanted, never()).setUseItemInHand(any());
+        verifyNoInteractions(h.messages);
+    }
+
+    @Test void bypassAndExistingItemDenialArePreserved() {
+        Harness h = harness(Map.of());
+        ItemRestrictionListener listener = spy(h.listener);
+        doReturn(true).when(listener).isRiptideTrident(any());
+        when(h.combatScopes.riptideBlocked(h.player, true)).thenReturn(true);
+        PlayerInteractEvent denied = riptideInteract(h.player, Action.RIGHT_CLICK_AIR);
+        when(denied.useItemInHand()).thenReturn(Event.Result.DENY);
+        listener.onRiptideCharge(denied);
+        verify(denied, never()).setUseItemInHand(any());
+        when(h.player.hasPermission("warzonerotator.bypass")).thenReturn(true);
+        PlayerInteractEvent bypass = riptideInteract(h.player, Action.RIGHT_CLICK_AIR);
+        listener.onRiptideCharge(bypass);
+        verify(bypass, never()).setUseItemInHand(any());
+        verifyNoInteractions(h.messages);
+    }
+
+    @Test void releaseFallbackStillCancelsRiptideAlreadyChargedBeforeTag() {
+        Harness h = harness(Map.of());
+        when(h.combatScopes.riptideBlocked(h.player, true)).thenReturn(true);
+        var event = mock(org.bukkit.event.player.PlayerRiptideEvent.class);
+        when(event.getPlayer()).thenReturn(h.player);
+        h.listener.onRiptide(event);
+        verify(event).setCancelled(true);
+        verify(h.messages).riptideUnavailable(h.player);
+    }
+
+    private PlayerInteractEvent riptideInteract(Player player, Action action) {
+        var event = mock(PlayerInteractEvent.class);
+        ItemStack item = mock(ItemStack.class);
+        when(item.getType()).thenReturn(Material.TRIDENT);
+        when(event.getPlayer()).thenReturn(player);
+        when(event.getItem()).thenReturn(item);
+        when(event.getAction()).thenReturn(action);
+        when(event.useItemInHand()).thenReturn(Event.Result.DEFAULT);
+        return event;
+    }
+
     @Test void successfulPearlLaunchStartsCooldownOverlayAndOneMessage() {
         Harness harness = harness(target(PEARL_TARGET), RestrictionMode.COOLDOWN);
         Launch launch = launch(harness.player, Material.ENDER_PEARL);
@@ -197,6 +266,8 @@ class ItemRestrictionListenerFeedbackTest {
     @Test void elytraAndActualBoostDenialsMessageWithoutFakeCooldown() {
         Harness harness = harness(Map.of());
         when(harness.combatScopes.combatBound(harness.player)).thenReturn(true);
+        when(harness.combatScopes.warzoneTagged(harness.player)).thenReturn(true);
+        when(harness.combatScopes.restrictionsApply(eq(harness.player), eq(true))).thenReturn(true);
         EntityToggleGlideEvent glide = mock(EntityToggleGlideEvent.class);
         when(glide.getEntity()).thenReturn(harness.player);
         when(glide.isGliding()).thenReturn(true);

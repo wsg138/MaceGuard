@@ -9,13 +9,13 @@ class CombatElytraPolicyTest {
     @Test void outsideCombatIsUnrestricted() {
         assertTrue(CombatElytraPolicy.canStart(false, false, false,
                 false, false, false, false));
-        assertFalse(CombatElytraPolicy.blockBoost(false, false, false));
+        assertFalse(CombatElytraPolicy.blockBoost(false, false, false, false));
     }
 
-    @Test void ordinaryCombatBlocksNewGlideAndBoost() {
-        assertFalse(CombatElytraPolicy.canStart(true, false, false,
+    @Test void ordinaryCombatOutsideWarzoneAllowsGlideAndBoost() {
+        assertTrue(CombatElytraPolicy.canStart(true, false, false,
                 false, false, false, false));
-        assertTrue(CombatElytraPolicy.blockBoost(true, false, false));
+        assertFalse(CombatElytraPolicy.blockBoost(true, false, false, false));
     }
 
     @Test void latchedPlayerNeedsLiveEffectAndOutsideCarryover() {
@@ -27,6 +27,7 @@ class CombatElytraPolicyTest {
                 true, false, true, true));
         assertFalse(CombatElytraPolicy.canStart(true, false, false,
                 true, true, false, true));
+        assertTrue(CombatElytraPolicy.blockBoost(true, false, false, true));
     }
 
     @Test void explicitBypassesDisableMaceGuardCombatEnforcement() {
@@ -34,7 +35,7 @@ class CombatElytraPolicyTest {
                 false, false, false, false));
         assertTrue(CombatElytraPolicy.canStart(true, false, true,
                 false, false, false, false));
-        assertFalse(CombatElytraPolicy.blockBoost(true, true, false));
-        assertFalse(CombatElytraPolicy.blockBoost(true, false, true));
+        assertFalse(CombatElytraPolicy.blockBoost(true, true, false, true));
+        assertFalse(CombatElytraPolicy.blockBoost(true, false, true, true));
     }
 }

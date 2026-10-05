@@ -1,0 +1,23 @@
+# Warzone combat and batch modifier requirements
+
+This SPEAR slice covers the cumulative Warzone changes and the PR authorized on 2026-10-04. `docs/WARZONE.md` remains the broader gameplay reference. This PR task authorizes production inspection only.
+
+## EARS requirements
+
+- **MG-WZ-01:** When an authorized player opens modifier management without an ID, the GUI shall let them select and deselect multiple enabled modifiers across pages before applying an override.
+- **MG-WZ-02:** While the draft is being edited, the live modifier set shall remain unchanged. Before applying, the GUI shall display additions and removals, validate conflicts and count limits, require the existing permission and kit-detachment checks, and require a duration choice.
+- **MG-WZ-03:** When CombatLogX tags a player inside an effective `warzonerotator-combat-zone: allow` region, MaceGuard shall latch Warzone combat until CombatLogX untag, death, quit, dependency loss, or runtime replacement. A CombatLogX or MaceGuard bypass shall not receive restrictions or a bar.
+- **MG-WZ-04:** While Warzone combat is latched, the optional boss bar shall use CombatLogX's remaining and maximum timer values, a red vanilla fill, and `#EE4B00` title text by default. It shall disappear when the latch ends. The red fill, title, text color, and visibility shall be configurable.
+- **MG-WZ-04A:** Before showing the Warzone combat bar, MaceGuard shall suppress that player's CombatLogX Boss Bar expansion display without permanently changing the player's preference. When Warzone combat ends, MaceGuard shall hide its bar before restoring CombatLogX's display. If suppression cannot be confirmed, MaceGuard shall not show its bar. Players shall never have both combat bars shown by the two plugins at once.
+- **MG-WZ-05:** During ordinary combat without a Warzone latch, MaceGuard shall allow Elytra starts and boosts, Riptide, and non-pearl teleports. When a Warzone latch exists, the configured Warzone movement and teleport restrictions shall apply inside the Warzone and, when carryover is enabled, after exit until CombatLogX untag. Ender Pearl stasis remains a separate decision.
+- **MG-WZ-06:** Existing schema-7 operator files without the new `combat.warzone-tag` section shall load with safe defaults. Invalid bar colors or unknown keys shall be rejected without replacing the active runtime.
+- **MG-WZ-07:** While a player has a Warzone combat latch, entering configured WorldGuard regions `spawn` or `market` shall be cancelled for walking and teleportation, including Ender Pearls and after leaving the Warzone. Players already inside a blocked region may move within or leave it. Bypassed and ordinary CombatLogX-tagged players shall not be blocked. Region IDs shall be configurable and checked by `/warzone validate`.
+- **MG-WZ-09:** A successful player hit and a launched Ender Pearl shall refresh an existing Warzone combat latch to CombatLogX's full configured duration. CombatLogX remains the timer authority. Cancelled damage, cancelled pearl launches, bypassed players, and players outside Warzone combat shall not receive a MaceGuard retag. If CombatLogX has already refreshed the tag, MaceGuard shall avoid a duplicate refresh.
+- **MG-WZ-08:** A valid NotBounties player kill during Warzone combat shall remain eligible for its normal bounty claim and reward. MaceGuard shall not cancel the kill or NotBounties claim event. The Warzone WorldGuard region shall allow NotBounties' `claim-bounties` flag; the existing NotBounties anti-abuse and world rules still apply.
+
+## Boundaries
+
+- **MG-WZ-10:** While COBWEBS is active, a water-bucket right-click shall pass the initial WorldGuard placement delegate as well as the bucket delegates, only for replaceable destinations inside the effective Warzone with no explicit policy veto. Lava, waterlogging/map modifications, excluded regions, and item-use denials remain protected.
+- **MG-WZ-11:** While CARTS is active, flint-and-steel item use shall honor Bukkit's separate item-use result. A predicted block-use denial alone shall not reject an otherwise permitted item action; an item-use denial shall never be reopened.
+
+Vanilla clients accept only preset boss-bar fill colors; `#EE4B00` is the title color. CombatLogX Cheat Prevention must be configured separately to stop globally blocking Elytra, Riptide, and teleports. A local build does not establish live Paper/Leaf, WorldGuard, CombatLogX, or client behavior.

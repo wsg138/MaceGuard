@@ -1,5 +1,6 @@
 package com.lincoln.maceguard.warzone.combat;
 
+import com.lincoln.maceguard.warzone.config.WarzoneConfig;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -15,20 +16,33 @@ import java.util.logging.Logger;
 public final class CombatScopeService {
     private final CombatLogXGateway combat;
     private final WorldGuardQueryService worldGuard;
+    private final WarzoneConfig.WarzoneTag tag;
     private final Consumer<String> warningSink;
     private final Map<UUID, Latch> latches = new HashMap<>();
     private boolean combatQueryFailureReported;
     private boolean stasisQueryFailureReported;
 
     public CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard) {
-        this(combat, worldGuard, message ->
+        this(combat, worldGuard, WarzoneConfig.WarzoneTag.defaults(), message ->
+                Logger.getLogger(CombatScopeService.class.getName()).warning(message));
+    }
+
+    public CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard,
+                              WarzoneConfig.WarzoneTag tag) {
+        this(combat, worldGuard, tag, message ->
                 Logger.getLogger(CombatScopeService.class.getName()).warning(message));
     }
 
     CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard,
                        Consumer<String> warningSink) {
+        this(combat, worldGuard, WarzoneConfig.WarzoneTag.defaults(), warningSink);
+    }
+
+    CombatScopeService(CombatLogXGateway combat, WorldGuardQueryService worldGuard,
+                       WarzoneConfig.WarzoneTag tag, Consumer<String> warningSink) {
         this.combat = combat;
         this.worldGuard = worldGuard;
+        this.tag = tag;
         this.warningSink = warningSink;
     }
 
@@ -37,7 +51,7 @@ public final class CombatScopeService {
     }
 
     public boolean acquireIfEligible(Player player, Location location) {
-        if (!combatBound(player) || !combatZoneAllowed(location, player)) return false;
+        if (!tag.enabled() || !combatBound(player) || !combatZoneAllowed(location, player)) return false;
         boolean stasisDenied = stasisDenied(location, player);
         latches.merge(player.getUniqueId(), new Latch(stasisDenied),
                 (previous, current) -> new Latch(previous.stasisDenied() || current.stasisDenied()));
@@ -53,7 +67,35 @@ public final class CombatScopeService {
     }
 
     public boolean carryoverEligible(Player player) {
-        return combatBound(player) && latches.containsKey(player.getUniqueId());
+        return tag.carryRestrictionsOutside() && warzoneTagged(player);
+    }
+
+    public boolean warzoneTagged(Player player) {
+        return tag.enabled() && combatBound(player) && latches.containsKey(player.getUniqueId());
+    }
+
+    public boolean restrictionsApply(Player player, boolean insideWarzone) {
+        return warzoneTagged(player) && (insideWarzone || tag.carryRestrictionsOutside());
+    }
+
+    public boolean riptideBlocked(Player player, boolean insideWarzone) {
+        return tag.preventRiptide() && restrictionsApply(player, insideWarzone);
+    }
+
+    public boolean teleportBlocked(Player player, boolean insideWarzone) {
+        return tag.preventTeleportation() && restrictionsApply(player, insideWarzone);
+    }
+
+    public String blockedRegionOnEntry(Player player, Location from, Location to) {
+        if (player.hasPermission("warzonerotator.bypass") || !warzoneTagged(player)
+                || tag.blockedRegionIds().isEmpty() || worldGuard == null)
+            return null;
+        try {
+            return worldGuard.enteringRegion(from, to, tag.blockedRegionIds());
+        } catch (IllegalArgumentException | IllegalStateException | LinkageError unavailable) {
+            reportCombatQueryFailure(unavailable);
+            return null;
+        }
     }
 
     public boolean carryoverEligible(UUID playerId) {
@@ -71,7 +113,9 @@ public final class CombatScopeService {
 
     public boolean stasisDenied(Player player) {
         Latch latch = latches.get(player.getUniqueId());
-        return carryoverEligible(player) && latch != null && latch.stasisDenied();
+        return latch != null && warzoneTagged(player)
+                && (tag.carryRestrictionsOutside() || insideCombatZone(player))
+                && latch.stasisDenied();
     }
 
     private boolean combatZoneAllowed(Location location, Player player) {

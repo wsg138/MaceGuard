@@ -51,7 +51,7 @@ class ManagedCombatLogXGatewayTest {
         first.emitTagged(player, location);
         replacement.emitTagged(player, location);
 
-        assertEquals(List.of("available", "tagged"), lifecycle.events);
+        assertEquals(List.of("unavailable", "available", "tagged"), lifecycle.events);
         assertTrue(first.closed);
         assertFalse(replacement.closed);
     }

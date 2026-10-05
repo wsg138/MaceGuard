@@ -68,7 +68,33 @@ public record WarzoneConfig(
 
     public record Messages(Duration blockedMessageCooldown, Audience warningAudience, Audience transitionAudience) { }
 
-    public record Combat(Stasis stasis) { }
+    public record Combat(Stasis stasis, WarzoneTag warzoneTag) {
+        public Combat(Stasis stasis) { this(stasis, WarzoneTag.defaults()); }
+    }
+
+    public record WarzoneTag(boolean enabled, boolean carryRestrictionsOutside,
+                             boolean bossBarEnabled, String bossBarTitle,
+                             String bossBarTextColor, String bossBarFillColor,
+                             boolean preventRiptide, boolean preventTeleportation,
+                             List<String> blockedRegionIds) {
+        public WarzoneTag {
+            blockedRegionIds = List.copyOf(blockedRegionIds);
+        }
+
+        public WarzoneTag(boolean enabled, boolean carryRestrictionsOutside,
+                          boolean bossBarEnabled, String bossBarTitle,
+                          String bossBarTextColor, String bossBarFillColor,
+                          boolean preventRiptide, boolean preventTeleportation) {
+            this(enabled, carryRestrictionsOutside, bossBarEnabled, bossBarTitle,
+                    bossBarTextColor, bossBarFillColor, preventRiptide,
+                    preventTeleportation, List.of("spawn", "market"));
+        }
+
+        public static WarzoneTag defaults() {
+            return new WarzoneTag(true, true, true, "Warzone Combat",
+                    "#EE4B00", "RED", true, true, List.of("spawn", "market"));
+        }
+    }
 
     public record Stasis(Duration minimumAge) { }
 

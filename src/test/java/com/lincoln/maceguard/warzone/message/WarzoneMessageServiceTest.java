@@ -141,6 +141,26 @@ class WarzoneMessageServiceTest {
         assertEquals(2, allMessages().size());
     }
 
+    @Test void riptideChargeAndReleaseWarningsShareOneThrottle() {
+        messages.riptideUnavailable(player);
+        messages.riptideUnavailable(player);
+        clock.advance(999L);
+        messages.riptideUnavailable(player);
+        assertEquals(1, allMessages().size());
+        clock.advance(1L);
+        messages.riptideUnavailable(player);
+        assertEquals(2, allMessages().size());
+    }
+
+    @Test void repeatedGuildVaultAttemptsShareOneThrottle() {
+        messages.guildVaultUnavailable(player);
+        messages.guildVaultUnavailable(player);
+        assertEquals(1, allMessages().size());
+        clock.advance(1_000L);
+        messages.guildVaultUnavailable(player);
+        assertEquals(2, allMessages().size());
+    }
+
     @Test void backwardClockRebasesThrottleInsteadOfSilencingThePlayer() {
         RestrictionDecision active = active(target(MACE_TARGET));
         messages.denial(player, active, Material.MACE);

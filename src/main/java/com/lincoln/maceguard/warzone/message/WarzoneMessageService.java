@@ -116,6 +116,16 @@ public final class WarzoneMessageService {
                 Duration.ZERO, Duration.ZERO));
     }
 
+    public void riptideUnavailable(Player player) {
+        if (!acquire(player, "COMBAT_RIPTIDE")) return;
+        send(player, "<red>Riptide is disabled while you are in Warzone combat.");
+    }
+
+    public void guildVaultUnavailable(Player player) {
+        if (!acquire(player, "COMBAT_GUILD_VAULT")) return;
+        send(player, "<red>You cannot open your guild vault while in combat.");
+    }
+
     public void blockPlaceDenied(Player player, Material material) {
         policyDenied(player, material, templates.blockPlaceDenied(), POLICY_PLACE_PREFIX);
     }

@@ -48,6 +48,7 @@ class ConfigLoaderTest {
     @Test void emptyPermissivePolicyRuleIsRejectedAndNotPublished() throws Exception {
         String text = Files.readString(
                 Path.of("src", "main", "resources", "config.yml"))
+                .replace("\r\n", "\n")
                 .replace("      deny-unlisted: true\n      materials:\n        - COBWEB\n        - ICE",
                         "      deny-unlisted: false\n      materials: []");
         Path file = directory.resolve("config-empty-policy.yml");

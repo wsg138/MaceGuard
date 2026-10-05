@@ -34,15 +34,15 @@ prevent-elytra: false
 force-prevent-elytra: false
 elytra-retag: true
 prevent-fireworks: false
-prevent-riptide: true
+prevent-riptide: false
 riptide-retag: false
 ```
 
-MaceGuard cancels only `PlayerElytraBoostEvent`; ordinary firework launching must remain available. Set `teleportation.yml` to:
+MaceGuard cancels Elytra boosts and Riptide only for Warzone combat-tagged players under the configured carryover policy. Ordinary combat outside Warzone remains free to use Elytra, fireworks, and Riptide. Ordinary firework launching must remain available. Set `teleportation.yml` to:
 
 ```yaml
-prevent-portals: true
-prevent-teleportation: true
+prevent-portals: false
+prevent-teleportation: false
 
 allowed-teleport-cause-list:
   - ENDER_PEARL
@@ -51,7 +51,9 @@ ender-pearl-retag: true
 untag: false
 ```
 
-Remove `PLUGIN` and `UNKNOWN` from the allow list. This leaves successful Ender Pearl teleports available for CombatLogX retagging and MaceGuard's aged-pearl decision while CombatLogX blocks `/tpa`, `/home`, `/spawn`, other plugin teleports, and portals during combat. Validate server-specific plugins in staging rather than weakening the allow list preemptively.
+MaceGuard now blocks `/tpa`, `/home`, `/spawn`, other plugin teleports, and portals only while Warzone combat restrictions apply. Ender Pearl teleports remain available for CombatLogX retagging and MaceGuard's aged-pearl decision. Validate server-specific plugins and portal event order in staging.
+
+NotBounties claims are awarded on a valid player kill. On the installed 1.22.37 configuration, `world-filter` excludes only `SafeWorld`, `claim-order` is `REGULAR`, and `same-ip-claim` is false. Keep the effective WorldGuard `claim-bounties` flag allowed in the Warzone (set explicitly with `rg flag -w world warzone claim-bounties allow` after checking the target world and region). CombatLogX's command block list does not include `/bounty` or `/notbounties`. An in-game claim and payout test with two eligible players remains required; configuration review alone does not prove reward delivery.
 
 
 ### Direct CombatLogX API boundary
@@ -61,6 +63,8 @@ MaceGuard compiles against immutable public API artifacts, not a fork or copied 
 The direct listener class is instantiated only after the `CombatLogX` soft dependency is present, enabled, and compatible. If that boundary is unavailable, unrelated MaceGuard functionality remains enabled while combat-dependent Warzone behavior is disabled with a clear log reason. A dependency disable event closes and drops the adapter, clears combat latches/transient pearl caches, and fences delayed callbacks by runtime generation. A compatible enable event builds a fresh adapter and reconciles online players exactly once; an incompatible enable leaves only combat integration disabled. Full restart remains the supported deployment path.
 
 Automated verification covers the dependency boundary, lifecycle policy, schema migration, latch decisions, Elytra policy, and the intended pearl-correlation model. Source review confirms the API shapes and configuration option names, but does not establish the exact deployed event order. Leaf/Paper event ordering, Geyser behavior, plugin-teleport compatibility, and real stasis/Elytra gameplay still require the live staging matrix below. No live-server test is claimed by this document.
+
+With the CombatLogX Boss Bar expansion enabled, verify the bar handoff: ordinary combat shows only CombatLogX's bar; Warzone combat hides it before MaceGuard's red bar appears; leaving the region keeps only the Warzone bar until untag; untag, death, quit, reload, and dependency disable hide the Warzone bar before restoring the player's original CombatLogX boss-bar preference. Check players who had `/combatlogx toggle bossbar` disabled and verify that a failed handoff shows only CombatLogX's bar with a server warning.
 
 Assign the custom flags only to the intended WorldGuard regions:
 
@@ -271,9 +275,20 @@ Tab completion must hide management operations without their focused permission 
 
 MaceGuard 6 retains the existing WorldGuard block-policy, temporary-block recovery, explosion, snapshot, and reset safety. Stage at least:
 
+For the COBWEBS modifier, the effective Warzone region must allow WorldGuard's
+`water-flow` flag. An explicit `water-flow: deny` blocks natural flow before the
+MaceGuard build-permission grant can take effect. Check the Warzone and nested
+safe-zone flags separately; MaceGuard confines its grant to the effective Warzone.
+Do not copy this flag change into production without the corresponding gameplay
+acceptance check.
+
 - normal and emergency temporary-cobweb persistence, bounded recovery, chunk tickets, restart, and changed-block protection;
 - a real burst of at least 100 managed cobwebs through TTL and full cleanup;
 - source and flowing-water restoration under Paper block-data serialization;
+- water flowing through air into a managed cobweb while COBWEBS is active, with
+  no flow into the nested safe zone or outside the effective Warzone;
+- an arrow crossing fire, then hitting a player-placed TNT minecart while CARTS
+  is active; verify ignition, explosion, and cleanup with a real player shooter;
 - direct, inherited, and `__global__` block-policy diagnostics;
 - full and filtered snapshot validation, exclusions, checksums, arming, one-use plan tokens, journals, and interrupted-operation recovery;
 - plugin reload and shutdown while normal TTL tracking or emergency recovery is active.

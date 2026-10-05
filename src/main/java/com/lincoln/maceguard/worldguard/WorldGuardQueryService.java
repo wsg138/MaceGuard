@@ -9,6 +9,7 @@ import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 
 import java.util.Comparator;
@@ -150,6 +151,30 @@ public final class WorldGuardQueryService {
         return query().getApplicableRegions(BukkitAdapter.adapt(location)).getRegions().stream()
                 .sorted(Comparator.comparingInt(ProtectedRegion::getPriority).reversed()
                         .thenComparing(ProtectedRegion::getId)).toList();
+    }
+
+    /** Returns the first configured region newly entered at the destination. */
+    public String enteringRegion(Location from, Location to, List<String> regionIds) {
+        if (to == null || to.getWorld() == null || regionIds.isEmpty()) return null;
+        RegionManager manager = regionManager(to);
+        if (manager == null) return null;
+        boolean sameWorld = from != null && from.getWorld() != null
+                && from.getWorld().getUID().equals(to.getWorld().getUID());
+        for (String id : regionIds) {
+            ProtectedRegion target = manager.getRegion(id);
+            if (target == null || !target.contains(to.getBlockX(), to.getBlockY(), to.getBlockZ()))
+                continue;
+            if (!sameWorld || !target.contains(from.getBlockX(), from.getBlockY(), from.getBlockZ()))
+                return id;
+        }
+        return null;
+    }
+
+    public boolean regionExists(World world, String regionId) {
+        if (world == null) return false;
+        RegionManager manager = WorldGuard.getInstance().getPlatform().getRegionContainer()
+                .get(BukkitAdapter.adapt(world));
+        return manager != null && manager.getRegion(regionId) != null;
     }
 
     private RegionManager regionManager(Location location) {

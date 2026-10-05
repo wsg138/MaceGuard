@@ -30,7 +30,10 @@ import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRiptideEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.projectiles.BlockProjectileSource;
@@ -112,6 +115,25 @@ public final class ItemRestrictionListener implements Listener {
         if (!decision.denied()) return;
         event.setCancelled(true);
         messages.denial(event.getPlayer(), decision, material);
+    }
+
+    // Air interactions may already have useInteractedBlock=DENY from vanilla prediction.
+    // Do not skip those events: deny only the item use, before the client charges Riptide.
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onRiptideCharge(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_AIR
+                && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        ItemStack item = event.getItem();
+        if (!isRiptideTrident(item)
+                || event.useItemInHand() == Event.Result.DENY
+                || !riptideBlocked(event.getPlayer())) return;
+        event.setUseItemInHand(Event.Result.DENY);
+        messages.riptideUnavailable(event.getPlayer());
+    }
+
+    boolean isRiptideTrident(ItemStack item) {
+        return item != null && item.getType() == Material.TRIDENT
+                && item.containsEnchantment(Enchantment.RIPTIDE);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -371,9 +393,9 @@ public final class ItemRestrictionListener implements Listener {
         boolean combatBound = combatScopes.combatBound(player);
         WarzoneConfig.ActiveSet active = activeSet.get();
         boolean allowed = CombatElytraPolicy.canStart(combatBound, false, maceGuardBypass,
-                combatScopes.latch(player.getUniqueId()).isPresent(),
+                combatScopes.warzoneTagged(player),
                 region.contains(player.getLocation()), active.elytraGlidingAllowed(),
-                active.carriedElytraGlidingAllowed());
+                combatScopes.carryoverEligible(player) && active.carriedElytraGlidingAllowed());
         if (allowed) return;
         event.setCancelled(true);
         messages.elytraUnavailable(player);
@@ -384,10 +406,43 @@ public final class ItemRestrictionListener implements Listener {
         Player player = event.getPlayer();
         boolean maceGuardBypass = bypass(player) || excluded(player);
         boolean combatBound = combatScopes.combatBound(player);
-        if (!CombatElytraPolicy.blockBoost(combatBound, false, maceGuardBypass)) return;
+        if (!CombatElytraPolicy.blockBoost(combatBound, false, maceGuardBypass,
+                combatScopes.restrictionsApply(player, region.contains(player.getLocation())))) return;
         event.setCancelled(true);
         event.setShouldConsume(false);
         messages.rocketUnavailable(player);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onRiptide(PlayerRiptideEvent event) {
+        Player player = event.getPlayer();
+        if (!riptideBlocked(player)) return;
+        event.setCancelled(true);
+        messages.riptideUnavailable(player);
+    }
+
+    private boolean riptideBlocked(Player player) {
+        return !bypass(player) && !excluded(player)
+                && combatScopes.riptideBlocked(player, region.contains(player.getLocation()));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCombatTeleport(PlayerTeleportEvent event) {
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.ENDER_PEARL) return;
+        blockCombatTeleport(event);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCombatPortal(PlayerPortalEvent event) {
+        blockCombatTeleport(event);
+    }
+
+    private void blockCombatTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        if (bypass(player) || excluded(player)
+                || !combatScopes.teleportBlocked(player, region.contains(player.getLocation()))) return;
+        event.setCancelled(true);
+        messages.send(player, "<red>Teleportation is disabled while you are in Warzone combat.");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

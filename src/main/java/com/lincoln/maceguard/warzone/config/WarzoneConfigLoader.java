@@ -79,14 +79,48 @@ public final class WarzoneConfigLoader {
 
 
         Map<String, Object> combatRaw = map(root.getOrDefault("combat", Map.of()), "combat", errors);
-        keys(combatRaw, "combat", Set.of("stasis"), errors);
+        keys(combatRaw, "combat", Set.of("stasis", "warzone-tag"), errors);
         Map<String, Object> stasisRaw = map(combatRaw.getOrDefault("stasis", Map.of()), "combat.stasis", errors);
         keys(stasisRaw, "combat.stasis", Set.of("minimum-age"), errors);
         Duration stasisMinimumAge = duration(stasisRaw.getOrDefault("minimum-age", "60s"),
                 "combat.stasis.minimum-age", errors);
         if (stasisMinimumAge.isNegative() || stasisMinimumAge.isZero())
             errors.add("combat.stasis.minimum-age must be positive.");
-        WarzoneConfig.Combat combat = new WarzoneConfig.Combat(new WarzoneConfig.Stasis(stasisMinimumAge));
+        Map<String, Object> tagRaw = map(combatRaw.getOrDefault("warzone-tag", Map.of()),
+                "combat.warzone-tag", errors);
+        keys(tagRaw, "combat.warzone-tag", Set.of("enabled", "carry-restrictions-outside",
+                "prevent-riptide", "prevent-teleportation", "blocked-region-ids", "boss-bar"), errors);
+        Map<String, Object> barRaw = map(tagRaw.getOrDefault("boss-bar", Map.of()),
+                "combat.warzone-tag.boss-bar", errors);
+        keys(barRaw, "combat.warzone-tag.boss-bar", Set.of("enabled", "title",
+                "text-color", "fill-color"), errors);
+        String barTitle = nonBlank(barRaw.getOrDefault("title", "Warzone Combat"),
+                "combat.warzone-tag.boss-bar.title", errors);
+        String textColor = nonBlank(barRaw.getOrDefault("text-color", "#EE4B00"),
+                "combat.warzone-tag.boss-bar.text-color", errors);
+        if (!textColor.matches("#[0-9a-fA-F]{6}"))
+            errors.add("combat.warzone-tag.boss-bar.text-color must be a six-digit hex color.");
+        String fillColor = nonBlank(barRaw.getOrDefault("fill-color", "RED"),
+                "combat.warzone-tag.boss-bar.fill-color", errors).toUpperCase(Locale.ROOT);
+        if (!Set.of("PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE")
+                .contains(fillColor))
+            errors.add("combat.warzone-tag.boss-bar.fill-color must be a vanilla boss-bar color.");
+        WarzoneConfig.WarzoneTag tag = new WarzoneConfig.WarzoneTag(
+                bool(tagRaw.getOrDefault("enabled", Boolean.TRUE),
+                        "combat.warzone-tag.enabled", errors, true),
+                bool(tagRaw.getOrDefault("carry-restrictions-outside", Boolean.TRUE),
+                        "combat.warzone-tag.carry-restrictions-outside", errors, true),
+                bool(barRaw.getOrDefault("enabled", Boolean.TRUE),
+                        "combat.warzone-tag.boss-bar.enabled", errors, true),
+                barTitle, textColor, fillColor,
+                bool(tagRaw.getOrDefault("prevent-riptide", Boolean.TRUE),
+                        "combat.warzone-tag.prevent-riptide", errors, true),
+                bool(tagRaw.getOrDefault("prevent-teleportation", Boolean.TRUE),
+                        "combat.warzone-tag.prevent-teleportation", errors, true),
+                idList(tagRaw.getOrDefault("blocked-region-ids", List.of("spawn", "market")),
+                        "combat.warzone-tag.blocked-region-ids", errors));
+        WarzoneConfig.Combat combat = new WarzoneConfig.Combat(
+                new WarzoneConfig.Stasis(stasisMinimumAge), tag);
 
         Map<String, Object> cobwebRaw = map(root.getOrDefault("cobwebs", Map.of()), "cobwebs", errors);
         keys(cobwebRaw, "cobwebs", Set.of("clear-after", "clear-on-meta-change", "clear-on-disable"), errors);

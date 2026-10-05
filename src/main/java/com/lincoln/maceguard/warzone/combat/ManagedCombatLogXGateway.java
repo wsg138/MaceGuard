@@ -50,6 +50,13 @@ final class ManagedCombatLogXGateway implements CombatLogXGateway, Listener {
     @Override public Duration remaining(Player player) {
         return delegate.available() ? delegate.remaining(player) : Duration.ZERO;
     }
+    @Override public boolean retag(Player player, Player enemy, boolean attacker) {
+        return delegate.available() && delegate.retag(player, enemy, attacker);
+    }
+    @Override public boolean suppressBossBar(Player player) {
+        return delegate.available() && delegate.suppressBossBar(player);
+    }
+    @Override public void restoreBossBar(Player player) { delegate.restoreBossBar(player); }
 
     @Override
     public void register(Lifecycle lifecycle) {
@@ -81,17 +88,18 @@ final class ManagedCombatLogXGateway implements CombatLogXGateway, Listener {
 
     private void installDelegate(CombatLogXGateway next) {
         lifecycleGeneration++;
+        Lifecycle current = lifecycle.orElse(null);
+        if (current != null) current.integrationUnavailable();
         delegate.close();
         delegate = Objects.requireNonNull(next, "next");
         bindDelegate();
-        Lifecycle current = lifecycle.orElse(null);
         if (delegate.available() && current != null) {
             current.integrationAvailable();
             for (Player player : owner.getServer().getOnlinePlayers()) {
                 if (delegate.inCombat(player) && !delegate.bypass(player))
                     current.tagged(player, player.getLocation().clone());
             }
-        } else if (current != null) current.integrationUnavailable();
+        }
         reportState();
     }
 
@@ -101,11 +109,11 @@ final class ManagedCombatLogXGateway implements CombatLogXGateway, Listener {
 
     private void retire(String reason) {
         lifecycleGeneration++;
+        Lifecycle current = lifecycle.orElse(null);
+        if (current != null) current.integrationUnavailable();
         delegate.close();
         delegate = new UnavailableCombatLogXGateway(reason);
         delegateBoundGeneration = Long.MIN_VALUE;
-        Lifecycle current = lifecycle.orElse(null);
-        if (current != null) current.integrationUnavailable();
         reportState();
     }
 

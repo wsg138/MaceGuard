@@ -7,6 +7,7 @@ import com.lincoln.maceguard.temporary.TemporaryBlockService;
 import com.lincoln.maceguard.warzone.runtime.WarzoneModule;
 import com.lincoln.maceguard.warzone.runtime.WarzoneRuntime;
 import com.lincoln.maceguard.worldguard.WorldGuardQueryService;
+import io.papermc.paper.event.entity.EntityInsideBlockEvent;
 import org.bukkit.ExplosionResult;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -14,6 +15,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
@@ -26,6 +28,7 @@ import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockIgniteEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.block.BlockSpreadEvent;
+import org.bukkit.event.entity.EntityCombustByEntityEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
@@ -144,6 +147,14 @@ public final class ExplosiveControlListener implements Listener {
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onWorldGuardCartBlockPlace(
             com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
+        if (event.getOriginalEvent() instanceof PlayerInteractEvent original) {
+            // WorldGuard checks lighting candles/campfires as a block modification before ignition.
+            if (cartFlintInteraction(original)
+                    && isIgnitableDecoration(event.getEffectiveMaterial())) {
+                event.setAllowed(true);
+            }
+            return;
+        }
         if (event.getOriginalEvent() instanceof BlockPlaceEvent original) {
             if (original.isCancelled()) return;
             Location location = original.getBlockPlaced().getLocation();
@@ -159,7 +170,7 @@ public final class ExplosiveControlListener implements Listener {
                     || original.getPlayer() == null) return;
             Location location = original.getBlock().getLocation();
             if (cartModifierActive(location)
-                    && !worldGuard.lighterAllowed(location, original.getPlayer())) {
+                    && warzoneAppliesTo(original.getPlayer(), location)) {
                 event.setAllowed(true);
             }
         }
@@ -191,7 +202,7 @@ public final class ExplosiveControlListener implements Listener {
     public void onWorldGuardCartSpawn(
             com.sk89q.worldguard.bukkit.event.entity.SpawnEntityEvent event) {
         if (event.getEffectiveType() != EntityType.TNT_MINECART) return;
-        Player player = event.getCause().getFirstPlayer();
+        Player player = cartPlacementPlayer(event);
         if (player == null || !cartModifierActive(event.getTarget()) || !cartPlacementReady()) return;
         if (!worldGuard.vehiclePlaceAllowed(event.getTarget(), player)) event.setAllowed(true);
     }
@@ -208,9 +219,59 @@ public final class ExplosiveControlListener implements Listener {
                 ? original.getPlayer().getInventory().getItemInMainHand()
                 : original.getPlayer().getInventory().getItemInOffHand();
         if (item.getType() == Material.FLINT_AND_STEEL
-                && !worldGuard.lighterAllowed(event.getTarget(), original.getPlayer())) {
+                && warzoneAppliesTo(original.getPlayer(), event.getTarget())) {
             event.setAllowed(true);
         }
+    }
+
+    /**
+     * WorldGuard routes entity combustion through DamageEntityEvent. Preserve Flame-arrow
+     * combustion for players inside the effective Warzone, and for an owned TNT cart only while
+     * WarzoneRotator's CARTS modifier is active. This grants only WorldGuard's delegate decision;
+     * other Bukkit listeners can still cancel the original event.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardFlameArrowCombust(
+            com.sk89q.worldguard.bukkit.event.entity.DamageEntityEvent event) {
+        if (warzoneFlameArrowCombustAllowed(event)) event.setAllowed(true);
+    }
+
+    private boolean warzoneFlameArrowCombustAllowed(
+            com.sk89q.worldguard.bukkit.event.entity.DamageEntityEvent event) {
+        if (!(event.getOriginalEvent() instanceof EntityCombustByEntityEvent original)
+                || original.isCancelled()) return false;
+        Player shooter = flameArrowShooter(original.getCombuster());
+        return shooter != null && warzoneAppliesTo(shooter, event.getTarget())
+                && flameArrowTargetAllowed(event.getEntity(), event.getTarget());
+    }
+
+    private boolean flameArrowTargetAllowed(Entity target, Location location) {
+        if (target instanceof Player) return true;
+        return target.getType() == EntityType.TNT_MINECART
+                && isCurrentCartArtifact(target) && cartModifierActive(location);
+    }
+
+    /** Paper does not reliably ignite arrows that pass through fire in protected regions. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onArrowInsideFire(EntityInsideBlockEvent event) {
+        if (!(event.getEntity() instanceof Arrow arrow)) return;
+        Material block = event.getBlock().getType();
+        if (block != Material.FIRE && block != Material.SOUL_FIRE) return;
+        if (arrow.getFireTicks() > 0 || !cartModifierActive(event.getBlock().getLocation())) return;
+        arrow.setFireTicks(300);
+    }
+
+    /** WorldGuard's PvP delegate can reject an arrow hit before Bukkit damage listeners run. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWorldGuardWarzoneArrowDamage(
+            com.sk89q.worldguard.bukkit.event.entity.DamageEntityEvent event) {
+        if (!(event.getOriginalEvent() instanceof EntityDamageByEntityEvent original)
+                || original.isCancelled()
+                || !(original.getDamager() instanceof Arrow arrow)
+                || !(arrow.getShooter() instanceof Player shooter)
+                || !(event.getEntity() instanceof Player target)
+                || !warzoneAppliesTo(shooter, event.getTarget())) return;
+        event.setAllowed(true);
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -220,8 +281,10 @@ public final class ExplosiveControlListener implements Listener {
                 || !isCurrentCartArtifact(event.getEntity())
                 || !(event.getOriginalEvent() instanceof VehicleDamageEvent original)
                 || original.isCancelled()
-                || !(original.getAttacker() instanceof Player player)
                 || !cartModifierActive(event.getTarget())) return;
+        Player player = original.getAttacker() instanceof Player attacker
+                ? attacker : flameArrowShooter(original.getAttacker());
+        if (player == null || !warzoneAppliesTo(player, event.getTarget())) return;
         if (!worldGuard.vehicleDestroyAllowed(event.getTarget(), player)) event.setAllowed(true);
     }
 
@@ -240,7 +303,9 @@ public final class ExplosiveControlListener implements Listener {
     private void preAllowWorldGuardCartInteraction(
             com.sk89q.worldguard.bukkit.event.DelegateEvent delegate,
             PlayerInteractEvent original) {
-        if (original.isCancelled()) return;
+        // Bukkit predicts block and item use separately. A noninteractive support block may
+        // deny block use while still accepting the lighter item; never reopen item-use DENY.
+        if (original.useItemInHand() == org.bukkit.event.Event.Result.DENY) return;
         ItemStack item = original.getItem();
         Block clicked = original.getClickedBlock();
         if (item == null || clicked == null) return;
@@ -252,11 +317,47 @@ public final class ExplosiveControlListener implements Listener {
             return;
         }
 
-        Location fire = clicked.getRelative(original.getBlockFace()).getLocation();
-        if (item.getType() == Material.FLINT_AND_STEEL && cartModifierActive(fire)
-                && !worldGuard.lighterAllowed(fire, original.getPlayer())) {
+        if (cartFlintInteraction(original)) {
             delegate.setAllowed(true);
         }
+    }
+
+    private boolean cartFlintInteraction(PlayerInteractEvent original) {
+        if (original.useItemInHand() == org.bukkit.event.Event.Result.DENY
+                || original.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                || original.getItem() == null
+                || original.getItem().getType() != Material.FLINT_AND_STEEL
+                || original.getClickedBlock() == null) return false;
+        Block clicked = original.getClickedBlock();
+        Material material = clicked.getType();
+        // Holding a lighter must not grant chest/door access or ordinary TNT priming.
+        if (material == Material.TNT
+                || isInteractableMaterial(material) && !isIgnitableDecoration(material)) return false;
+        Location fire = clicked.getRelative(original.getBlockFace()).getLocation();
+        return cartModifierActive(clicked.getLocation()) && cartModifierActive(fire)
+                && warzoneAppliesTo(original.getPlayer(), fire);
+    }
+
+    // Paper's material classification needs its live server registry; isolate it for routing tests.
+    boolean isInteractableMaterial(Material material) {
+        return material.isInteractable();
+    }
+
+    private static boolean isIgnitableDecoration(Material material) {
+        return material != null && (material == Material.CAMPFIRE
+                || material == Material.SOUL_CAMPFIRE || material.name().endsWith("CANDLE")
+                || material.name().endsWith("CANDLE_CAKE"));
+    }
+
+    private static Player cartPlacementPlayer(
+            com.sk89q.worldguard.bukkit.event.entity.SpawnEntityEvent event) {
+        Player player = event.getCause().getFirstPlayer();
+        if (player != null) return player;
+        if (event.getOriginalEvent() instanceof EntityPlaceEvent original)
+            return original.getPlayer();
+        if (event.getOriginalEvent() instanceof PlayerInteractEvent original)
+            return original.getPlayer();
+        return null;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -650,6 +751,17 @@ public final class ExplosiveControlListener implements Listener {
         if (!plugin.isFeatureEnabled()) return null;
         WarzoneModule module = warzoneModule();
         return module == null ? null : module.runtime();
+    }
+
+    private boolean warzoneAppliesTo(Player player, Location target) {
+        WarzoneModule module = warzoneModule();
+        return module != null && module.appliesAt(player.getLocation()) && module.appliesAt(target);
+    }
+
+    private static Player flameArrowShooter(Entity source) {
+        if (!(source instanceof Arrow arrow) || arrow.getFireTicks() <= 0
+                || !(arrow.getShooter() instanceof Player player)) return null;
+        return player;
     }
 
     private boolean denied(Location location, Player player) {

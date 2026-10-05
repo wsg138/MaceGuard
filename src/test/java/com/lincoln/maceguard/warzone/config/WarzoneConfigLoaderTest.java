@@ -27,6 +27,22 @@ class WarzoneConfigLoaderTest {
         assertEquals(35, result.value().selection().countWeights().get(1));
         assertEquals(8, result.value().specialRules().get("elytra-no-rockets")
                 .weeklyInclusionChancePercent());
+        assertEquals("RED", result.value().combat().warzoneTag().bossBarFillColor());
+        assertEquals("#EE4B00", result.value().combat().warzoneTag().bossBarTextColor());
+    }
+
+    @Test void legacySchemaSevenConfigDefaultsWarzoneCombatSettings() throws IOException {
+        var result = load(modified(yaml -> yaml.set("combat.warzone-tag", null)));
+        assertTrue(result.valid(), result.errors().toString());
+        assertEquals(WarzoneConfig.WarzoneTag.defaults(), result.value().combat().warzoneTag());
+    }
+
+    @Test void invalidBossBarFillColorIsRejected() throws IOException {
+        var result = load(modified(yaml ->
+                yaml.set("combat.warzone-tag.boss-bar.fill-color", "#EE4B00")));
+        assertFalse(result.valid());
+        assertTrue(result.errors().stream().anyMatch(error ->
+                error.contains("combat.warzone-tag.boss-bar.fill-color")));
     }
 
     @Test void parsesNewRestrictionTargetsAndCooldownModifiers() {
@@ -217,7 +233,8 @@ class WarzoneConfigLoaderTest {
     }
 
     private String defaultText() throws IOException {
-        return Files.readString(Path.of("src", "main", "resources", "warzone.yml"));
+        return Files.readString(Path.of("src", "main", "resources", "warzone.yml"))
+                .replace("\r\n", "\n");
     }
 
     private ValidationResult<WarzoneConfig> load(String text) throws IOException {

@@ -341,6 +341,14 @@ public final class WarzoneModule {
                     errors.add("required excluded region '" + id + "' is unresolved: "
                             + status + ".");
             });
+            if (region.worldLoaded() && worldGuardQueries != null) {
+                org.bukkit.World world = org.bukkit.Bukkit.getWorld(region.worldName());
+                for (String id : config.value().gameplay().combat().warzoneTag().blockedRegionIds()) {
+                    if (!worldGuardQueries.regionExists(world, id))
+                        errors.add("combat.warzone-tag.blocked-region-ids region '" + id
+                                + "' is unresolved in world '" + region.worldName() + "'.");
+                }
+            }
         }
         return new Prepared(config.value(), messages.value(), List.copyOf(errors),
                 List.copyOf(warnings));

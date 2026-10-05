@@ -8,13 +8,13 @@ public final class CombatElytraPolicy {
                                    boolean insideConfiguredWarzone,
                                    boolean elytraEffectActive,
                                    boolean elytraEffectCarries) {
-        if (!inCombat || combatBypass || maceGuardBypass) return true;
+        if (!inCombat || combatBypass || maceGuardBypass || !latched) return true;
         return latched && elytraEffectActive
                 && (insideConfiguredWarzone || elytraEffectCarries);
     }
 
     public static boolean blockBoost(boolean inCombat, boolean combatBypass,
-                                     boolean maceGuardBypass) {
-        return inCombat && !combatBypass && !maceGuardBypass;
+                                     boolean maceGuardBypass, boolean warzoneRestrictionsApply) {
+        return inCombat && !combatBypass && !maceGuardBypass && warzoneRestrictionsApply;
     }
 }
