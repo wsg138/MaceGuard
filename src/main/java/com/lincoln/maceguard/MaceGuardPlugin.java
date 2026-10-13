@@ -53,6 +53,7 @@ public final class MaceGuardPlugin extends JavaPlugin {
 
     @Override public void onLoad() { flags.register(getLogger()); }
 
+    private com.lincoln.maceguard.website.WebsiteExportService websiteExport;
     @Override public void onEnable() {
         if (!getDataFolder().exists()) getDataFolder().mkdirs();
         if (!new java.io.File(getDataFolder(), "config.yml").exists()) saveDefaultConfig();
@@ -60,12 +61,15 @@ public final class MaceGuardPlugin extends JavaPlugin {
         new MainConfigMigrationService(this).prepare();
         reloadConfig();
         startRuntime();
+        websiteExport = new com.lincoln.maceguard.website.WebsiteExportService(this);
+        websiteExport.start();
         logIntegrationVersions();
         if (!Compat.isMaceSupported())
             getLogger().warning("Material.MACE is unavailable; mace durability behavior is inactive.");
     }
 
     @Override public void onDisable() {
+        if (websiteExport != null) websiteExport.close();
         PearlEventDiagnostics.forPlugin(this).clear();
         PluginRuntime current = runtime;
         runtime = null;

@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConfigLoaderTest {
+    private static final String CRLF="\r\n", LF="\n";
     @TempDir Path directory;
 
     @Test void bundledConfigurationIsValidAndContainsRequiredProfiles() {
@@ -33,7 +34,7 @@ class ConfigLoaderTest {
 
     @Test void invalidPolicyMaterialProducesPathSpecificError() throws Exception {
         String text = Files.readString(
-                Path.of("src", "main", "resources", "config.yml"))
+                Path.of("src", "main", "resources", "config.yml")).replace(CRLF, LF)
                 .replace("        - ICE", "        - NOT_A_REAL_BLOCK");
         Path file = directory.resolve("config.yml");
         Files.writeString(file, text);
@@ -47,7 +48,7 @@ class ConfigLoaderTest {
 
     @Test void emptyPermissivePolicyRuleIsRejectedAndNotPublished() throws Exception {
         String text = Files.readString(
-                Path.of("src", "main", "resources", "config.yml"))
+                Path.of("src", "main", "resources", "config.yml")).replace(CRLF, LF)
                 .replace("      deny-unlisted: true\n      materials:\n        - COBWEB\n        - ICE",
                         "      deny-unlisted: false\n      materials: []");
         Path file = directory.resolve("config-empty-policy.yml");
@@ -62,7 +63,7 @@ class ConfigLoaderTest {
 
     @Test void namespacedAndAliasMaterialNamesAreRejectedStrictly() throws Exception {
         String text = Files.readString(
-                Path.of("src", "main", "resources", "config.yml"))
+                Path.of("src", "main", "resources", "config.yml")).replace(CRLF, LF)
                 .replace("        - ICE", "        - minecraft:ice");
         Path file = directory.resolve("config-namespaced.yml");
         Files.writeString(file, text);
@@ -77,7 +78,7 @@ class ConfigLoaderTest {
 
     @Test void obsoleteSparseProfileFailsClosed() throws Exception {
         String text = Files.readString(
-                Path.of("src", "main", "resources", "config.yml"))
+                Path.of("src", "main", "resources", "config.yml")).replace(CRLF, LF)
                 .replace("mode: FILTERED_SNAPSHOT", "mode: SPARSE_ORIGINALS");
         Path file = directory.resolve("config-sparse.yml");
         Files.writeString(file, text);

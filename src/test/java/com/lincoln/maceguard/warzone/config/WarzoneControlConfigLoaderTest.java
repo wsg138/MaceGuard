@@ -151,7 +151,7 @@ class WarzoneControlConfigLoaderTest {
     }
 
     private String defaultText() throws IOException {
-        return Files.readString(Path.of("src", "main", "resources", "warzone.yml"));
+        return Files.readString(Path.of("src", "main", "resources", "warzone.yml")).replace("\r\n", "\n");
     }
 
     private ValidationResult<WarzoneControlConfig> load(String text) throws IOException {

@@ -1,0 +1,5 @@
+# Opt-in public Warzone export; do not put tokens or secrets in this file.
+enabled: false
+endpoint: "https://enthusia.info/api/community/ingest"
+secret-environment-variable: "COMMUNITY_INGEST_SECRET"
+interval-seconds: 300

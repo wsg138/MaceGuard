@@ -5,7 +5,7 @@ api-version: '1.21'
 author: P2wn
 description: WorldGuard-scoped Warzone kits, repeating schedules, manual overrides, combat restrictions, temporary cobwebs, and safe region resets.
 depend: [WorldGuard]
-softdepend: [PlaceholderAPI, CombatLogX]
+softdepend: [PlaceholderAPI, CombatLogX, WarzoneDuels]
 
 commands:
   maceguard:
