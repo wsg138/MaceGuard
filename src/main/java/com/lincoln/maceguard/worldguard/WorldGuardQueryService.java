@@ -158,16 +158,24 @@ public final class WorldGuardQueryService {
         if (to == null || to.getWorld() == null || regionIds.isEmpty()) return null;
         RegionManager manager = regionManager(to);
         if (manager == null) return null;
-        boolean sameWorld = from != null && from.getWorld() != null
-                && from.getWorld().getUID().equals(to.getWorld().getUID());
+        boolean sameWorld = sameWorld(from, to);
         for (String id : regionIds) {
             ProtectedRegion target = manager.getRegion(id);
-            if (target == null || !target.contains(to.getBlockX(), to.getBlockY(), to.getBlockZ()))
-                continue;
-            if (!sameWorld || !target.contains(from.getBlockX(), from.getBlockY(), from.getBlockZ()))
-                return id;
+            if (newlyEntered(target, from, to, sameWorld)) return id;
         }
         return null;
+    }
+
+    private static boolean sameWorld(Location from, Location to) {
+        return from != null && from.getWorld() != null
+                && from.getWorld().getUID().equals(to.getWorld().getUID());
+    }
+
+    private static boolean newlyEntered(ProtectedRegion target, Location from, Location to,
+                                        boolean sameWorld) {
+        if (target == null || !target.contains(to.getBlockX(), to.getBlockY(), to.getBlockZ()))
+            return false;
+        return !sameWorld || !target.contains(from.getBlockX(), from.getBlockY(), from.getBlockZ());
     }
 
     public boolean regionExists(World world, String regionId) {

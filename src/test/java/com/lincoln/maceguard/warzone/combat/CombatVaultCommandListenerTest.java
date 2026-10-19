@@ -11,8 +11,9 @@ import java.util.List;
 import static org.mockito.Mockito.*;
 
 class CombatVaultCommandListenerTest {
+    private static final String VAULT_COMMAND = "/g vault";
     @Test void combatTagBlocksGuildVaultAliasesAndExtraArguments() {
-        for (String command : List.of("/g vault", "/guild vault", "/lumaguilds:g vault",
+        for (String command : List.of(VAULT_COMMAND, "/guild vault", "/lumaguilds:g vault",
                 "/lumaguilds:guild vault", " /G\tVAULT ", "/g vault open")) {
             Fixture f = fixture(command, true);
             f.listener.onCommand(f.event);
@@ -22,13 +23,13 @@ class CombatVaultCommandListenerTest {
         }
     }
     @Test void ordinaryCombatAndWarzoneCarryoverNeedNoRegionOrLatch() {
-        Fixture f = fixture("/g vault", true);
+        Fixture f = fixture(VAULT_COMMAND, true);
         f.listener.onCommand(f.event);
         verify(f.event).setCancelled(true);
         verify(f.combat).inCombat(f.player);
     }
     @Test void untaggedPlayerCanOpenVault() {
-        Fixture f = fixture("/g vault", false);
+        Fixture f = fixture(VAULT_COMMAND, false);
         f.listener.onCommand(f.event);
         verify(f.event, never()).setCancelled(true);
         verifyNoInteractions(f.messages);
@@ -55,20 +56,20 @@ class CombatVaultCommandListenerTest {
         verify(f.event).setCancelled(true);
     }
     @Test void existingCancellationIsNeverChanged() {
-        Fixture f = fixture("/g vault", true);
+        Fixture f = fixture(VAULT_COMMAND, true);
         when(f.event.isCancelled()).thenReturn(true);
         f.listener.onCommand(f.event);
         verify(f.event, never()).setCancelled(anyBoolean());
         verify(f.combat, never()).inCombat(f.player);
     }
     @Test void unavailableOptionalIntegrationDoesNotBlockUntaggedGameplay() {
-        Fixture f = fixture("/g vault", false);
+        Fixture f = fixture(VAULT_COMMAND, false);
         when(f.combat.available()).thenReturn(false);
         f.listener.onCommand(f.event);
         verify(f.event, never()).setCancelled(true);
     }
     @Test void failedCombatQueryBlocksRatherThanAllowingVaultAccess() {
-        Fixture f = fixture("/g vault", true);
+        Fixture f = fixture(VAULT_COMMAND, true);
         when(f.combat.inCombat(f.player)).thenThrow(new IllegalStateException("API unavailable"));
         f.listener.onCommand(f.event);
         verify(f.event).setCancelled(true);

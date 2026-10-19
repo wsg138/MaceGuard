@@ -28,3 +28,20 @@ The implementation predates this SPEAR record. Existing tests are not claimed as
 Local EARS/state helpers are absent. Requirements and these task/evidence records provide manual traceability.
 
 | MG-WZ-10/11 | spec/prove/engine/arch/refine | Fix initial WorldGuard water right-click routing and separate flint item-use result | Two regressions reproduced; focused 36 and full 604 tests pass; PR CI and live acceptance pending |
+## Lunge combat retag follow-up
+
+- [ ] MG-RELEASE-01: Resolve the two final-head Codacy findings without changing accepted Lunge behavior; run canonical verification and obtain exact-head hosted checks/review.
+- [ ] MG-RELEASE-02: Complete remaining live Test acceptance for Elytra, carryover/safe regions, PvP/pearls, bounties, batch GUI and water/flint; preserve original Test/player state. SuperVanish repair is explicitly excluded.
+- [ ] MG-RELEASE-03: Integrate reviewed source into canonical main, verify build ownership/pins and prepare a clean merged-source production artifact and rollback plan. Production upload/activation remains unauthorized.
+
+- [x] MG-WZ-12A source/local: Replace arm-swing inference with optional native Paper Lunge recognition; cover cancelled/zero-power events, duplicate swing routing, restrictions, scope capture and runtime lifetime. Canonical Java 21 clean verification: 658 tests passed.
+- [x] MG-WZ-12A client: After the user's Test restart, verified the exact installed hash and real FainNeito client Jabs: inside/outside retag, disabled exclusion, outside scope isolation, cooldown repeat exclusion and expiry recovery all passed. Original player state and temporary setup restored; see verification evidence.
+- [ ] MG-WZ-12A hosted: Complete hosted approval/checks and canonical integration before any production release. Client acceptance does not replace these gates.
+
+- [x] MG-REVIEW-01 source: Address the 29 confirmed #46 findings, 12 potential findings, and #47 fixture-length finding. See review-findings.md for dispositions. Local regression checks pass; hosted approval/integration remain separate.
+- [ ] MG-REVIEW-01 hosted: Refresh final-head Codacy and Actions checks, then verify the integrated #46 candidate before merge/release.
+
+- [x] MG-WZ-13: Retag enabled successful wind-charge launches for Warzone combat and accepted outside wind-charge launches for global CombatLogX; disabled attempts never retag. Scope, lifecycle and denial regression checks pass locally; live acceptance remains pending.
+
+- [x] MG-WZ-12: Connect accepted Lunge Jabs to scope-aware combat refresh; fence deferred work on runtime replacement.
+- [x] Verify permitted/denied Jab paths, ordinary outside combat, expired/absent tags, and runtime shutdown; submit follow-up PR #47 targeting canonical PR #46's branch. Live player acceptance remains separate.

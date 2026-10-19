@@ -101,12 +101,7 @@ public final class CobwebListener implements Listener {
             com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event) {
         // WorldGuard checks right-click placement before vanilla emits the bucket event.
         if (event.getOriginalEvent() instanceof org.bukkit.event.player.PlayerInteractEvent original
-                && original.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
-                && original.useItemInHand() != org.bukkit.event.Event.Result.DENY
-                && original.getItem() != null
-                && original.getItem().getType() == Material.WATER_BUCKET
-                && event.getEffectiveMaterial() == Material.WATER
-                && event.getBlocks().size() == 1) {
+                && initialWaterPlacement(event, original)) {
             Block target = event.getBlocks().getFirst();
             if (WarzoneWaterProtection.canReplace(target.getType())
                     && warzoneWaterAllowed(original.getPlayer(), target)) event.setAllowed(true);
@@ -114,6 +109,14 @@ public final class CobwebListener implements Listener {
         }
         if (event.getOriginalEvent() instanceof PlayerBucketEmptyEvent original
                 && waterEscapeAllowed(original)) event.setAllowed(true);
+    }
+
+    private boolean initialWaterPlacement(com.sk89q.worldguard.bukkit.event.block.PlaceBlockEvent event,
+                                          org.bukkit.event.player.PlayerInteractEvent original) {
+        return original.getAction() == org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK
+                && original.useItemInHand() != org.bukkit.event.Event.Result.DENY
+                && original.getItem() != null && original.getItem().getType() == Material.WATER_BUCKET
+                && event.getEffectiveMaterial() == Material.WATER && event.getBlocks().size() == 1;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)

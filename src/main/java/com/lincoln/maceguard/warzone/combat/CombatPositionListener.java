@@ -13,7 +13,7 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 
 import net.kyori.adventure.text.Component;
 
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,7 +22,7 @@ public final class CombatPositionListener implements Listener {
     private final CombatScopeService scopes;
     private final CombatIntegrationListener lifecycle;
     private final WarzoneRegionService region;
-    private final Map<UUID, Long> lastEntryDenial = new HashMap<>();
+    private final Map<UUID, Long> lastEntryDenial = new ConcurrentHashMap<>();
 
     public CombatPositionListener(CombatScopeService scopes, CombatIntegrationListener lifecycle) {
         this(scopes, lifecycle, null);

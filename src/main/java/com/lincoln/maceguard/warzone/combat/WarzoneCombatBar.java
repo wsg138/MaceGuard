@@ -11,7 +11,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -21,7 +21,7 @@ import java.util.UUID;
 public final class WarzoneCombatBar implements Listener {
     private final CombatScopeService scopes;
     private final WarzoneConfig.WarzoneTag config;
-    private final Map<UUID, Shown> shown = new HashMap<>();
+    private final Map<UUID, Shown> shown = new ConcurrentHashMap<>();
 
     public WarzoneCombatBar(CombatScopeService scopes, WarzoneConfig.WarzoneTag config) {
         this.scopes = scopes;
@@ -42,8 +42,7 @@ public final class WarzoneCombatBar implements Listener {
 
     public void reconcilePlayer(Player player) {
         UUID id = player.getUniqueId();
-        if (!config.enabled() || !config.bossBarEnabled() || !scopes.warzoneTagged(player)
-                || player.hasPermission("warzonerotator.bypass")) {
+        if (!eligible(player)) {
             hide(id);
             return;
         }
@@ -56,6 +55,15 @@ public final class WarzoneCombatBar implements Listener {
             hide(id);
             return;
         }
+        updateBar(player, id, remaining);
+    }
+
+    private boolean eligible(Player player) {
+        return config.enabled() && config.bossBarEnabled() && scopes.warzoneTagged(player)
+                && !player.hasPermission("warzonerotator.bypass");
+    }
+
+    private void updateBar(Player player, UUID id, Duration remaining) {
         int maximum = Math.max(1, scopes.combat().maximumSeconds(player));
         float progress = Math.max(0f, Math.min(1f,
                 remaining.toMillis() / (maximum * 1000f)));

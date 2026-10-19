@@ -23,6 +23,8 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.util.List;
@@ -34,9 +36,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -44,11 +48,127 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class LungeJabEnforcementTest {
+    @Test void nativeRouteDoesNotAlsoProcessAnimationPacket() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5), true, true);
+        harness.listener.onArmSwing(harness.swing);
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
+        assertNull(harness.nextTick.get());
+    }
+
+    @Test void nativeRouteCapturesWarzoneScopeBeforeDeferredCompletion() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5), false);
+        when(harness.runtime.appliesAt(any())).thenReturn(true);
+        harness.listener.onLunge(harness.player, () -> true);
+        when(harness.runtime.appliesAt(any())).thenReturn(false);
+        harness.nextTick.get().run();
+        verify(harness.runtime).retagAcceptedLunge(harness.player, true);
+    }
+
+    @Test void nativeCooldownDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.cooldowns.start(harness.playerId, RestrictionTarget.SPEAR_LUNGE,
+                Duration.ofSeconds(5));
+        harness.listener.onLunge(harness.player, () -> true);
+        assertNull(harness.nextTick.get());
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @Test void nativeDisconnectedPlayerDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.listener.onLunge(harness.player, () -> true);
+        when(harness.player.isOnline()).thenReturn(false);
+        harness.nextTick.get().run();
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"food", "water", "gliding", "unenchanted", "not-spear", "cancelled"})
+    void nativeIneligibleAttemptsDoNotRetag(String condition) {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        switch (condition) {
+            case "food" -> when(harness.player.getFoodLevel()).thenReturn(0);
+            case "water" -> when(harness.player.isInWater()).thenReturn(true);
+            case "gliding" -> when(harness.player.isGliding()).thenReturn(true);
+            case "unenchanted" -> when(harness.lungeAccess.itemLevel(harness.spear)).thenReturn(0);
+            case "not-spear" -> when(harness.spear.getType()).thenReturn(Material.STICK);
+            default -> { }
+        }
+        harness.listener.onLunge(harness.player, () -> !condition.equals("cancelled"));
+        assertNull(harness.nextTick.get());
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @Test void nativeLungeStillHonorsDisabledSpear() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        WarzoneConfig.Restriction disabled = new WarzoneConfig.Restriction(
+                RestrictionTarget.SPEAR, RestrictionMode.DISABLED, Duration.ZERO);
+        when(harness.runtime.rotations().active()).thenReturn(new WarzoneConfig.ActiveSet(
+                List.of("no-spear"), "No Spear", "no-spear", Set.of(),
+                Map.of(RestrictionTarget.SPEAR, disabled)));
+        harness.listener.onLunge(harness.player, () -> true);
+        assertNull(harness.nextTick.get());
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @Test void nativeLungeStartsCooldownOnlyAfterFinalAcceptance() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.listener.onLunge(harness.player, () -> true);
+        assertFalse(harness.cooldowns.active(harness.playerId, RestrictionTarget.SPEAR_LUNGE));
+        harness.nextTick.get().run();
+        assertTrue(harness.cooldowns.active(harness.playerId, RestrictionTarget.SPEAR_LUNGE));
+    }
+
+    @Test void pendingCooldownCannotCrossIntoReplacementRuntime() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.listener.onArmSwing(harness.swing);
+        WarzoneRuntime replacement = mock(WarzoneRuntime.class);
+        when(harness.plugin.runtime().warzone().runtime()).thenReturn(replacement);
+        harness.nextTick.get().run();
+        verify(replacement, never()).cooldowns();
+        assertFalse(harness.cooldowns.active(harness.playerId, RestrictionTarget.SPEAR_LUNGE));
+    }
+
+    @Test void nativeLungeDoesNotDependOnPostJabChargeOrArmSwing() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5), false);
+        harness.listener.onLunge(harness.player, () -> true);
+        Runnable finalized = harness.nextTick.get();
+        assertNotNull(finalized, "Native Lunge must be observed even after charge reset");
+        finalized.run();
+        verify(harness.runtime).retagAcceptedLunge(harness.player, false);
+    }
+
+    @Test void nativeLungeCancelledAfterMonitorDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        java.util.concurrent.atomic.AtomicBoolean accepted =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        harness.listener.onLunge(harness.player, accepted::get);
+        accepted.set(false);
+        harness.nextTick.get().run();
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @Test void nativeLungeStillHonorsDisabledModifier() {
+        Harness harness = harness(RestrictionMode.DISABLED, Duration.ZERO);
+        harness.listener.onLunge(harness.player, () -> true);
+        assertNull(harness.nextTick.get());
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
+    @Test void nativeLungeRuntimeReplacementDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.listener.onLunge(harness.player, () -> true);
+        when(harness.plugin.runtime()).thenReturn(null);
+        harness.nextTick.get().run();
+        verify(harness.runtime, never()).retagAcceptedLunge(any(), anyBoolean());
+    }
+
     @Test
     void validJabStartsConfiguredCooldownWithoutVelocityCallback() {
         Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
 
         harness.listener.onArmSwing(harness.swing);
+
+        verify(harness.runtime).retagAcceptedLunge(harness.player);
 
         assertFalse(harness.cooldowns.active(harness.playerId, RestrictionTarget.SPEAR_LUNGE));
         Runnable fallback = harness.nextTick.get();
@@ -77,17 +197,55 @@ class LungeJabEnforcementTest {
                         decision.target() == RestrictionTarget.SPEAR_LUNGE && decision.denied()),
                 eq(null));
         verify(harness.scheduler, never()).runTask(eq(harness.plugin), any(Runnable.class));
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
+    }
+
+    @Test void offHandAndLowFoodDoNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        when(harness.swing.getHand()).thenReturn(EquipmentSlot.OFF_HAND);
+        harness.listener.onArmSwing(harness.swing);
+        when(harness.swing.getHand()).thenReturn(EquipmentSlot.HAND);
+        when(harness.player.getFoodLevel()).thenReturn(0);
+        harness.listener.onArmSwing(harness.swing);
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
+    }
+
+    @Test void unenchantedJabDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        when(harness.lungeAccess.itemLevel(harness.spear)).thenReturn(0);
+        harness.listener.onArmSwing(harness.swing);
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
+    }
+
+    @Test void activeLungeCooldownDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5));
+        harness.cooldowns.start(harness.playerId, RestrictionTarget.SPEAR_LUNGE,
+                Duration.ofSeconds(5));
+        harness.listener.onArmSwing(harness.swing);
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
     }
 
     private Harness harness(RestrictionMode mode, Duration duration) {
+        return harness(mode, duration, true);
+    }
+
+    @Test void unreadyJabDoesNotRetag() {
+        Harness harness = harness(RestrictionMode.COOLDOWN, Duration.ofSeconds(5), false);
+        harness.listener.onArmSwing(harness.swing);
+        verify(harness.runtime, never()).retagAcceptedLunge(any());
+    }
+
+    private Harness harness(RestrictionMode mode, Duration duration, boolean ready) {
+        return harness(mode, duration, ready, false);
+    }
+
+    private Harness harness(RestrictionMode mode, Duration duration, boolean ready, boolean nativeEvents) {
         MaceGuardPlugin plugin = mock(MaceGuardPlugin.class);
-        PluginRuntime pluginRuntime = mock(PluginRuntime.class);
         WarzoneModule module = mock(WarzoneModule.class);
         WarzoneRuntime runtime = mock(WarzoneRuntime.class);
         WarzoneRegionService region = mock(WarzoneRegionService.class);
         RotationManager rotations = mock(RotationManager.class);
         WarzoneMessageService messages = mock(WarzoneMessageService.class);
-        CombatScopeService combatScopes = mock(CombatScopeService.class);
         Server server = mock(Server.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
         BukkitTask repeatingTask = mock(BukkitTask.class);
@@ -108,14 +266,34 @@ class LungeJabEnforcementTest {
         CooldownService cooldowns = new CooldownService(clock::get);
         UUID playerId = UUID.randomUUID();
 
-        when(plugin.getServer()).thenReturn(server);
-        when(server.getScheduler()).thenReturn(scheduler);
-        when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), eq(1L), eq(1L)))
-                .thenReturn(repeatingTask);
-        when(scheduler.runTask(eq(plugin), any(Runnable.class))).thenAnswer(invocation -> {
-            nextTick.set(invocation.getArgument(1));
-            return nextTask;
-        });
+        stubScheduler(plugin, server, scheduler, repeatingTask, nextTask, nextTick);
+        bindRuntime(plugin, module, runtime, region, rotations, messages, cooldowns);
+
+        stubPlayer(player, inventory, spear, itemMeta, lungeAccess, playerId, location);
+        when(itemMeta.getPersistentDataContainer()).thenReturn(data);
+        when(region.contains(any(Location.class))).thenReturn(true);
+        WarzoneConfig.Restriction restriction = new WarzoneConfig.Restriction(
+                RestrictionTarget.SPEAR_LUNGE, mode, duration);
+        WarzoneConfig.ActiveSet active = new WarzoneConfig.ActiveSet(
+                List.of("lunge-test"), "<white>Lunge Test", "lunge-test", Set.of(),
+                Map.of(RestrictionTarget.SPEAR_LUNGE, restriction));
+        when(rotations.active()).thenReturn(active);
+
+        when(swing.getHand()).thenReturn(EquipmentSlot.HAND);
+        when(swing.getPlayer()).thenReturn(player);
+
+        return new Harness(plugin, scheduler, runtime,
+                new AttributeSwapRestrictionListener(plugin, module, suppressor,
+                        (ignoredPlayer, ignoredItem) -> ready, nativeEvents),
+                player, inventory, spear, itemMeta, lungeAccess, messages, cooldowns,
+                playerId, swing, nextTick);
+    }
+
+    private void bindRuntime(MaceGuardPlugin plugin, WarzoneModule module, WarzoneRuntime runtime,
+                             WarzoneRegionService region, RotationManager rotations,
+                             WarzoneMessageService messages, CooldownService cooldowns) {
+        PluginRuntime pluginRuntime = mock(PluginRuntime.class);
+        CombatScopeService combatScopes = mock(CombatScopeService.class);
         when(plugin.runtime()).thenReturn(pluginRuntime);
         when(pluginRuntime.warzone()).thenReturn(module);
         when(module.runtime()).thenReturn(runtime);
@@ -125,6 +303,24 @@ class LungeJabEnforcementTest {
         when(runtime.cooldowns()).thenReturn(cooldowns);
         when(runtime.combatScopes()).thenReturn(combatScopes);
 
+    }
+
+    private void stubScheduler(MaceGuardPlugin plugin, Server server, BukkitScheduler scheduler,
+                               BukkitTask repeatingTask, BukkitTask nextTask,
+                               AtomicReference<Runnable> nextTick) {
+        when(plugin.getServer()).thenReturn(server);
+        when(server.getScheduler()).thenReturn(scheduler);
+        when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), eq(1L), eq(1L)))
+                .thenReturn(repeatingTask);
+        when(scheduler.runTask(eq(plugin), any(Runnable.class))).thenAnswer(invocation -> {
+            nextTick.set(invocation.getArgument(1));
+            return nextTask;
+        });
+    }
+
+    private void stubPlayer(Player player, PlayerInventory inventory, ItemStack spear, ItemMeta itemMeta,
+                            LungeEnchantmentSuppressor.LungeAccess lungeAccess, UUID playerId,
+                            Location location) {
         when(player.getUniqueId()).thenReturn(playerId);
         when(player.getInventory()).thenReturn(inventory);
         when(player.getLocation()).thenReturn(location);
@@ -141,29 +337,14 @@ class LungeJabEnforcementTest {
         when(spear.getType()).thenReturn(Material.IRON_SPEAR);
         when(spear.getItemMeta()).thenReturn(itemMeta);
         when(spear.setItemMeta(itemMeta)).thenReturn(true);
-        when(itemMeta.getPersistentDataContainer()).thenReturn(data);
+
         when(lungeAccess.itemLevel(spear)).thenReturn(1);
         when(lungeAccess.metaLevel(itemMeta)).thenReturn(1);
 
-        when(region.contains(any(Location.class))).thenReturn(true);
-        WarzoneConfig.Restriction restriction = new WarzoneConfig.Restriction(
-                RestrictionTarget.SPEAR_LUNGE, mode, duration);
-        WarzoneConfig.ActiveSet active = new WarzoneConfig.ActiveSet(
-                List.of("lunge-test"), "<white>Lunge Test", "lunge-test", Set.of(),
-                Map.of(RestrictionTarget.SPEAR_LUNGE, restriction));
-        when(rotations.active()).thenReturn(active);
-
-        when(swing.getHand()).thenReturn(EquipmentSlot.HAND);
-        when(swing.getPlayer()).thenReturn(player);
-
-        return new Harness(plugin, scheduler,
-                new AttributeSwapRestrictionListener(plugin, module, suppressor,
-                        (ignoredPlayer, ignoredItem) -> true),
-                player, inventory, spear, itemMeta, lungeAccess, messages, cooldowns,
-                playerId, swing, nextTick);
     }
 
     private record Harness(MaceGuardPlugin plugin, BukkitScheduler scheduler,
+                           WarzoneRuntime runtime,
                            AttributeSwapRestrictionListener listener, Player player,
                            PlayerInventory inventory, ItemStack spear, ItemMeta itemMeta,
                            LungeEnchantmentSuppressor.LungeAccess lungeAccess,

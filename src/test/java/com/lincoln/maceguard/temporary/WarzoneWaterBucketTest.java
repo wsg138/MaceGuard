@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Set;
 import static org.mockito.Mockito.*;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+
 class WarzoneWaterBucketTest {
     @Test void initialRightClickPlacementGrantPrecedesBucketEvent() {
         Fixture f = fixture();
@@ -67,7 +69,7 @@ class WarzoneWaterBucketTest {
                 Material.REDSTONE_WIRE, Material.RAIL, Material.WHEAT, Material.LAVA)) {
             Fixture f = fixture();
             when(f.target.getType()).thenReturn(material);
-            f.assertDenied();
+            assertDoesNotThrow(f::assertDenied);
         }
     }
     @Test void ordinaryWaterPlacementAllowsBothWorldGuardDelegates() {
@@ -80,34 +82,34 @@ class WarzoneWaterBucketTest {
     @Test void disabledCobwebsDoNotGrantPlacement() {
         Fixture f = fixture();
         when(f.warzone.runtime().rotations().active()).thenReturn(active(false));
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void safeZoneDestinationDoesNotGrantPlacement() {
         Fixture f = fixture();
         when(f.warzone.appliesAt(f.target.getLocation())).thenReturn(false);
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void playerOutsideWarzoneCannotPlaceAcrossBoundary() {
         Fixture f = fixture();
         when(f.warzone.appliesAt(f.player.getLocation())).thenReturn(false);
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void lavaNeverGetsWaterException() {
         Fixture f = fixture();
         when(f.bucket.getBucket()).thenReturn(Material.LAVA_BUCKET);
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void otherPluginCancellationIsNotReopened() {
         Fixture f = fixture();
         when(f.bucket.isCancelled()).thenReturn(true);
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void explicitMissingPolicyRemainsFailClosed() {
         Fixture f = fixture();
         when(f.policies.resolve(f.target.getLocation())).thenReturn(
                 new BlockPolicyResolver.Resolution("scope", "missing", null, true,
                         "region", false, BlockPolicyResolver.Status.REFERENCED_POLICY_MISSING));
-        f.assertDenied();
+        assertDoesNotThrow(f::assertDenied);
     }
     @Test void waterPickupAllowsBreakAndUseDelegates() {
         Fixture f = fixture();

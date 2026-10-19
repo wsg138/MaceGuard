@@ -33,6 +33,7 @@ import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.when;
 
 class DirectCombatLogXGatewayTest {
+    private static final String BOSS_BAR_KEY = "bossbar";
     @Test void retagDelegatesPlayerReasonsAndHonorsCombatBypass() {
         JavaPlugin owner = mock(JavaPlugin.class);
         Plugin candidate = combatLogXPlugin();
@@ -79,12 +80,12 @@ class DirectCombatLogXGatewayTest {
 
         DirectCombatLogXGateway gateway = connect(owner, candidate);
         assertTrue(gateway.suppressBossBar(player));
-        assertFalse(data.getBoolean("bossbar"));
+        assertFalse(data.getBoolean(BOSS_BAR_KEY));
         assertEquals(player, updater.removedPlayer());
         verify(dataManager, never()).save(player);
 
         gateway.restoreBossBar(player);
-        assertFalse(data.contains("bossbar"));
+        assertFalse(data.contains(BOSS_BAR_KEY));
         verify(dataManager).save(player);
     }
 
@@ -102,14 +103,14 @@ class DirectCombatLogXGatewayTest {
         Player player = mock(Player.class);
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         YamlConfiguration data = new YamlConfiguration();
-        data.set("bossbar", false);
+        data.set(BOSS_BAR_KEY, false);
         when(dataManager.get(player)).thenReturn(data);
 
         DirectCombatLogXGateway gateway = connect(owner, candidate);
         assertTrue(gateway.suppressBossBar(player));
         gateway.close();
 
-        assertFalse(data.getBoolean("bossbar"));
+        assertFalse(data.getBoolean(BOSS_BAR_KEY));
         verify(dataManager).save(player);
     }
     @Test void delegatesThroughRuntimeValidatedPublicMethods() {

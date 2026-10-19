@@ -28,12 +28,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 
 /**
  * Closes short vanilla/Paper weapon-state gaps for Warzone Mace/Spear restrictions. A
  * just-swapped-away restricted weapon remains authoritative for the immediately following melee
  * attempt, and Paper 1.21.11 Lunge restrictions are projected onto the held Spear enchantment
- * because that server version has no dedicated cancellable Lunge event.
+ * because that server version has no dedicated cancellable Lunge event. Newer Paper uses its
+ * native Lunge event instead of inferring a Jab from an independent animation packet.
  */
 public final class AttributeSwapRestrictionListener implements Listener {
     private static final Duration SWAP_WINDOW = Duration.ofMillis(250);
@@ -48,10 +50,12 @@ public final class AttributeSwapRestrictionListener implements Listener {
     private final JabReadiness jabReadiness;
     private final Set<UUID> pendingLungeCooldowns = new HashSet<>();
     private final BukkitTask lungeReconcileTask;
+    private boolean nativeLungeEvents;
 
     public AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module) {
         this(plugin, module, new LungeEnchantmentSuppressor(plugin),
                 AttributeSwapRestrictionListener::defaultJabReady);
+        nativeLungeEvents = PaperLungeEventAdapter.register(plugin, this, this::onLunge);
     }
 
     AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
@@ -62,10 +66,17 @@ public final class AttributeSwapRestrictionListener implements Listener {
     AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
                                      LungeEnchantmentSuppressor lungeSuppressor,
                                      JabReadiness jabReadiness) {
+        this(plugin, module, lungeSuppressor, jabReadiness, false);
+    }
+
+    AttributeSwapRestrictionListener(MaceGuardPlugin plugin, WarzoneModule module,
+                                     LungeEnchantmentSuppressor lungeSuppressor,
+                                     JabReadiness jabReadiness, boolean nativeLungeEvents) {
         this.plugin = plugin;
         this.module = module;
         this.lungeSuppressor = lungeSuppressor;
         this.jabReadiness = jabReadiness;
+        this.nativeLungeEvents = nativeLungeEvents;
         this.lungeReconcileTask = plugin.getServer().getScheduler().runTaskTimer(plugin,
                 this::reconcileLungeRestrictions, 1L, 1L);
     }
@@ -108,13 +119,39 @@ public final class AttributeSwapRestrictionListener implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onArmSwing(PlayerArmSwingEvent event) {
-        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (nativeLungeEvents || event.getHand() != EquipmentSlot.HAND) return;
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
         if (!eligibleLungeJab(player, held)) return;
 
         WarzoneRuntime runtime = authoritativeRuntime();
         if (runtime != null) handleLungeJab(runtime, player, held);
+    }
+
+    void onLunge(Player player, BooleanSupplier accepted) {
+        if (!accepted.getAsBoolean() || !eligibleNativeLunge(player)) return;
+        WarzoneRuntime runtime = authoritativeRuntime();
+        if (runtime == null) return;
+        RestrictionDecision spear = decide(runtime, player, RestrictionTarget.SPEAR, player.getLocation());
+        RestrictionDecision lunge = decide(runtime, player, RestrictionTarget.SPEAR_LUNGE, player.getLocation());
+        if (spear.denied() || lunge.denied()) return;
+        boolean insideWarzone = runtime.appliesAt(player.getLocation());
+        // Observe the final cancellation/power after all handlers have finished dispatching.
+        plugin.getServer().getScheduler().runTask(plugin,
+                () -> completeNativeLunge(runtime, player, lunge, insideWarzone, accepted));
+    }
+
+    private void completeNativeLunge(WarzoneRuntime runtime, Player player, RestrictionDecision lunge,
+                                      boolean insideWarzone, BooleanSupplier accepted) {
+        if (authoritativeRuntime() != runtime || !player.isOnline() || !accepted.getAsBoolean()) return;
+        if (lunge.startsCooldownAfterSuccess()) finalizeObservedLunge(runtime, player, lunge);
+        runtime.retagAcceptedLunge(player, insideWarzone);
+    }
+
+    private boolean eligibleNativeLunge(Player player) {
+        ItemStack held = player.getInventory().getItemInMainHand();
+        return RestrictionTarget.isSpear(held.getType()) && vanillaLungeEligible(player)
+                && lungeSuppressor.hasLiveLunge(held);
     }
 
     private boolean eligibleLungeJab(Player player, ItemStack held) {
@@ -139,6 +176,7 @@ public final class AttributeSwapRestrictionListener implements Listener {
             return;
         }
         scheduleLungeCooldown(runtime, player, lungeDecision);
+        runtime.retagAcceptedLunge(player);
     }
 
     private void handleDeniedLunge(WarzoneRuntime runtime, Player player, ItemStack held,
@@ -160,13 +198,14 @@ public final class AttributeSwapRestrictionListener implements Listener {
         if (!lungeDecision.startsCooldownAfterSuccess()
                 || !pendingLungeCooldowns.add(player.getUniqueId())) return;
         plugin.getServer().getScheduler().runTask(plugin,
-                () -> finalizeObservedLunge(player, lungeDecision));
+                () -> finalizeObservedLunge(runtime, player, lungeDecision));
     }
 
-    private void finalizeObservedLunge(Player player, RestrictionDecision acceptedDecision) {
+    private void finalizeObservedLunge(WarzoneRuntime expectedRuntime, Player player,
+                                       RestrictionDecision acceptedDecision) {
         pendingLungeCooldowns.remove(player.getUniqueId());
         WarzoneRuntime runtime = authoritativeRuntime();
-        if (runtime == null || !player.isOnline()) return;
+        if (runtime != expectedRuntime || !player.isOnline()) return;
 
         if (runtime.cooldowns().remaining(player.getUniqueId(), RestrictionTarget.SPEAR_LUNGE).isZero())
             startCooldown(runtime, player, acceptedDecision, null);

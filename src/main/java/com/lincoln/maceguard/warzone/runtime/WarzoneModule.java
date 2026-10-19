@@ -328,30 +328,32 @@ public final class WarzoneModule {
             warnings.add("CombatLogX is missing or disabled; combat latch, carried restrictions, combat Elytra, and stasis enforcement are inactive.");
         if (worldGuardQueries == null || !worldGuardQueries.warzoneCombatFlagsAvailable())
             warnings.add("Warzone combat WorldGuard flags are unavailable; combat scope and stasis fail safely without a world-wide fallback.");
-        if (validateResolvedRegion && config.valid()) {
-            var region = new com.lincoln.maceguard.warzone.region.WarzoneRegionService(
-                    config.value().gameplay().region());
-            if (!region.worldLoaded())
-                errors.add("region.world '" + region.worldName() + "' is not loaded.");
-            if (!region.regionResolved())
-                errors.add("region.id '" + region.regionId() + "' is unresolved: "
-                        + region.outerResolutionStatus() + ".");
-            region.exclusionResolutionStatuses().forEach((id, status) -> {
-                if (!"resolved".equals(status))
-                    errors.add("required excluded region '" + id + "' is unresolved: "
-                            + status + ".");
-            });
-            if (region.worldLoaded() && worldGuardQueries != null) {
-                org.bukkit.World world = org.bukkit.Bukkit.getWorld(region.worldName());
-                for (String id : config.value().gameplay().combat().warzoneTag().blockedRegionIds()) {
-                    if (!worldGuardQueries.regionExists(world, id))
-                        errors.add("combat.warzone-tag.blocked-region-ids region '" + id
-                                + "' is unresolved in world '" + region.worldName() + "'.");
-                }
-            }
-        }
+        if (validateResolvedRegion && config.valid()) validateRegions(config.value(), errors);
         return new Prepared(config.value(), messages.value(), List.copyOf(errors),
                 List.copyOf(warnings));
+    }
+
+    private void validateRegions(WarzoneControlConfig config, List<String> errors) {
+        var region = new com.lincoln.maceguard.warzone.region.WarzoneRegionService(
+                config.gameplay().region());
+        if (!region.worldLoaded())
+            errors.add("region.world '" + region.worldName() + "' is not loaded.");
+        if (!region.regionResolved())
+            errors.add("region.id '" + region.regionId() + "' is unresolved: "
+                    + region.outerResolutionStatus() + ".");
+        region.exclusionResolutionStatuses().forEach((id, status) -> {
+            if (!"resolved".equals(status))
+                errors.add("required excluded region '" + id + "' is unresolved: "
+                        + status + ".");
+        });
+        if (region.worldLoaded() && worldGuardQueries != null) {
+            org.bukkit.World world = org.bukkit.Bukkit.getWorld(region.worldName());
+            for (String id : config.gameplay().combat().warzoneTag().blockedRegionIds()) {
+                if (!worldGuardQueries.regionExists(world, id))
+                    errors.add("combat.warzone-tag.blocked-region-ids region '" + id
+                            + "' is unresolved in world '" + region.worldName() + "'.");
+            }
+        }
     }
 
     public WarzoneRuntime.CobwebDecision cobwebDecision(Player player, Location location) {

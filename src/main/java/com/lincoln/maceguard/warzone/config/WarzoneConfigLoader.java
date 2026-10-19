@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import static com.lincoln.maceguard.warzone.config.StrictConfigValues.*;
+
 public final class WarzoneConfigLoader {
     public static final int VERSION = 5;
     private static final int PERCENT_MAX = 100;
@@ -512,54 +514,4 @@ public final class WarzoneConfigLoader {
         return text;
     }
 
-    private Map<String, Object> map(Object value, String path, List<String> errors) {
-        if (value instanceof Map<?, ?> raw) {
-            Map<String, Object> result = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> entry : raw.entrySet()) {
-                if (!(entry.getKey() instanceof String key)) {
-                    errors.add(path + " contains a non-string key.");
-                    continue;
-                }
-                result.put(key, entry.getValue());
-            }
-            return result;
-        }
-        errors.add(path + " must be a mapping.");
-        return Map.of();
-    }
-
-    private void keys(Map<String, Object> values, String path, Set<String> allowed, List<String> errors) {
-        values.keySet().stream().filter(key -> !allowed.contains(key))
-                .forEach(key -> errors.add((path.equals("<root>") ? "" : path + ".") + key + " is not supported."));
-    }
-
-    private String nonBlank(Object value, String path, List<String> errors) {
-        if (!(value instanceof String text) || text.isBlank()) {
-            errors.add(path + " must be a non-blank string.");
-            return "";
-        }
-        return text;
-    }
-
-    private String optionalString(Object value, String path, List<String> errors) {
-        if (value == null) return null;
-        if (!(value instanceof String text)) {
-            errors.add(path + " must be a string.");
-            return null;
-        }
-        return text;
-    }
-
-    private boolean bool(Object value, String path, List<String> errors, boolean fallback) {
-        if (value instanceof Boolean result) return result;
-        errors.add(path + " must be true or false.");
-        return fallback;
-    }
-
-    private int integer(Object value, String path, List<String> errors, int fallback) {
-        if (value instanceof Number number && number.doubleValue() == Math.rint(number.doubleValue()))
-            return number.intValue();
-        errors.add(path + " must be an integer.");
-        return fallback;
-    }
 }
